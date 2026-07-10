@@ -1,0 +1,360 @@
+import AppKit
+import SwiftUI
+import UserNotifications
+import os
+
+enum NotificationAccessStatus: Equatable {
+    case checking
+    case notRequested
+    case enabled
+    case disabled
+
+    var description: String {
+        switch self {
+        case .checking: return "Checking…"
+        case .notRequested: return "Not requested"
+        case .enabled: return "Allowed"
+        case .disabled: return "Disabled"
+        }
+    }
+
+    var needsSettingsLink: Bool { self == .disabled }
+}
+
+@MainActor
+final class AppState: ObservableObject {
+    @Published var settings: AppSettings
+    @Published var statistics: Statistics
+    @Published var focusTags: [FocusTag]
+    @Published var timerState: TimerState
+    @Published var notificationAccessStatus: NotificationAccessStatus = .checking
+    @Published var loginStatusDescription = "Unknown"
+    @Published var notificationTestMessage: String?
+
+    private let logger = Logger(subsystem: "local.bohdan.BreakGuard", category: "AppState")
+    private let persistence: PersistenceStore
+    private let notifications: NotificationManager
+    private let loginItems: LoginItemManager
+    private var machine: StateMachine
+    private var uiTimer: Timer?
+    private var overlayManager: OverlayScreenManager?
+    private var settingsWindow: NSWindow?
+
+    init(
+        persistence: PersistenceStore,
+        notifications: NotificationManager,
+        loginItems: LoginItemManager
+    ) {
+        self.persistence = persistence
+        self.notifications = notifications
+        self.loginItems = loginItems
+        if let data = persistence.load() {
+            logger.info("State restoration from persisted data")
+            self.machine = StateMachine(data: data)
+        } else {
+            logger.info("State restoration using defaults")
+            self.machine = StateMachine()
+        }
+        self.settings = machine.settings
+        self.statistics = machine.statistics
+        self.focusTags = machine.focusTags
+        self.timerState = machine.runtime.timerState
+    }
+
+    func start() {
+        logger.info("Application launch")
+        overlayManager = OverlayScreenManager(appState: self)
+        notifications.configure()
+        notifications.requestAuthorizationIfNeeded()
+        refreshNotificationStatus()
+        applyLaunchAtLoginPreference()
+        refreshLoginStatus()
+        startUITimer()
+        reconcileStateEffects()
+        save()
+    }
+
+    func stop() {
+        logger.info("Application stopping")
+        uiTimer?.invalidate()
+        machine.preserveForSleep()
+        publish()
+        notifications.cancelWarning()
+        overlayManager?.hideAll()
+        save()
+    }
+
+    func breakRemaining() -> TimeInterval {
+        if case let .breaking(deadline, _, _) = timerState {
+            return max(0, deadline.timeIntervalSince(Date()))
+        }
+        return 0
+    }
+
+    func isBreakCompleteAllowed() -> Bool {
+        timerState == .breakCompleted
+    }
+
+    func takeBreakNow() {
+        machine.takeBreakNow()
+        publishAndReconcile()
+    }
+
+    func startBreakIfDue() {
+        guard timerState == .breakDue else { return }
+        machine.startBreak()
+        logger.info("Break start")
+        publishAndReconcile()
+    }
+
+    func postpone(minutes: Double) {
+        machine.postpone(by: minutes * 60)
+        logger.info("Postponed for \(minutes, privacy: .public) minutes")
+        publishAndReconcile()
+    }
+
+    func completeBreak(classification: FocusClassification) {
+        machine.completeBreak(classification: classification)
+        logger.info("Break completion classified")
+        publishAndReconcile()
+    }
+
+    @discardableResult
+    func addFocusTag(named name: String) -> String? {
+        do {
+            try machine.addFocusTag(named: name)
+            publishAndSave()
+            return nil
+        } catch let error as FocusTagNameError {
+            return error.message
+        } catch {
+            return "Unable to add the tag."
+        }
+    }
+
+    @discardableResult
+    func renameFocusTag(id: String, to name: String) -> String? {
+        do {
+            try machine.renameFocusTag(id: id, to: name)
+            publishAndSave()
+            return nil
+        } catch let error as FocusTagNameError {
+            return error.message
+        } catch {
+            return "Unable to rename the tag."
+        }
+    }
+
+    func deleteFocusTag(id: String) {
+        machine.deleteFocusTag(id: id)
+        publishAndSave()
+    }
+
+    func focusSessionCount(for tagID: String) -> Int {
+        statistics.focusSessionsByTag[tagID, default: 0]
+    }
+
+    func sendTestNotification() {
+        notificationTestMessage = "Scheduling test notification…"
+        notifications.sendTestNotification(settings: settings) { [weak self] result in
+            Task { @MainActor in
+                switch result {
+                case .success:
+                    self?.notificationTestMessage = "Test notification scheduled."
+                case let .failure(error):
+                    self?.notificationTestMessage = error.localizedDescription
+                }
+                self?.refreshNotificationStatus()
+            }
+        }
+    }
+
+    func suspend(minutes: Double) {
+        machine.suspend(until: Date().addingTimeInterval(minutes * 60))
+        publishAndReconcile()
+    }
+
+    func suspendUntilTomorrow() {
+        let calendar = Calendar.current
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: Date())!
+        let target = calendar.date(bySettingHour: 9, minute: 0, second: 0, of: tomorrow) ?? tomorrow
+        machine.suspend(until: target)
+        publishAndReconcile()
+    }
+
+    func resumeNow() {
+        machine.resume()
+        publishAndReconcile()
+    }
+
+    func showSettings() {
+        refreshNotificationStatus()
+        refreshLoginStatus()
+        if let settingsWindow {
+            settingsWindow.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+        let view = SettingsView(appState: self)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 600, height: 680),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "BreakGuard Settings"
+        window.minSize = NSSize(width: 560, height: 600)
+        window.contentView = NSHostingView(rootView: view)
+        window.center()
+        window.isReleasedWhenClosed = false
+        window.makeKeyAndOrderFront(nil)
+        settingsWindow = window
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func updateSettings(_ updated: AppSettings) {
+        var validated = updated
+        validated.clamp()
+        let launchAtLoginChanged = machine.settings.launchAtLogin != validated.launchAtLogin
+        machine.settings = validated
+        settings = validated
+        if launchAtLoginChanged {
+            applyLaunchAtLoginPreference()
+            refreshLoginStatus()
+        }
+        save()
+    }
+
+    func resetStatistics() {
+        machine.statistics = .empty
+        statistics = .empty
+        save()
+    }
+
+    func restoreDefaultSettings() {
+        updateSettings(.defaults)
+    }
+
+    func openNotificationSettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    func openLoginItemSettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.LoginItems-Settings.extension") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    func handleSleepOrInactive() {
+        logger.info("Sleep or inactive session")
+        machine.preserveForSleep()
+        notifications.cancelWarning()
+        publish()
+        save()
+    }
+
+    func handleWakeOrActive() {
+        logger.info("Wake or active session")
+        machine.restoreAfterSleep()
+        publishAndReconcile()
+    }
+
+    private func startUITimer() {
+        uiTimer?.invalidate()
+        uiTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.tick() }
+        }
+        RunLoop.main.add(uiTimer!, forMode: .common)
+    }
+
+    private func tick() {
+        let previous = machine.runtime.timerState
+        if case let .suspended(_, _, until) = previous, let until, Date() >= until {
+            machine.resume()
+        }
+        let current = machine.tick()
+        if current != previous {
+            logger.info("State transition")
+        }
+        publish()
+        reconcileStateEffects()
+        save()
+    }
+
+    private func publishAndReconcile() {
+        publish()
+        reconcileStateEffects()
+        save()
+    }
+
+    private func publishAndSave() {
+        publish()
+        save()
+    }
+
+    private func publish() {
+        settings = machine.settings
+        statistics = machine.statistics
+        focusTags = machine.focusTags
+        timerState = machine.runtime.timerState
+    }
+
+    private func reconcileStateEffects() {
+        switch timerState {
+        case let .working(_, warningDeadline):
+            overlayManager?.hideAll()
+            notifications.scheduleWarning(at: warningDeadline, settings: settings)
+        case .warning:
+            overlayManager?.hideAll()
+        case .breakDue:
+            notifications.cancelWarning()
+            startBreakIfDue()
+        case .breaking, .breakCompleted:
+            notifications.cancelWarning()
+            overlayManager?.showOnAllScreens()
+            overlayManager?.bringToFront()
+        case .postponed:
+            overlayManager?.hideAll()
+            notifications.cancelWarning()
+        case .suspended:
+            overlayManager?.hideAll()
+            notifications.cancelWarning()
+        }
+        refreshNotificationStatus()
+    }
+
+    private func save() {
+        persistence.save(machine.data)
+    }
+
+    private func refreshNotificationStatus() {
+        notifications.authorizationStatus { [weak self] status in
+            Task { @MainActor in
+                switch status {
+                case .notDetermined:
+                    self?.notificationAccessStatus = .notRequested
+                case .denied:
+                    self?.notificationAccessStatus = .disabled
+                case .authorized, .provisional, .ephemeral:
+                    self?.notificationAccessStatus = .enabled
+                @unknown default:
+                    self?.notificationAccessStatus = .checking
+                }
+            }
+        }
+    }
+
+    private func applyLaunchAtLoginPreference() {
+        if settings.launchAtLogin {
+            loginItems.enable()
+        } else {
+            loginItems.disable()
+        }
+    }
+
+    private func refreshLoginStatus() {
+        loginStatusDescription = loginItems.statusDescription()
+    }
+}

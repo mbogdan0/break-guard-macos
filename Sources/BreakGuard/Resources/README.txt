@@ -1,0 +1,1 @@
+BreakGuard resources placeholder.

@@ -1,0 +1,26 @@
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# Generated application bundles
+build/
+
+# Xcode
+DerivedData/
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+*.xcuserstate
+
+# JetBrains IDEs
+.idea/
+*.iml
+
+# macOS
+.DS_Store
+
+# Editor and local environment files
+.vscode/
+*.swp
+*.swo
+.env
+.env.*
