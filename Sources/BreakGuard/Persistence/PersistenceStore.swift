@@ -23,12 +23,21 @@ final class PersistenceStore {
     func load() -> PersistedAppData? {
         do {
             let data = try Data(contentsOf: fileURL)
-            let decoded = try JSONDecoder.breakGuard.decode(PersistedAppData.self, from: data)
-            guard decoded.schemaVersion == PersistedAppData.currentSchemaVersion else {
+            var decoded = try JSONDecoder.breakGuard.decode(PersistedAppData.self, from: data)
+            switch decoded.schemaVersion {
+            case PersistedAppData.currentSchemaVersion:
+                return decoded
+            case 2:
+                // v2 stored per-tag session counts; the minute-based counters start from zero.
+                logger.notice("Migrating persisted data from schema 2")
+                decoded.schemaVersion = PersistedAppData.currentSchemaVersion
+                decoded.statistics.focusMinutesByTag = [:]
+                decoded.statistics.skippedFocusMinutes = 0
+                return decoded
+            default:
                 logger.notice("Persistence schema mismatch; resetting stored data")
                 return nil
             }
-            return decoded
         } catch {
             if FileManager.default.fileExists(atPath: fileURL.path) {
                 logger.error("Persistence load failed: \(error.localizedDescription)")

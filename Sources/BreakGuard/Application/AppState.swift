@@ -27,6 +27,8 @@ final class AppState: ObservableObject {
     @Published var statistics: Statistics
     @Published var focusTags: [FocusTag]
     @Published var timerState: TimerState
+    // True while a break started via "Take a Break Now" can still be cancelled.
+    @Published var isManualBreak = false
     @Published var notificationAccessStatus: NotificationAccessStatus = .checking
     @Published var loginStatusDescription = "Unknown"
     @Published var notificationTestMessage: String?
@@ -100,10 +102,30 @@ final class AppState: ObservableObject {
         publishAndReconcile()
     }
 
+    func cancelManualBreak() {
+        machine.cancelManualBreak()
+        logger.info("Manual break cancelled")
+        publishAndReconcile()
+    }
+
+    // Total rest so far on the completion screen (now − break start). Refreshes
+    // through the 1-second tick(), which publishes even when values are equal;
+    // if publishing is ever equality-gated, this count-up stalls.
+    func totalRestTime() -> TimeInterval {
+        guard timerState == .breakCompleted, let start = machine.runtime.breakStartedAt else { return 0 }
+        return max(0, Date().timeIntervalSince(start))
+    }
+
     func startBreakIfDue() {
         guard timerState == .breakDue else { return }
         machine.startBreak()
         logger.info("Break start")
+        publishAndReconcile()
+    }
+
+    func markBreakTaken() {
+        machine.markBreakTaken()
+        logger.info("User marked an off-screen break as taken")
         publishAndReconcile()
     }
 
@@ -150,8 +172,8 @@ final class AppState: ObservableObject {
         publishAndSave()
     }
 
-    func focusSessionCount(for tagID: String) -> Int {
-        statistics.focusSessionsByTag[tagID, default: 0]
+    func focusMinutes(for tagID: String) -> Int {
+        statistics.focusMinutesByTag[tagID, default: 0]
     }
 
     func sendTestNotification() {
@@ -169,16 +191,9 @@ final class AppState: ObservableObject {
         }
     }
 
-    func suspend(minutes: Double) {
-        machine.suspend(until: Date().addingTimeInterval(minutes * 60))
-        publishAndReconcile()
-    }
-
-    func suspendUntilTomorrow() {
-        let calendar = Calendar.current
-        let tomorrow = calendar.date(byAdding: .day, value: 1, to: Date())!
-        let target = calendar.date(bySettingHour: 9, minute: 0, second: 0, of: tomorrow) ?? tomorrow
-        machine.suspend(until: target)
+    func extendFocus(minutes: Double) {
+        machine.extendFocus(by: minutes * 60)
+        logger.info("Focus window extended by \(minutes, privacy: .public) minutes")
         publishAndReconcile()
     }
 
@@ -197,13 +212,13 @@ final class AppState: ObservableObject {
         }
         let view = SettingsView(appState: self)
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 600, height: 680),
+            contentRect: NSRect(x: 0, y: 0, width: 560, height: 640),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
         window.title = "BreakGuard Settings"
-        window.minSize = NSSize(width: 560, height: 600)
+        window.minSize = NSSize(width: 540, height: 560)
         window.contentView = NSHostingView(rootView: view)
         window.center()
         window.isReleasedWhenClosed = false
@@ -299,6 +314,7 @@ final class AppState: ObservableObject {
         statistics = machine.statistics
         focusTags = machine.focusTags
         timerState = machine.runtime.timerState
+        isManualBreak = machine.runtime.manualBreakOrigin != nil
     }
 
     private func reconcileStateEffects() {

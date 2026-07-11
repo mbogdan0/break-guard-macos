@@ -10,84 +10,48 @@ struct SettingsView: View {
                     Label("General", systemImage: "gearshape")
                 }
 
+            FocusTagsSettingsView(appState: appState)
+                .tabItem {
+                    Label("Focus Tags", systemImage: "tag")
+                }
+
+            SystemSettingsView(appState: appState)
+                .tabItem {
+                    Label("System", systemImage: "gearshape.2")
+                }
+
             StatisticsSettingsView(appState: appState)
                 .tabItem {
                     Label("Statistics", systemImage: "chart.bar")
                 }
         }
-        .frame(minWidth: 560, minHeight: 600)
+        .frame(minWidth: 540, minHeight: 560)
     }
 }
+
+// MARK: - General
 
 private struct GeneralSettingsView: View {
     @ObservedObject var appState: AppState
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                settingsGroup("Timing") {
-                    minuteRow("Work interval", keyPath: \AppSettings.workInterval, range: 1...240)
-                    minuteRow("Break duration", keyPath: \AppSettings.breakDuration, range: 1...60)
-                    minuteRow("Warning lead time", keyPath: \AppSettings.warningLeadTime, range: 0...30)
-                }
+        Form {
+            Section("Timing") {
+                minuteRow("Work interval", keyPath: \.workInterval, range: 1...240)
+                minuteRow("Break duration", keyPath: \.breakDuration, range: 1...60)
+                minuteRow("Warning lead time", keyPath: \.warningLeadTime, range: 0...30)
+            }
 
-                settingsGroup("Postponement") {
-                    minuteRow("First postponement", keyPath: \AppSettings.firstPostponeDuration, range: 1...120)
-                    minuteRow("Second postponement", keyPath: \AppSettings.secondPostponeDuration, range: 1...120)
-                }
+            Section("Postponement") {
+                minuteRow("First postponement", keyPath: \.firstPostponeDuration, range: 1...120)
+                minuteRow("Second postponement", keyPath: \.secondPostponeDuration, range: 1...120)
+            }
 
-                GroupBox("Behavior") {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Toggle("Play notification sound", isOn: settingBinding(\AppSettings.notificationSound))
-                        Toggle("Launch at login", isOn: settingBinding(\AppSettings.launchAtLogin))
-                        Toggle("Show seconds in the menu bar", isOn: settingBinding(\AppSettings.showSecondsInMenuBar))
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 4)
-                }
+            Section("Menu Bar") {
+                Toggle("Show seconds in the menu bar", isOn: appState.settingBinding(\.showSecondsInMenuBar))
+            }
 
-                FocusTagsEditor(appState: appState)
-
-                GroupBox("System Access") {
-                    VStack(spacing: 0) {
-                        systemStatusRow(
-                            title: "Notifications",
-                            systemImage: "bell",
-                            status: appState.notificationAccessStatus.description,
-                            showsSettingsButton: appState.notificationAccessStatus.needsSettingsLink,
-                            action: appState.openNotificationSettings
-                        )
-                        HStack {
-                            if appState.notificationAccessStatus == .disabled {
-                                Button("Open Notification Settings…") {
-                                    appState.openNotificationSettings()
-                                }
-                            } else {
-                                Button("Send Test Notification") {
-                                    appState.sendTestNotification()
-                                }
-                                .disabled(appState.notificationAccessStatus == .checking)
-                            }
-                            Spacer()
-                            if let message = appState.notificationTestMessage {
-                                Text(message)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                        .padding(.top, 8)
-                        Divider().padding(.vertical, 10)
-                        systemStatusRow(
-                            title: "Launch at login",
-                            systemImage: "power",
-                            status: appState.loginStatusDescription,
-                            showsSettingsButton: appState.loginStatusDescription == "Requires Approval",
-                            action: appState.openLoginItemSettings
-                        )
-                    }
-                    .padding(.vertical, 4)
-                }
-
+            Section {
                 HStack {
                     Spacer()
                     Button("Restore Defaults") {
@@ -95,21 +59,8 @@ private struct GeneralSettingsView: View {
                     }
                 }
             }
-            .padding(20)
         }
-    }
-
-    private func settingsGroup<Content: View>(
-        _ title: String,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        GroupBox(title) {
-            Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 10) {
-                content()
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.vertical, 4)
-        }
+        .formStyle(.grouped)
     }
 
     private func minuteRow(
@@ -117,70 +68,25 @@ private struct GeneralSettingsView: View {
         keyPath: WritableKeyPath<AppSettings, TimeInterval>,
         range: ClosedRange<Int>
     ) -> some View {
-        let binding = minuteBinding(keyPath, range: range)
-        return GridRow {
-            Text(title)
-                .frame(maxWidth: .infinity, alignment: .leading)
+        let binding = appState.minuteBinding(keyPath, range: range)
+        return LabeledContent(title) {
             HStack(spacing: 6) {
                 TextField(title, value: binding, format: .number)
+                    .labelsHidden()
                     .multilineTextAlignment(.trailing)
-                    .frame(width: 58)
+                    .frame(width: 52)
                 Text("min")
                     .foregroundStyle(.secondary)
-                    .frame(width: 28, alignment: .leading)
-                Stepper("", value: binding, in: range)
+                Stepper(title, value: binding, in: range)
                     .labelsHidden()
             }
         }
     }
-
-    private func systemStatusRow(
-        title: String,
-        systemImage: String,
-        status: String,
-        showsSettingsButton: Bool,
-        action: @escaping () -> Void
-    ) -> some View {
-        HStack(spacing: 10) {
-            Label(title, systemImage: systemImage)
-            Spacer()
-            Text(status)
-                .foregroundStyle(.secondary)
-            if showsSettingsButton {
-                Button("Open Settings…", action: action)
-                    .buttonStyle(.link)
-            }
-        }
-    }
-
-    private func settingBinding<Value>(_ keyPath: WritableKeyPath<AppSettings, Value>) -> Binding<Value> {
-        Binding(
-            get: { appState.settings[keyPath: keyPath] },
-            set: { newValue in
-                var updated = appState.settings
-                updated[keyPath: keyPath] = newValue
-                appState.updateSettings(updated)
-            }
-        )
-    }
-
-    private func minuteBinding(
-        _ keyPath: WritableKeyPath<AppSettings, TimeInterval>,
-        range: ClosedRange<Int>
-    ) -> Binding<Int> {
-        Binding(
-            get: { Int(appState.settings[keyPath: keyPath] / 60) },
-            set: { newValue in
-                var updated = appState.settings
-                let clamped = min(max(newValue, range.lowerBound), range.upperBound)
-                updated[keyPath: keyPath] = TimeInterval(clamped * 60)
-                appState.updateSettings(updated)
-            }
-        )
-    }
 }
 
-private struct FocusTagsEditor: View {
+// MARK: - Focus Tags
+
+private struct FocusTagsSettingsView: View {
     @ObservedObject var appState: AppState
     @State private var newTagName = ""
     @State private var draftNames: [String: String] = [:]
@@ -188,16 +94,23 @@ private struct FocusTagsEditor: View {
     @State private var pendingDeletion: FocusTag?
 
     var body: some View {
-        GroupBox("Focus Tags") {
-            VStack(alignment: .leading, spacing: 10) {
+        Form {
+            Section {
+                Toggle("Ask for a focus tag after each break", isOn: appState.settingBinding(\.focusTagsEnabled))
+            } footer: {
+                Text("When off, the break screen ends with a single Continue Working button and focus time is not recorded.")
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
                 if appState.focusTags.isEmpty {
                     Text("No focus tags. Completed breaks can still be skipped.")
-                        .font(.caption)
                         .foregroundStyle(.secondary)
                 } else {
                     ForEach(appState.focusTags) { tag in
                         HStack(spacing: 8) {
                             TextField("Tag name", text: draftBinding(for: tag))
+                                .labelsHidden()
                                 .onSubmit { save(tag) }
                             Button("Save") { save(tag) }
                                 .disabled(currentDraft(for: tag) == tag.name)
@@ -208,28 +121,34 @@ private struct FocusTagsEditor: View {
                         }
                     }
                 }
+            } header: {
+                Text("Focus Tags")
+            } footer: {
+                Text("Tags categorize where your focus time goes after each break.")
+                    .foregroundStyle(.secondary)
+            }
 
-                Divider()
-
+            Section {
                 HStack(spacing: 8) {
                     TextField("New tag", text: $newTagName)
+                        .labelsHidden()
                         .onSubmit(addTag)
                     Button("Add Tag", action: addTag)
                         .disabled(FocusTag.normalizedName(newTagName).isEmpty)
                 }
-
+            } header: {
+                Text("Add Tag")
+            } footer: {
                 if let validationMessage {
                     Text(validationMessage)
-                        .font(.caption)
                         .foregroundStyle(.red)
                 } else {
                     Text("Names must be unique and no more than 24 characters.")
-                        .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             }
-            .padding(.vertical, 4)
         }
+        .formStyle(.grouped)
         .confirmationDialog(
             "Delete focus tag?",
             isPresented: Binding(
@@ -245,7 +164,7 @@ private struct FocusTagsEditor: View {
             }
             Button("Cancel", role: .cancel) { pendingDeletion = nil }
         } message: { tag in
-            Text("This also removes \(appState.focusSessionCount(for: tag.id)) categorized focus sessions.")
+            Text("This also removes \(formatMinutes(appState.focusMinutes(for: tag.id))) of categorized focus time.")
         }
     }
 
@@ -279,7 +198,7 @@ private struct FocusTagsEditor: View {
     }
 
     private func requestDeletion(of tag: FocusTag) {
-        if appState.focusSessionCount(for: tag.id) > 0 {
+        if appState.focusMinutes(for: tag.id) > 0 {
             pendingDeletion = tag
         } else {
             appState.deleteFocusTag(id: tag.id)
@@ -288,48 +207,118 @@ private struct FocusTagsEditor: View {
     }
 }
 
+// MARK: - System
+
+private struct SystemSettingsView: View {
+    @ObservedObject var appState: AppState
+
+    var body: some View {
+        Form {
+            Section("Notifications") {
+                statusRow(
+                    title: "Permission",
+                    systemImage: "bell",
+                    status: appState.notificationAccessStatus.description,
+                    showsSettingsButton: appState.notificationAccessStatus.needsSettingsLink,
+                    action: appState.openNotificationSettings
+                )
+                Toggle("Play notification sound", isOn: appState.settingBinding(\.notificationSound))
+                HStack {
+                    if appState.notificationAccessStatus == .disabled {
+                        Button("Open Notification Settings…") {
+                            appState.openNotificationSettings()
+                        }
+                    } else {
+                        Button("Send Test Notification") {
+                            appState.sendTestNotification()
+                        }
+                        .disabled(appState.notificationAccessStatus == .checking)
+                    }
+                    Spacer()
+                    if let message = appState.notificationTestMessage {
+                        Text(message)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+
+            Section("Login") {
+                Toggle("Launch at login", isOn: appState.settingBinding(\.launchAtLogin))
+                statusRow(
+                    title: "Status",
+                    systemImage: "power",
+                    status: appState.loginStatusDescription,
+                    showsSettingsButton: appState.loginStatusDescription == "Requires Approval",
+                    action: appState.openLoginItemSettings
+                )
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    private func statusRow(
+        title: String,
+        systemImage: String,
+        status: String,
+        showsSettingsButton: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        HStack(spacing: 10) {
+            Label(title, systemImage: systemImage)
+            Spacer()
+            Text(status)
+                .foregroundStyle(.secondary)
+            if showsSettingsButton {
+                Button("Open Settings…", action: action)
+                    .buttonStyle(.link)
+            }
+        }
+    }
+}
+
+// MARK: - Statistics
+
 private struct StatisticsSettingsView: View {
     @ObservedObject var appState: AppState
     @State private var showResetConfirmation = false
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                GroupBox("Focus Categories") {
-                    Grid(alignment: .leading, horizontalSpacing: 28, verticalSpacing: 12) {
-                        if appState.focusTags.isEmpty {
-                            GridRow {
-                                Text("No focus tags configured")
-                                    .foregroundStyle(.secondary)
-                            }
-                        } else {
-                            ForEach(appState.focusTags) { tag in
-                                statisticRow(tag.name, value: "\(appState.focusSessionCount(for: tag.id))")
-                            }
-                        }
-                        statisticRow("Skipped", value: "\(appState.statistics.skippedFocusSessions)")
+        Form {
+            Section {
+                if appState.focusTags.isEmpty {
+                    Text("No focus tags configured")
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(appState.focusTags) { tag in
+                        statisticRow(tag.name, value: formatMinutes(appState.focusMinutes(for: tag.id)))
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 6)
                 }
-
-                GroupBox("Break History") {
-                    Grid(alignment: .leading, horizontalSpacing: 28, verticalSpacing: 12) {
-                        statisticRow("Current clean streak", value: "\(appState.statistics.currentCleanStreak)")
-                        statisticRow("Best clean streak", value: "\(appState.statistics.bestCleanStreak)")
-                        statisticRow("Completed breaks", value: "\(appState.statistics.completedBreaks)")
-                        statisticRow("Violated cycles", value: "\(appState.statistics.violatedCycles)")
-                        statisticRow("Total postponements", value: "\(appState.statistics.totalPostponements)")
-                        statisticRow("Last completed break", value: lastCompletedBreakText)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 6)
-                }
-
-                Text("A clean streak grows when a full break is completed without postponing it.")
-                    .font(.caption)
+                statisticRow("Skipped", value: formatMinutes(appState.statistics.skippedFocusMinutes))
+                statisticRow("Total", value: formatMinutes(appState.statistics.totalFocusMinutes))
+                    .fontWeight(.semibold)
+            } header: {
+                Text("Focus Time")
+            } footer: {
+                Text("Each completed break credits the actual focused time of that cycle.")
                     .foregroundStyle(.secondary)
+            }
 
+            Section {
+                statisticRow("Current clean streak", value: "\(appState.statistics.currentCleanStreak)")
+                statisticRow("Best clean streak", value: "\(appState.statistics.bestCleanStreak)")
+                statisticRow("Completed breaks", value: "\(appState.statistics.completedBreaks)")
+                statisticRow("Violated cycles", value: "\(appState.statistics.violatedCycles)")
+                statisticRow("Total postponements", value: "\(appState.statistics.totalPostponements)")
+                statisticRow("Last completed break", value: lastCompletedBreakText)
+            } header: {
+                Text("Break History")
+            } footer: {
+                Text("A clean streak grows when a full break is completed without postponing it.")
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
                 HStack {
                     Spacer()
                     Button("Reset Statistics…", role: .destructive) {
@@ -337,15 +326,15 @@ private struct StatisticsSettingsView: View {
                     }
                 }
             }
-            .padding(20)
         }
+        .formStyle(.grouped)
         .confirmationDialog("Reset statistics?", isPresented: $showResetConfirmation) {
             Button("Reset Statistics", role: .destructive) {
                 appState.resetStatistics()
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This clears focus-category totals, skipped sessions, streaks, completed breaks, violations, and postponement counts.")
+            Text("This clears focus time totals, streaks, completed breaks, violations, and postponement counts.")
         }
     }
 
@@ -355,12 +344,40 @@ private struct StatisticsSettingsView: View {
     }
 
     private func statisticRow(_ title: String, value: String) -> some View {
-        GridRow {
-            Text(title)
-                .foregroundStyle(.secondary)
+        LabeledContent(title) {
             Text(value)
-                .frame(maxWidth: .infinity, alignment: .trailing)
                 .monospacedDigit()
         }
+    }
+}
+
+// MARK: - Shared bindings
+
+@MainActor
+private extension AppState {
+    func settingBinding<Value>(_ keyPath: WritableKeyPath<AppSettings, Value>) -> Binding<Value> {
+        Binding(
+            get: { self.settings[keyPath: keyPath] },
+            set: { newValue in
+                var updated = self.settings
+                updated[keyPath: keyPath] = newValue
+                self.updateSettings(updated)
+            }
+        )
+    }
+
+    func minuteBinding(
+        _ keyPath: WritableKeyPath<AppSettings, TimeInterval>,
+        range: ClosedRange<Int>
+    ) -> Binding<Int> {
+        Binding(
+            get: { Int(self.settings[keyPath: keyPath] / 60) },
+            set: { newValue in
+                var updated = self.settings
+                let clamped = min(max(newValue, range.lowerBound), range.upperBound)
+                updated[keyPath: keyPath] = TimeInterval(clamped * 60)
+                self.updateSettings(updated)
+            }
+        )
     }
 }

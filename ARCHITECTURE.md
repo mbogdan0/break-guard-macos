@@ -7,10 +7,14 @@
 ```text
 working -> warning -> breakDue -> breaking -> breakCompleted -> working
 breakDue/breaking/breakCompleted -> postponed -> breakDue
-working/warning/postponed -> suspended -> previous state
+working/warning/postponed -> suspended -> previous state (system sleep/inactivity only)
 ```
 
-The UI calls explicit methods such as `takeBreakNow`, `postpone`, `suspend`, `resume`, `startBreak`, and `completeBreak(classification:)`. A completed break must be classified with a configured focus-tag ID or the explicit skipped outcome. Streaks, focus-category totals, skipped totals, and violation counters are updated only by the state machine.
+The UI calls explicit methods such as `takeBreakNow`, `cancelManualBreak`, `extendFocus(by:)`, `markBreakTaken`, `postpone`, `startBreak`, and `completeBreak(classification:)`. A completed break must be classified with a configured focus-tag ID, the explicit skipped outcome, or `.untracked` (used when focus tags are disabled in settings: the break and streak count, but no focus minutes are credited anywhere). Streaks, focus-category totals, skipped totals, and violation counters are updated only by the state machine.
+
+`takeBreakNow` distinguishes manual breaks from scheduled ones by capturing a `ManualBreakOrigin` snapshot (interrupted phase, remaining time to the deadline, capture timestamp) in the runtime state; scheduled breaks reached through `tick` never set it. While the origin exists, the overlay offers `cancelManualBreak`, which rebuilds the interrupted state with the remaining time re-anchored to the current moment (landing directly in `warning` when the remaining time is inside the warning lead), shifts the cycle start forward so overlay time is not credited as focus, and records nothing. Postponing a manual break clears the origin and follows the standard postpone contract — cancel is the penalty-free exit.
+
+`extendFocus(by:)` shifts the current work (or postponed) deadline forward before the break is due. It is planned-ahead honesty rather than a postponement: no violation is recorded and no statistics change, while the extended time later counts toward focus minutes. There is no user-facing pause; the `suspended` state is entered only by sleep/inactivity preservation and resumes automatically.
 
 ## Timer and Deadline Model
 
@@ -24,11 +28,15 @@ BreakGuard stores absolute deadlines for work, warning, break, postpone, and sus
 ~/Library/Application Support/BreakGuard/state.json
 ```
 
-The persisted data includes a schema version, settings, the ordered focus-tag catalog, statistics, current state, cycle violation status, current-cycle postponement count, cycle start date, and preserved sleep/suspension timing. Files without the current schema version are discarded and replaced with defaults; no compatibility migration is attempted.
+The persisted data includes a schema version, settings, the ordered focus-tag catalog, statistics, current state, cycle violation status, current-cycle postponement count, cycle start date, the captured focus duration of the current cycle, preserved sleep/suspension timing, the break start timestamp (drives the completion-screen rest count-up), and the manual-break origin snapshot. Statistics credit focus time in minutes of actual focused work per cycle (postponed time counts, paused/sleep time does not). Schema-2 files are migrated in place with the minute-based focus counters starting from zero; files with any other non-current schema version are discarded and replaced with defaults.
+
+Later additions stay on schema 3 by being decode-lenient: the new runtime fields are optionals, and `AppSettings` (like `Statistics`) uses a lenient `init(from:)` so fields absent from older files fall back to their defaults instead of failing the load. `TimerState` cases deliberately keep their persisted payload shape; per-break metadata belongs in `RuntimeState`, not in new associated values.
 
 ## Overlay Window Management
 
 `OverlayScreenManager` creates one borderless `NSPanel` per `NSScreen`, keeps the windows above normal application windows, joins Spaces, participates as a full-screen auxiliary window where macOS permits, and updates when displays change. Duplicate overlay windows are avoided by tracking screen identifiers.
+
+The overlay view has two modes. During the break it shows the countdown, the postpone buttons, and — only for manually started breaks — a Cancel Break button. After the countdown reaches zero it switches to the completion screen, where a green clock counts total rest time upward (now minus break start, refreshed by the same one-second publish cycle as the countdown) and the user classifies the cycle with a focus tag, Skip, or — when focus tags are disabled — a single Continue Working button.
 
 The overlay is a best-effort blocking interface. macOS still allows Force Quit, process termination, and system-level navigation.
 
@@ -36,9 +44,11 @@ The overlay is a best-effort blocking interface. macOS still allows Force Quit, 
 
 `SleepWakeManager` listens for workspace sleep/wake and session active/inactive notifications. Before sleep or inactivity, BreakGuard preserves remaining time and cancels warnings. After wake or reactivation, it resumes from the preserved duration so sleep time is not counted as work or break time.
 
+Restoration applies a long-pause rule: if the preserved timestamp is at least one break duration in the past, the user certainly rested, so a fresh full work cycle starts instead (nothing is recorded — the same semantics as "Just Took a Break"). This covers sleep, clean quit/relaunch (`stop()` preserves before saving, and the persistence-restoring initializer calls the same restoration path), and pending-break states. As a crash-recovery fallback, a restored working/warning/postponed state without a preserved timestamp whose absolute deadline is already at least one break duration stale also starts a fresh cycle. Shorter pauses resume exactly where they left off; the user-initiated Resume Now action bypasses the long-pause rule.
+
 ## AppKit and SwiftUI Boundary
 
-AppKit owns the menu bar item and its standard `NSMenu`, windows, activation policy, screen behavior, and lifecycle. SwiftUI renders the break overlay and the tabbed settings window. The completion overlay uses an adaptive grid so the editable focus-tag catalog can grow without changing the state flow. Menu titles and available actions are derived from a testable presentation model shared with the AppKit controller.
+AppKit owns the menu bar item and its standard `NSMenu`, windows, activation policy, screen behavior, and lifecycle. SwiftUI renders the break overlay and the tabbed settings window. The completion overlay lays focus tags out in a fixed-column grid with uniform full-width buttons so the editable focus-tag catalog can grow without changing the state flow. Menu titles and available actions are derived from a testable presentation model shared with the AppKit controller.
 
 ## Notifications
 

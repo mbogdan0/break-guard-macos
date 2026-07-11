@@ -102,9 +102,17 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
         }
     }
 
+    static func warningTitle(leadTime: TimeInterval) -> String {
+        let seconds = max(0, Int(leadTime.rounded()))
+        guard seconds > 0 else { return "Break starting now" }
+        guard seconds >= 60 else { return "Break in \(seconds) seconds" }
+        let minutes = Int((leadTime / 60).rounded())
+        return minutes == 1 ? "Break in 1 minute" : "Break in \(minutes) minutes"
+    }
+
     private func warningContent(settings: AppSettings) -> UNMutableNotificationContent {
         let content = UNMutableNotificationContent()
-        content.title = "Break in 1 minute"
+        content.title = Self.warningTitle(leadTime: settings.warningLeadTime)
         content.body = "Save your work and finish the current task."
         if settings.notificationSound {
             content.sound = .default

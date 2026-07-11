@@ -1,32 +1,48 @@
 # BreakGuard
 
-BreakGuard is a local native macOS menu bar utility that reminds you to take required eye-rest breaks. It uses Swift, SwiftUI, AppKit, Swift Package Manager, local notifications, `SMAppService.mainApp`, and ad-hoc code signing.
+👁️ **BreakGuard is a small native macOS menu-bar app that makes sure you actually rest your eyes.** It counts down your focus time, warns you before a break, and shows a full-screen break overlay when it is time to look away.
 
-## System Requirements
+Everything stays on your Mac: there are no accounts, servers, analytics, or network requests. BreakGuard also tracks completed breaks, clean streaks, and optional focus time by tags such as `Work` and `Study`.
+
+## ⚡ Build and Run in Two Commands
+
+You need:
 
 - macOS 13 or newer
-- Apple Command Line Tools or Xcode command-line tools
-- No paid Apple Developer account
-- No notarization, Developer ID, network services, analytics, or private APIs
+- Apple Command Line Tools or Xcode
+- Git, if you are cloning the repository
 
-## Quick Start
+No paid Apple Developer account is required.
 
-Run the environment check once, then build, install, and launch the app:
+From the project folder, run:
 
 ```bash
 ./scripts/bootstrap.sh
 ./scripts/install.sh
 ```
 
-The installed application is located at:
+That is it. The first command checks your development environment. The second builds a release version, installs it, signs it locally, and launches it.
+
+The app will appear in the menu bar as an eye with a timer. The installed application is located at:
 
 ```text
 ~/Applications/BreakGuard.app
 ```
 
-`install.sh` is also the recommended command after changing the source code. It performs a release build, stops the currently running copy, replaces the installed app, verifies its signature, launches it, and checks that it remains running. Compatible settings and statistics are preserved.
+💡 After changing the code, run `./scripts/install.sh` again. It safely stops the old copy, rebuilds and replaces it, then launches the new version. Compatible settings and statistics are preserved.
 
-## Commands
+On first launch, macOS may ask for notification permission. Notifications are optional; the timer and break overlay work without them.
+
+## 🧠 How It Works
+
+1. Work while the menu-bar timer counts down.
+2. Get an optional notification shortly before the break.
+3. When time is up, BreakGuard covers your screens with a break countdown.
+4. Finish the break, optionally tag the focus session, and start a fresh work cycle.
+
+You can take a break early, tell the app about a break it did not observe, or extend focus before a meeting. Sleep and inactive time are handled automatically, so time away from your Mac is not counted as focused work.
+
+## 🛠️ Commands
 
 All commands should be run from the project root.
 
@@ -113,28 +129,44 @@ Remove the application and all locally persisted BreakGuard data:
 ./scripts/uninstall.sh --delete-data
 ```
 
-## Using BreakGuard
+## 👁️ Using BreakGuard
 
-The menu bar displays an eye icon and the current timer. Clicking it opens a standard macOS menu with the current status, an immediate break action, pause durations, Settings, and Quit. While monitoring is paused, the action menu is replaced by Resume Now.
+The menu bar displays an eye icon and the current timer. Clicking it opens a standard macOS menu with the current status (the greyed-out first line shows the next break as a clock time, for example "Next break at 08:23"), an immediate break action, a "Just Took a Break" action, an "Extend Focus" submenu, Settings, and Quit. Action items carry monochrome system icons.
 
-Settings contains two tabs:
+"Take a Break Now" starts the break immediately. Because you started it yourself, the break overlay offers an additional "Cancel Break" button that returns the timer to exactly where it was; the time spent on the overlay is not counted as focus time and nothing is recorded. A scheduled break has no cancel option — only the postpone buttons.
 
-- **General** configures timing, postponement durations, notification sound, launch at login, menu-bar seconds, focus tags, and system permissions. It can also send a test warning notification.
-- **Statistics** displays all-time focus-category totals, skipped sessions, streaks, and break history, and provides the confirmed reset action.
+"Just Took a Break" is for rest the app could not observe — for example a real coffee break away from the desk. After a confirmation that asks you to be honest, it restarts the work timer as if a full break just ended. Nothing is recorded: no focus time, no streak changes.
+
+"Extend Focus" pushes the current work deadline out by 15 minutes, 35 minutes, or 1 hour 5 minutes for times you know in advance the break will not fit (a meeting, a call). The 35-minute and 1-hour-5-minute options ask for confirmation first — an extension is rest you take away from yourself, and the dialog reminds you that taking the break is the healthier choice. Because the extension happens before the break is due, it is not a postponement: the clean streak is unaffected and no violation is recorded, while the extra time still counts toward focus minutes. There is no manual pause; monitoring is suspended automatically only around system sleep and inactivity.
+
+When the break countdown reaches zero, the overlay switches to the completion screen and a green "Total rest time" clock starts counting up, so you can see how long you actually rested before returning to work.
+
+Settings contains four tabs:
+
+- **General** configures timing, postponement durations, and menu-bar seconds.
+- **Focus Tags** toggles whether the app asks for a focus tag after each break, and manages the focus-tag catalog: adding, renaming, and deleting tags.
+- **System** covers notification permission, notification sound, the test warning notification, and launch at login.
+- **Statistics** displays all-time focus time per category (in minutes of actual focused work), skipped time, streaks, and break history, and provides the confirmed reset action.
 
 Settings changes are saved immediately. Restore Defaults resets configuration but does not clear statistics.
 
-After every completed break, the overlay asks which focus tag describes the preceding work interval. `Work` and `Study` are provided by default, and tags can be added, renamed, or deleted in General settings. Choosing `Skip` still records the completed break and streak result but does not credit a focus category.
+After every completed break, the overlay asks which focus tag describes the preceding work interval. `Work` and `Study` are provided by default, and tags can be added, renamed, or deleted in Focus Tags settings. The chosen category is credited with the actual focused minutes of the cycle: postponed time counts toward focus, paused and sleep time does not, and an early break credits only the elapsed time. Choosing `Skip` still records the completed break, streak result, and skipped focus time, but does not credit a category.
 
-## Notification Permission
+If "Ask for a focus tag after each break" is turned off in Focus Tags settings, the completion screen shows a single "Continue Working" button instead. The break and streak still count, but no focus minutes are recorded anywhere — per-tag statistics are simply paused until the toggle is re-enabled.
 
-On first launch, macOS may ask for notification permission. BreakGuard remains functional if notifications are disabled, but the configured advance-warning banner will not appear. When access is disabled, General settings provides a link to macOS Notification Settings.
+## 😴 Sleep and Restart Behavior
 
-## Launch at Login
+A short interruption (closing the lid for less than your break duration) pauses the timer and resumes it with the same remaining time. A pause at least as long as the configured break duration — sleep, logout, quit, or a system restart — counts as a break you already took: BreakGuard starts a fresh full work cycle on wake or relaunch, recording nothing. With the default 2-minute break, any pause of 2 minutes or more starts a fresh session.
 
-BreakGuard uses `SMAppService.mainApp` for launch at login. macOS may require user approval in System Settings. General settings displays the actual system status and provides a System Settings link when approval is required.
+## 🔔 Notification Permission
 
-## Logs
+On first launch, macOS may ask for notification permission. BreakGuard remains functional if notifications are disabled, but the configured advance-warning banner will not appear. When access is disabled, System settings provides a link to macOS Notification Settings.
+
+## 🚀 Launch at Login
+
+BreakGuard uses `SMAppService.mainApp` for launch at login. macOS may require user approval in System Settings. The System settings tab displays the actual system status and provides a System Settings link when approval is required.
+
+## 🧾 Logs
 
 Inspect logs in Console.app by filtering for:
 
@@ -154,9 +186,9 @@ Persisted state is stored at:
 ~/Library/Application Support/BreakGuard/state.json
 ```
 
-The persisted file is schema-versioned. Incompatible or unversioned data is intentionally reset rather than migrated.
+The persisted file is schema-versioned. Schema 2 files are migrated in place (per-tag session counts were replaced by minute-based focus totals, which restart from zero); other incompatible or unversioned data is intentionally reset rather than migrated.
 
-## Manual System Actions
+## 🧰 Manual System Actions
 
 The only possible manual actions are:
 
@@ -164,6 +196,6 @@ The only possible manual actions are:
 2. Approving notification permission.
 3. Approving the Login Item if macOS requests it.
 
-## Known macOS Limitations
+## ⚠️ Known macOS Limitations
 
 The overlay is a best-effort blocking interface. macOS still allows Force Quit, process termination, account logout, system-level navigation, and other actions outside a normal app's public API control. Full-screen and Stage Manager behavior depends on macOS window-management rules.

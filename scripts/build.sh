@@ -15,6 +15,10 @@ cp "$BUILD_DIR/$APP_NAME" "$BUNDLE_DIR/Contents/MacOS/$APP_NAME"
 if [[ -d "$BUILD_DIR/BreakGuard_BreakGuard.resources" ]]; then
   cp -R "$BUILD_DIR/BreakGuard_BreakGuard.resources/." "$BUNDLE_DIR/Contents/Resources/"
 fi
+if [[ -d "$BUILD_DIR/BreakGuard_BreakGuard.bundle" ]]; then
+  cp "$BUILD_DIR/BreakGuard_BreakGuard.bundle/Resources/BreakGuard.icns" \
+    "$BUNDLE_DIR/Contents/Resources/BreakGuard.icns"
+fi
 
 cat > "$BUNDLE_DIR/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -30,6 +34,8 @@ cat > "$BUNDLE_DIR/Contents/Info.plist" <<'PLIST'
   <key>CFBundleInfoDictionaryVersion</key>
   <string>6.0</string>
   <key>CFBundleName</key>
+  <string>BreakGuard</string>
+  <key>CFBundleIconFile</key>
   <string>BreakGuard</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>

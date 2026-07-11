@@ -11,6 +11,10 @@ final class BreakGuardApp: NSObject, NSApplicationDelegate {
 
     static func main() {
         let app = NSApplication.shared
+        if let iconURL = Bundle.main.url(forResource: "BreakGuard", withExtension: "icns"),
+           let icon = NSImage(contentsOf: iconURL) {
+            app.applicationIconImage = icon
+        }
         let delegate = BreakGuardApp()
         app.delegate = delegate
         app.setActivationPolicy(.accessory)
