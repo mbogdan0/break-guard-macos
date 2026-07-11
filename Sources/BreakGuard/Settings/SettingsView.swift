@@ -210,6 +210,9 @@ private struct FocusTagsSettingsView: View {
 // MARK: - System
 
 private struct SystemSettingsView: View {
+    private static let authorWebsiteURL = URL(string: "https://mbogdan0.github.io/")!
+    private static let sourceCodeURL = URL(string: "https://github.com/mbogdan0/break-guard-macos")!
+
     @ObservedObject var appState: AppState
 
     var body: some View {
@@ -253,8 +256,36 @@ private struct SystemSettingsView: View {
                     action: appState.openLoginItemSettings
                 )
             }
+
+            Section("About") {
+                HStack(spacing: 10) {
+                    Label("Author", systemImage: "person")
+                    Spacer()
+                    Text("Bohdan Melnichenko")
+                        .foregroundStyle(.secondary)
+                }
+                linkRow(
+                    title: "Personal Website",
+                    systemImage: "globe",
+                    destination: Self.authorWebsiteURL
+                )
+                linkRow(
+                    title: "Source Code",
+                    systemImage: "chevron.left.forwardslash.chevron.right",
+                    destination: Self.sourceCodeURL
+                )
+            }
         }
         .formStyle(.grouped)
+    }
+
+    private func linkRow(title: String, systemImage: String, destination: URL) -> some View {
+        HStack(spacing: 10) {
+            Label(title, systemImage: systemImage)
+            Spacer()
+            Link("Open", destination: destination)
+                .buttonStyle(.link)
+        }
     }
 
     private func statusRow(
