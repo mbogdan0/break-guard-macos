@@ -57,7 +57,12 @@ final class MenuPresentationTests: XCTestCase {
             (
                 .suspended(previous: .working, remaining: 125, until: now.addingTimeInterval(125)),
                 "PAUSED",
-                "Paused for 02:05"
+                "Paused until 02:48"
+            ),
+            (
+                .suspended(previous: .working, remaining: 125, until: nil),
+                "PAUSED",
+                "Paused with 02:05 remaining"
             )
         ]
 
@@ -139,6 +144,31 @@ final class MenuPresentationTests: XCTestCase {
             let color = attributedTitle.attribute(.foregroundColor, at: suffixIndex, effectiveRange: nil) as? NSColor
             XCTAssertEqual(color, NSColor.secondaryLabelColor)
         }
+    }
+
+    func testPauseUntilTitleShowsResolvedDay() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "UTC"))
+
+        let today = makePauseUntilTitle(
+            resumeDate: now.addingTimeInterval(125),
+            calendar: calendar,
+            now: now,
+            timeFormatter: timeFormatter
+        )
+        XCTAssertEqual(today.string, "Pause Until 9 AM  —  today at 02:48")
+
+        let tomorrow = makePauseUntilTitle(
+            resumeDate: now.addingTimeInterval(24 * 3600),
+            calendar: calendar,
+            now: now,
+            timeFormatter: timeFormatter
+        )
+        XCTAssertEqual(tomorrow.string, "Pause Until 9 AM  —  tomorrow at 02:46")
+
+        let suffixIndex = ("Pause Until 9 AM" as NSString).length
+        let color = today.attribute(.foregroundColor, at: suffixIndex, effectiveRange: nil) as? NSColor
+        XCTAssertEqual(color, NSColor.secondaryLabelColor)
     }
 
     func testExtendFocusDeadlineFollowsExtendableStates() {

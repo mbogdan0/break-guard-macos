@@ -281,6 +281,13 @@ struct StateMachine {
 
     mutating func resume() {
         guard case let .suspended(previous, remaining, _) = runtime.timerState else { return }
+        // A pause at least as long as a break means the user rested away from
+        // the screen: start a fresh cycle instead of restoring the countdown.
+        if let preservedAt = runtime.preservedAt,
+           clock.now.timeIntervalSince(preservedAt) >= settings.breakDuration {
+            startWorkCycle()
+            return
+        }
         // Paused time is not focus time: push the cycle start forward by the pause length.
         if let preservedAt = runtime.preservedAt {
             runtime.cycleStartDate = runtime.cycleStartDate
@@ -319,6 +326,15 @@ struct StateMachine {
     }
 
     mutating func restoreAfterSleep() {
+        // A user-requested timed pause outlives sleep and relaunch: while its
+        // end date is in the future the pause stays active; once it has
+        // passed, the whole pause counted as rest, so a fresh cycle starts.
+        if case let .suspended(_, _, until) = runtime.timerState, let until {
+            if clock.now < until { return }
+            startWorkCycle()
+            return
+        }
+
         // A pause at least as long as a break means the user certainly rested:
         // start a fresh cycle as if a break just ended, recording nothing
         // (same semantics as markBreakTaken).

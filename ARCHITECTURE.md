@@ -7,14 +7,16 @@
 ```text
 working -> warning -> breakDue -> breaking -> breakCompleted -> working
 breakDue/breaking/breakCompleted -> postponed -> breakDue
-working/warning/postponed -> suspended -> previous state (system sleep/inactivity only)
+working/warning/postponed -> suspended -> previous state or a fresh cycle (sleep/inactivity, or user pause until 9 AM)
 ```
 
 The UI calls explicit methods such as `takeBreakNow`, `cancelManualBreak`, `extendFocus(by:)`, `markBreakTaken`, `postpone`, `startBreak`, and `completeBreak(classification:)`. A completed break must be classified with a configured focus-tag ID, the explicit skipped outcome, or `.untracked` (used when focus tags are disabled in settings: the break and streak count, but no focus minutes are credited anywhere). Streaks, focus-category totals, skipped totals, and violation counters are updated only by the state machine.
 
 `takeBreakNow` distinguishes manual breaks from scheduled ones by capturing a `ManualBreakOrigin` snapshot (interrupted phase, remaining time to the deadline, capture timestamp) in the runtime state; scheduled breaks reached through `tick` never set it. While the origin exists, the overlay offers only `cancelManualBreak`, which rebuilds the interrupted state with the remaining time re-anchored to the current moment (landing directly in `warning` when the remaining time is inside the warning lead), shifts the cycle start forward so overlay time is not credited as focus, and records nothing.
 
-`extendFocus(by:)` shifts the current work (or postponed) deadline forward before the break is due. It is planned-ahead honesty rather than a postponement: no violation is recorded and no statistics change, while the extended time later counts toward focus minutes. There is no user-facing pause; the `suspended` state is entered only by sleep/inactivity preservation and resumes automatically.
+`extendFocus(by:)` shifts the current work (or postponed) deadline forward before the break is due. It is planned-ahead honesty rather than a postponement: no violation is recorded and no statistics change, while the extended time later counts toward focus minutes.
+
+The `suspended` state is entered two ways: automatically by sleep/inactivity preservation (`suspend(until: nil)`), and by the user-facing **Pause Until 9 AM** menu action, which calls `suspend(until:)` with the next 9:00 AM. A timed pause outlives sleep and relaunch: `restoreAfterSleep()` leaves it untouched while its end date is in the future and starts a fresh cycle once that date has passed. While a pause of either kind is active, the menu offers **Resume Now**.
 
 ## Timer and Deadline Model
 
@@ -44,7 +46,7 @@ The overlay is a best-effort blocking interface. macOS still allows Force Quit, 
 
 `SleepWakeManager` listens for workspace sleep/wake and session active/inactive notifications. Before sleep or inactivity, BreakGuard preserves remaining time and cancels warnings. After wake or reactivation, it resumes from the preserved duration so sleep time is not counted as work or break time.
 
-Restoration applies a long-pause rule: if the preserved timestamp is at least one break duration in the past, the user certainly rested, so a fresh full work cycle starts instead (nothing is recorded — the same semantics as "Just Took a Break"). This covers sleep, clean quit/relaunch (`stop()` preserves before saving, and the persistence-restoring initializer calls the same restoration path), and pending-break states. As a crash-recovery fallback, a restored working/warning/postponed state without a preserved timestamp whose absolute deadline is already at least one break duration stale also starts a fresh cycle. Shorter pauses resume exactly where they left off; the user-initiated Resume Now action bypasses the long-pause rule.
+Restoration applies a long-pause rule: if the preserved timestamp is at least one break duration in the past, the user certainly rested, so a fresh full work cycle starts instead (nothing is recorded — the same semantics as "Just Took a Break"). This covers sleep, clean quit/relaunch (`stop()` preserves before saving, and the persistence-restoring initializer calls the same restoration path), and pending-break states. As a crash-recovery fallback, a restored working/warning/postponed state without a preserved timestamp whose absolute deadline is already at least one break duration stale also starts a fresh cycle. Shorter pauses resume exactly where they left off. `resume()` itself applies the long-pause rule, so ending any pause — the tick reaching a timed pause's end date, or the user pressing Resume Now — starts a fresh cycle when the pause lasted at least one break duration and otherwise restores the preserved countdown.
 
 ## AppKit and SwiftUI Boundary
 

@@ -18,13 +18,17 @@ Notifications are optional. Declining permission does not affect the timer or br
 
 ## Menu and Break Actions
 
-The menu bar displays an eye icon and the current timer. Its menu contains the current status, **Take a Break Now**, **Just Took a Break**, **Extend Focus**, Settings, and Quit when those actions are available.
+The menu bar displays an eye icon and the current timer. Its menu contains the current status, **Take a Break Now**, **Just Took a Break**, **Extend Focus**, **Pause Until 9 AM**, **Resume Now**, Settings, and Quit when those actions are available. In the last minute before a break, the countdown turns into a red badge with white text.
+
+Actions that skip or silence rest — **Just Took a Break**, longer **Extend Focus** options, **Pause Until 9 AM**, and **Quit** — ask for confirmation first. The dialogs are deliberately direct: nothing is logged or punished, so the only person a false answer can cheat is you.
 
 **Take a Break Now** starts a manual break. Its overlay shows only **Cancel Break**, which restores the remaining focus time without recording the overlay time. A scheduled break instead shows the configured postpone actions and cannot be cancelled.
 
 **Just Took a Break** records rest that BreakGuard could not observe, such as time away for coffee. After confirmation, it starts a fresh work cycle without changing focus statistics or streaks.
 
 **Extend Focus** moves the current deadline by 15 minutes, 35 minutes, or 1 hour 5 minutes. Each menu option shows the resulting end time. Longer extensions require confirmation. Extended time counts as focus time but is not recorded as a postponement or streak violation.
+
+**Pause Until 9 AM** silences all break reminders until the next 9:00 AM (today's if it has not passed yet, otherwise tomorrow's) — for ending the workday without quitting the app. The menu option shows the exact resume time, the status line reads "Paused until 9:00 AM", and the pause survives sleep, quit, and relaunch. At 9 AM a fresh work cycle starts automatically. **Resume Now** ends the pause early; after a pause at least as long as a break it also starts a fresh cycle.
 
 When the break countdown reaches zero, the completion screen shows total rest time counting upward. Complete the break with a focus tag, choose **Skip**, or use **Continue Working** when focus tags are disabled.
 

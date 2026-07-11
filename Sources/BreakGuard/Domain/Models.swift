@@ -315,7 +315,7 @@ func makeMenuPresentation(
     case let .suspended(_, remaining, until):
         let statusTitle: String
         if let until {
-            statusTitle = "Paused for \(countdown(until.timeIntervalSince(now)))"
+            statusTitle = "Paused until \(timeFormatter.string(from: until))"
         } else {
             statusTitle = "Paused with \(countdown(remaining)) remaining"
         }

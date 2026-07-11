@@ -31,6 +31,8 @@ banners; all timer and overlay features work without it.
 - Configurable focus and break intervals
 - Full-screen break overlays on every connected display
 - Early breaks, planned focus extensions, and controlled postponements
+- Pause until 9 AM for the rest of the day, surviving sleep and relaunch
+- Honesty-first confirmations for every action that skips or silences rest
 - Optional focus tags, streaks, history, and focused-minute statistics
 - Sleep and inactivity detection that avoids counting time away as work
 - Local notifications with capability-aware Time Sensitive delivery
@@ -79,8 +81,10 @@ specific username or checkout location, and compatible settings and statistics a
 4. Complete the break, optionally classify the focus interval, and start a new cycle.
 
 Use **Take a Break Now** for an early break, **Just Took a Break** for rest the app did not observe,
-and **Extend Focus** when a break must be delayed in advance. Settings control timing, focus tags,
-notifications, launch at login, and statistics.
+**Extend Focus** when a break must be delayed in advance, and **Pause Until 9 AM** when you are done
+for the day — reminders stay silent until the next morning and **Resume Now** ends the pause early.
+Extending, pausing, marking an unobserved break, and quitting each ask for confirmation. Settings
+control timing, focus tags, notifications, launch at login, and statistics.
 
 ## Commands
 

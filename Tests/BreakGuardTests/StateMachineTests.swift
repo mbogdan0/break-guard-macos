@@ -117,16 +117,17 @@ final class StateMachineTests: XCTestCase {
         settings.breakDuration = 60
         var machine = StateMachine(settings: settings, clock: clock)
 
-        // Work 5 minutes, pause for 15, then work the remaining 25.
+        // Work 5 minutes, pause 30 seconds (short enough to resume in place),
+        // then work the remaining 25.
         clock.now = start.addingTimeInterval(5 * 60)
         machine.clock = clock
         machine.suspend(until: nil)
 
-        clock.now = start.addingTimeInterval(20 * 60)
+        clock.now = start.addingTimeInterval(5 * 60 + 30)
         machine.clock = clock
         machine.resume()
 
-        clock.now = start.addingTimeInterval(45 * 60)
+        clock.now = start.addingTimeInterval(30 * 60 + 30)
         machine.clock = clock
         XCTAssertEqual(machine.tick(), .breakDue)
         machine.startBreak()
@@ -699,12 +700,77 @@ final class StateMachineTests: XCTestCase {
         XCTAssertEqual(previous, .working)
         XCTAssertEqual(remaining, 25 * 60, accuracy: 0.1)
 
-        clock.now = start.addingTimeInterval(20 * 60)
+        // Resume before the pause reaches a break's length: pick up in place.
+        clock.now = start.addingTimeInterval(5 * 60 + 30)
         machine.clock = clock
         machine.resume()
         guard case let .working(deadline, _) = machine.runtime.timerState else {
             return XCTFail("Expected working state")
         }
         XCTAssertEqual(deadline.timeIntervalSince(clock.now), 25 * 60, accuracy: 0.1)
+    }
+
+    func testResumeAfterLongPauseStartsFreshCycle() {
+        let start = Date(timeIntervalSince1970: 4_100)
+        var clock = FakeClock(now: start)
+        var settings = AppSettings.defaults
+        settings.workInterval = 30 * 60
+        settings.breakDuration = 2 * 60
+        var machine = StateMachine(settings: settings, clock: clock)
+
+        clock.now = start.addingTimeInterval(5 * 60)
+        machine.clock = clock
+        machine.suspend(until: start.addingTimeInterval(12 * 3600))
+
+        // Resuming after a pause at least as long as a break restarts the cycle.
+        clock.now = start.addingTimeInterval(20 * 60)
+        machine.clock = clock
+        machine.resume()
+
+        guard case let .working(deadline, _) = machine.runtime.timerState else {
+            return XCTFail("Expected working state")
+        }
+        XCTAssertEqual(deadline.timeIntervalSince(clock.now), 30 * 60, accuracy: 0.1)
+        XCTAssertEqual(machine.runtime.cycleStartDate, clock.now)
+    }
+
+    func testTimedPauseSurvivesSleepWakeWhileActive() {
+        let start = Date(timeIntervalSince1970: 4_200)
+        var clock = FakeClock(now: start)
+        var machine = StateMachine(clock: clock)
+
+        let until = start.addingTimeInterval(12 * 3600)
+        machine.suspend(until: until)
+        let paused = machine.runtime.timerState
+
+        // Sleep leaves an active timed pause untouched…
+        machine.preserveForSleep()
+        XCTAssertEqual(machine.runtime.timerState, paused)
+
+        // …and waking before the end date keeps it active.
+        clock.now = start.addingTimeInterval(6 * 3600)
+        machine.clock = clock
+        machine.restoreAfterSleep()
+        XCTAssertEqual(machine.runtime.timerState, paused)
+    }
+
+    func testExpiredTimedPauseStartsFreshCycleAfterWake() {
+        let start = Date(timeIntervalSince1970: 4_300)
+        var clock = FakeClock(now: start)
+        var settings = AppSettings.defaults
+        settings.workInterval = 30 * 60
+        var machine = StateMachine(settings: settings, clock: clock)
+
+        machine.suspend(until: start.addingTimeInterval(12 * 3600))
+
+        // Waking after the end date means the whole pause was rest.
+        clock.now = start.addingTimeInterval(13 * 3600)
+        machine.clock = clock
+        machine.restoreAfterSleep()
+
+        guard case let .working(deadline, _) = machine.runtime.timerState else {
+            return XCTFail("Expected working state")
+        }
+        XCTAssertEqual(deadline.timeIntervalSince(clock.now), 30 * 60, accuracy: 0.1)
     }
 }

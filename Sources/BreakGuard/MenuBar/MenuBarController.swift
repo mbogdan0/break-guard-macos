@@ -10,6 +10,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     private let justTookBreakItem = NSMenuItem(title: "Just Took a Break", action: #selector(justTookBreak), keyEquivalent: "")
     private let extendItem = NSMenuItem(title: "Extend Focus", action: nil, keyEquivalent: "")
     private var extendOptionItems: [(item: NSMenuItem, baseTitle: String, minutes: Double)] = []
+    private let pauseItem = NSMenuItem(title: "Pause Until 9 AM", action: #selector(pauseUntilMorning), keyEquivalent: "")
     private let resumeItem = NSMenuItem(title: "Resume Now", action: #selector(resumeNow), keyEquivalent: "")
     private var cancellables = Set<AnyCancellable>()
     private let appState: AppState
@@ -74,6 +75,10 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         extendItem.image = Self.menuImage("hourglass")
         menu.addItem(extendItem)
 
+        pauseItem.target = self
+        pauseItem.image = Self.menuImage("pause.circle")
+        menu.addItem(pauseItem)
+
         resumeItem.target = self
         resumeItem.image = Self.menuImage("play.circle")
         menu.addItem(resumeItem)
@@ -130,8 +135,21 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         takeBreakItem.isHidden = presentation.primaryAction != .takeBreak
         justTookBreakItem.isHidden = presentation.primaryAction != .takeBreak
         extendItem.isHidden = !presentation.canExtend
+        pauseItem.isHidden = presentation.primaryAction != .takeBreak
         resumeItem.isHidden = presentation.primaryAction != .resume
         updateExtendOptionTitles()
+        updatePauseItemTitle()
+    }
+
+    // The pause option shows the concrete resume time it would produce,
+    // greyed out next to the title, matching the extend options.
+    private func updatePauseItemTitle() {
+        guard let resumeDate = appState.nextMorningResumeDate() else {
+            pauseItem.attributedTitle = nil
+            pauseItem.title = "Pause Until 9 AM"
+            return
+        }
+        pauseItem.attributedTitle = makePauseUntilTitle(resumeDate: resumeDate)
     }
 
     // Each extend option shows the focus end time it would produce, greyed
@@ -161,28 +179,35 @@ final class MenuBarController: NSObject, NSMenuDelegate {
             string: countdown,
             attributes: [
                 .font: NSFont.monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .semibold),
-                .foregroundColor: NSColor.systemRed
+                .foregroundColor: NSColor.white
             ]
         )
         let symbolConfiguration = NSImage.SymbolConfiguration(pointSize: NSFont.systemFontSize, weight: .regular)
-            .applying(NSImage.SymbolConfiguration(paletteColors: [.systemRed]))
+            .applying(NSImage.SymbolConfiguration(paletteColors: [.white]))
         let icon = NSImage(systemSymbolName: "eye", accessibilityDescription: "BreakGuard")?
             .withSymbolConfiguration(symbolConfiguration)
         let textSize = text.size()
         let iconSize = icon?.size ?? .zero
         let spacing: CGFloat = 5
+        let horizontalPadding: CGFloat = 6
+        let verticalPadding: CGFloat = 2
         let size = NSSize(
-            width: iconSize.width + spacing + ceil(textSize.width),
-            height: max(iconSize.height, ceil(textSize.height))
+            width: horizontalPadding + iconSize.width + spacing + ceil(textSize.width) + horizontalPadding,
+            height: max(iconSize.height, ceil(textSize.height)) + verticalPadding * 2
         )
         let image = NSImage(size: size, flipped: false) { rect in
+            NSColor.systemRed.setFill()
+            NSBezierPath(roundedRect: rect, xRadius: 5, yRadius: 5).fill()
             icon?.draw(
-                at: NSPoint(x: 0, y: (rect.height - iconSize.height) / 2),
+                at: NSPoint(x: horizontalPadding, y: (rect.height - iconSize.height) / 2),
                 from: .zero,
                 operation: .sourceOver,
                 fraction: 1
             )
-            text.draw(at: NSPoint(x: iconSize.width + spacing, y: (rect.height - textSize.height) / 2))
+            text.draw(at: NSPoint(
+                x: horizontalPadding + iconSize.width + spacing,
+                y: (rect.height - textSize.height) / 2
+            ))
             return true
         }
         image.isTemplate = false
@@ -193,15 +218,26 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         appState.takeBreakNow()
     }
 
-    @objc private func justTookBreak() {
+    // All confirmations share one voice: two sentences that appeal to the
+    // user's honesty about their own health, with the safe choice as Cancel.
+    private func confirmHonestly(message: String, informative: String, confirmTitle: String) -> Bool {
         NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
-        alert.messageText = "Did you really take a break?"
-        alert.informativeText = "This restarts the work timer as if a full break just ended. Nothing is added to your statistics — no focus time, no streaks. Use it only when you truly rested away from the screen. Be honest: your eyes are the ones keeping score."
+        alert.messageText = message
+        alert.informativeText = informative
         alert.alertStyle = .informational
-        alert.addButton(withTitle: "Yes, I Took a Break")
+        alert.addButton(withTitle: confirmTitle)
         alert.addButton(withTitle: "Cancel")
-        if alert.runModal() == .alertFirstButtonReturn {
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+
+    @objc private func justTookBreak() {
+        let confirmed = confirmHonestly(
+            message: "Did you really take a break? 👀",
+            informative: "Confirm only if you truly rested away from the screen — nothing is logged, so the only person you can cheat is yourself. Your eyes are keeping the real score.",
+            confirmTitle: "Yes, I Took a Break"
+        )
+        if confirmed {
             appState.markBreakTaken()
         }
     }
@@ -219,15 +255,27 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     }
 
     private func confirmLongExtension(minutes: Double, label: String) {
-        NSApp.activate(ignoringOtherApps: true)
-        let alert = NSAlert()
-        alert.messageText = "Extend focus by \(label)?"
-        alert.informativeText = "That is a long stretch without rest. Every extension is rest you take away from yourself — your eyes and posture pay for it later. If you can pause now, taking the break is the healthier choice."
-        alert.alertStyle = .informational
-        alert.addButton(withTitle: "Extend Anyway")
-        alert.addButton(withTitle: "Cancel")
-        if alert.runModal() == .alertFirstButtonReturn {
+        let confirmed = confirmHonestly(
+            message: "Extend focus by \(label)? ⏳",
+            informative: "That is a long stretch without rest, and your eyes will pay the bill later. Be honest — do you really need this, or is the break the healthier choice?",
+            confirmTitle: "Extend Anyway"
+        )
+        if confirmed {
             appState.extendFocus(minutes: minutes)
+        }
+    }
+
+    @objc private func pauseUntilMorning() {
+        guard let resumeDate = appState.nextMorningResumeDate() else { return }
+        let time = DateFormatter.breakGuardTime.string(from: resumeDate)
+        let day = Calendar.current.isDateInToday(resumeDate) ? "today" : "tomorrow"
+        let confirmed = confirmHonestly(
+            message: "Pause reminders until \(time) \(day)? 🌙",
+            informative: "This silences every break reminder until \(time) \(day) — a promise that you are done straining your eyes for the day. Don't use it to keep working unguarded: your health is what's on the line.",
+            confirmTitle: "Pause Until \(time)"
+        )
+        if confirmed {
+            appState.pauseUntilNextMorning()
         }
     }
 
@@ -240,7 +288,14 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     }
 
     @objc private func quit() {
-        NSApp.terminate(nil)
+        let confirmed = confirmHonestly(
+            message: "Quit BreakGuard? 🛑",
+            informative: "With BreakGuard off, nothing stands between your eyes and the next marathon screen session. Be honest — quit only if you are truly stepping away, not dodging your breaks.",
+            confirmTitle: "Quit Anyway"
+        )
+        if confirmed {
+            NSApp.terminate(nil)
+        }
     }
 }
 
@@ -257,6 +312,27 @@ func makeExtendFocusTitle(
     let extendedEnd = deadline.addingTimeInterval(minutes * 60)
     title.append(NSAttributedString(
         string: "  —  until \(timeFormatter.string(from: extendedEnd))",
+        attributes: [
+            .font: NSFont.menuFont(ofSize: 0),
+            .foregroundColor: NSColor.secondaryLabelColor
+        ]
+    ))
+    return title
+}
+
+func makePauseUntilTitle(
+    resumeDate: Date,
+    calendar: Calendar = .current,
+    now: Date = Date(),
+    timeFormatter: DateFormatter = .breakGuardTime
+) -> NSAttributedString {
+    let title = NSMutableAttributedString(
+        string: "Pause Until 9 AM",
+        attributes: [.font: NSFont.menuFont(ofSize: 0)]
+    )
+    let day = calendar.isDate(resumeDate, inSameDayAs: now) ? "today" : "tomorrow"
+    title.append(NSAttributedString(
+        string: "  —  \(day) at \(timeFormatter.string(from: resumeDate))",
         attributes: [
             .font: NSFont.menuFont(ofSize: 0),
             .foregroundColor: NSColor.secondaryLabelColor

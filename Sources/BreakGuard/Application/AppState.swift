@@ -242,6 +242,22 @@ final class AppState: ObservableObject {
         publishAndReconcile()
     }
 
+    // The next 9:00 AM — today's if it has not passed yet, otherwise tomorrow's.
+    func nextMorningResumeDate(after date: Date = Date()) -> Date? {
+        Calendar.current.nextDate(
+            after: date,
+            matching: DateComponents(hour: 9, minute: 0),
+            matchingPolicy: .nextTime
+        )
+    }
+
+    func pauseUntilNextMorning() {
+        guard let until = nextMorningResumeDate() else { return }
+        machine.suspend(until: until)
+        logger.info("Paused until next morning")
+        publishAndReconcile()
+    }
+
     func showSettings() {
         refreshNotificationStatus()
         refreshLoginStatus()
