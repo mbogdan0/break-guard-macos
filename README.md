@@ -19,7 +19,7 @@ network requests.
 On a new Mac, clone, validate, build, install, and launch BreakGuard with one Terminal command:
 
 ```bash
-REPO="$HOME/BreakGuard"; if [ -d "$REPO/.git" ]; then git -C "$REPO" pull --ff-only; else git clone --depth 1 https://github.com/mbogdan0/break-guard-macos.git "$REPO"; fi && "$REPO/scripts/setup.sh"
+curl -fsSL https://raw.githubusercontent.com/mbogdan0/break-guard-macos/main/scripts/get.sh | bash
 ```
 
 The command is safe to re-run: an existing `~/BreakGuard` checkout is updated instead of cloned. The
@@ -27,9 +27,8 @@ source is saved under `~/BreakGuard`, and the runnable app is installed at
 `~/Applications/BreakGuard.app`. On first launch, approve notification permission if you want warning
 banners; all timer and overlay features work without it.
 
-On a Mac without developer tools, the first `git` invocation opens the macOS prompt to install the
-Apple Command Line Tools. Approve it, wait for the installation to finish, and run the same command
-again.
+On a Mac without developer tools, the command opens the macOS prompt to install the Apple Command
+Line Tools. Approve it, wait for the installation to finish, and run the same command again.
 
 ## Highlights
 
@@ -96,6 +95,7 @@ control timing, focus tags, notifications, launch at login, and statistics.
 | Command | Purpose |
 | --- | --- |
 | `swift test` | Run all unit tests. |
+| `./scripts/get.sh` | Quick-start entry point: clone or update `~/BreakGuard`, then run `setup.sh`. |
 | `./scripts/build.sh` | Build and sign `build/BreakGuard.app` without installing it. |
 | `./scripts/setup.sh` | Validate the environment, then build, install, and launch the app. |
 | `./scripts/install.sh` | Build, install, restart, and verify that the app stays running. |
