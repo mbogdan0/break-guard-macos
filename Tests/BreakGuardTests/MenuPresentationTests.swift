@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 @testable import BreakGuard
 
@@ -109,5 +110,50 @@ final class MenuPresentationTests: XCTestCase {
         )
         XCTAssertEqual(breaking.primaryAction, .none)
         XCTAssertFalse(breaking.canExtend)
+    }
+
+    func testExtendFocusTitlesAreIdempotentForEveryDuration() throws {
+        let deadline = Date(timeIntervalSince1970: 10_000)
+        let cases: [(String, Double, String)] = [
+            ("By 15 Minutes", 15, "By 15 Minutes  —  until 03:01"),
+            ("By 35 Minutes", 35, "By 35 Minutes  —  until 03:21"),
+            ("By 1 Hour 5 Minutes", 65, "By 1 Hour 5 Minutes  —  until 03:51")
+        ]
+
+        for (baseTitle, minutes, expected) in cases {
+            let item = NSMenuItem(title: baseTitle, action: nil, keyEquivalent: "")
+            for _ in 0..<5 {
+                item.attributedTitle = makeExtendFocusTitle(
+                    baseTitle: baseTitle,
+                    deadline: deadline,
+                    minutes: minutes,
+                    timeFormatter: timeFormatter
+                )
+                let attributedTitle = try XCTUnwrap(item.attributedTitle)
+                XCTAssertEqual(attributedTitle.string, expected)
+                XCTAssertEqual(attributedTitle.string.components(separatedBy: "until").count - 1, 1)
+            }
+
+            let suffixIndex = (baseTitle as NSString).length
+            let attributedTitle = try XCTUnwrap(item.attributedTitle)
+            let color = attributedTitle.attribute(.foregroundColor, at: suffixIndex, effectiveRange: nil) as? NSColor
+            XCTAssertEqual(color, NSColor.secondaryLabelColor)
+        }
+    }
+
+    func testExtendFocusDeadlineFollowsExtendableStates() {
+        let deadline = now.addingTimeInterval(600)
+        XCTAssertEqual(focusDeadline(for: .working(deadline: deadline, warningDeadline: now)), deadline)
+        XCTAssertEqual(focusDeadline(for: .warning(deadline: deadline)), deadline)
+        XCTAssertEqual(focusDeadline(for: .postponed(deadline: deadline)), deadline)
+        XCTAssertNil(focusDeadline(for: .breakDue))
+        XCTAssertNil(focusDeadline(for: .breaking(deadline: deadline, startedAt: now, duration: 60)))
+        XCTAssertNil(focusDeadline(for: .breakCompleted))
+        XCTAssertNil(focusDeadline(for: .suspended(previous: .working, remaining: 60, until: nil)))
+    }
+
+    func testBreakOverlayActionsDependOnBreakOrigin() {
+        XCTAssertEqual(breakOverlayActionSet(isManualBreak: true), .cancel)
+        XCTAssertEqual(breakOverlayActionSet(isManualBreak: false), .postpone)
     }
 }

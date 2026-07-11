@@ -224,7 +224,7 @@ private struct SystemSettingsView: View {
                 )
                 Toggle("Play notification sound", isOn: appState.settingBinding(\.notificationSound))
                 HStack {
-                    if appState.notificationAccessStatus == .disabled {
+                    if appState.notificationAccessStatus.needsSettingsLink {
                         Button("Open Notification Settings…") {
                             appState.openNotificationSettings()
                         }
@@ -232,7 +232,7 @@ private struct SystemSettingsView: View {
                         Button("Send Test Notification") {
                             appState.sendTestNotification()
                         }
-                        .disabled(appState.notificationAccessStatus == .checking)
+                        .disabled(!appState.notificationAccessStatus.canSendTest)
                     }
                     Spacer()
                     if let message = appState.notificationTestMessage {

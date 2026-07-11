@@ -140,28 +140,30 @@ struct BreakOverlayView: View {
                 .foregroundStyle(.white.opacity(0.7))
                 .multilineTextAlignment(.center)
                 .padding(.top, 16)
-            HStack(spacing: 16) {
-                postponeButton(appState.settings.firstPostponeDuration)
-                postponeButton(appState.settings.secondPostponeDuration)
-            }
-            .padding(.top, 48)
-
-            if appState.isManualBreak {
+            if breakOverlayActionSet(isManualBreak: appState.isManualBreak) == .cancel {
+                // The user chose this break; postponing it makes no sense.
+                // The only exit besides finishing is cancelling it.
                 Button {
                     appState.cancelManualBreak()
                 } label: {
                     Text("Cancel Break")
-                        .font(.system(size: 16, weight: .medium))
-                        .frame(maxWidth: .infinity, minHeight: 36)
+                        .font(.system(size: 18, weight: .medium))
+                        .frame(maxWidth: .infinity, minHeight: 40)
                 }
                 .buttonStyle(.bordered)
-                .controlSize(.regular)
-                .padding(.top, 14)
+                .controlSize(.large)
+                .padding(.top, 48)
                 Text("You started this break yourself — cancelling restores your remaining focus time.")
                     .font(.system(size: 13))
                     .foregroundStyle(.white.opacity(0.5))
                     .multilineTextAlignment(.center)
                     .padding(.top, 8)
+            } else {
+                HStack(spacing: 16) {
+                    postponeButton(appState.settings.firstPostponeDuration)
+                    postponeButton(appState.settings.secondPostponeDuration)
+                }
+                .padding(.top, 48)
             }
         }
     }
@@ -281,4 +283,13 @@ struct BreakOverlayView: View {
         .buttonStyle(.bordered)
         .controlSize(.large)
     }
+}
+
+enum BreakOverlayActionSet: Equatable {
+    case cancel
+    case postpone
+}
+
+func breakOverlayActionSet(isManualBreak: Bool) -> BreakOverlayActionSet {
+    isManualBreak ? .cancel : .postpone
 }

@@ -6,19 +6,55 @@ import os
 enum NotificationAccessStatus: Equatable {
     case checking
     case notRequested
-    case enabled
+    case enabled(timeSensitive: Bool, sound: Bool)
+    case alertsDisabled
     case disabled
 
     var description: String {
         switch self {
         case .checking: return "Checking…"
         case .notRequested: return "Not requested"
-        case .enabled: return "Allowed"
+        case let .enabled(timeSensitive, sound):
+            let delivery = timeSensitive ? "Time Sensitive" : "Regular"
+            return sound ? "Allowed · \(delivery)" : "Allowed · \(delivery) · System sound off"
+        case .alertsDisabled: return "Alerts disabled"
         case .disabled: return "Disabled"
         }
     }
 
-    var needsSettingsLink: Bool { self == .disabled }
+    var needsSettingsLink: Bool {
+        switch self {
+        case .alertsDisabled, .disabled: return true
+        default: return false
+        }
+    }
+
+    var canSendTest: Bool {
+        switch self {
+        case .checking, .alertsDisabled, .disabled: return false
+        case .notRequested, .enabled: return true
+        }
+    }
+
+    init(capabilities: NotificationCapabilities) {
+        switch capabilities.authorizationStatus {
+        case .notDetermined:
+            self = .notRequested
+        case .denied:
+            self = .disabled
+        case .authorized, .provisional, .ephemeral:
+            if capabilities.canPresentAlerts {
+                self = .enabled(
+                    timeSensitive: capabilities.supportsTimeSensitive,
+                    sound: capabilities.soundSetting == .enabled
+                )
+            } else {
+                self = .alertsDisabled
+            }
+        @unknown default:
+            self = .checking
+        }
+    }
 }
 
 @MainActor
@@ -181,8 +217,12 @@ final class AppState: ObservableObject {
         notifications.sendTestNotification(settings: settings) { [weak self] result in
             Task { @MainActor in
                 switch result {
-                case .success:
-                    self?.notificationTestMessage = "Test notification scheduled."
+                case .success(.queued):
+                    self?.notificationTestMessage = "Test notification queued…"
+                case .success(.delivered):
+                    self?.notificationTestMessage = "Test notification delivered."
+                case .success(.notDelivered):
+                    self?.notificationTestMessage = "Queued, but no delivery was observed."
                 case let .failure(error):
                     self?.notificationTestMessage = error.localizedDescription
                 }
@@ -346,18 +386,9 @@ final class AppState: ObservableObject {
     }
 
     private func refreshNotificationStatus() {
-        notifications.authorizationStatus { [weak self] status in
+        notifications.capabilities { [weak self] capabilities in
             Task { @MainActor in
-                switch status {
-                case .notDetermined:
-                    self?.notificationAccessStatus = .notRequested
-                case .denied:
-                    self?.notificationAccessStatus = .disabled
-                case .authorized, .provisional, .ephemeral:
-                    self?.notificationAccessStatus = .enabled
-                @unknown default:
-                    self?.notificationAccessStatus = .checking
-                }
+                self?.notificationAccessStatus = NotificationAccessStatus(capabilities: capabilities)
             }
         }
     }

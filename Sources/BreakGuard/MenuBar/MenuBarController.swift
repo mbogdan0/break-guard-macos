@@ -9,6 +9,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     private let takeBreakItem = NSMenuItem(title: "Take a Break Now", action: #selector(takeBreakNow), keyEquivalent: "")
     private let justTookBreakItem = NSMenuItem(title: "Just Took a Break", action: #selector(justTookBreak), keyEquivalent: "")
     private let extendItem = NSMenuItem(title: "Extend Focus", action: nil, keyEquivalent: "")
+    private var extendOptionItems: [(item: NSMenuItem, baseTitle: String, minutes: Double)] = []
     private let resumeItem = NSMenuItem(title: "Resume Now", action: #selector(resumeNow), keyEquivalent: "")
     private var cancellables = Set<AnyCancellable>()
     private let appState: AppState
@@ -59,9 +60,16 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         menu.addItem(justTookBreakItem)
 
         let extendMenu = NSMenu(title: "Extend Focus")
-        extendMenu.addItem(actionItem("By 15 Minutes", action: #selector(extendBy15Minutes)))
-        extendMenu.addItem(actionItem("By 35 Minutes", action: #selector(extendBy35Minutes)))
-        extendMenu.addItem(actionItem("By 1 Hour 5 Minutes", action: #selector(extendBy65Minutes)))
+        let extendOptions: [(title: String, minutes: Double, action: Selector)] = [
+            ("By 15 Minutes", 15, #selector(extendBy15Minutes)),
+            ("By 35 Minutes", 35, #selector(extendBy35Minutes)),
+            ("By 1 Hour 5 Minutes", 65, #selector(extendBy65Minutes))
+        ]
+        for option in extendOptions {
+            let item = actionItem(option.title, action: option.action)
+            extendMenu.addItem(item)
+            extendOptionItems.append((item, option.title, option.minutes))
+        }
         extendItem.submenu = extendMenu
         extendItem.image = Self.menuImage("hourglass")
         menu.addItem(extendItem)
@@ -123,6 +131,29 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         justTookBreakItem.isHidden = presentation.primaryAction != .takeBreak
         extendItem.isHidden = !presentation.canExtend
         resumeItem.isHidden = presentation.primaryAction != .resume
+        updateExtendOptionTitles()
+    }
+
+    // Each extend option shows the focus end time it would produce, greyed
+    // out next to the duration.
+    private func updateExtendOptionTitles() {
+        let deadline = currentFocusDeadline()
+        for (item, baseTitle, minutes) in extendOptionItems {
+            guard let deadline else {
+                item.attributedTitle = nil
+                item.title = baseTitle
+                continue
+            }
+            item.attributedTitle = makeExtendFocusTitle(
+                baseTitle: baseTitle,
+                deadline: deadline,
+                minutes: minutes
+            )
+        }
+    }
+
+    private func currentFocusDeadline() -> Date? {
+        focusDeadline(for: appState.timerState)
     }
 
     private func urgentStatusImage(countdown: String) -> NSImage {
@@ -210,5 +241,35 @@ final class MenuBarController: NSObject, NSMenuDelegate {
 
     @objc private func quit() {
         NSApp.terminate(nil)
+    }
+}
+
+func makeExtendFocusTitle(
+    baseTitle: String,
+    deadline: Date,
+    minutes: Double,
+    timeFormatter: DateFormatter = .breakGuardTime
+) -> NSAttributedString {
+    let title = NSMutableAttributedString(
+        string: baseTitle,
+        attributes: [.font: NSFont.menuFont(ofSize: 0)]
+    )
+    let extendedEnd = deadline.addingTimeInterval(minutes * 60)
+    title.append(NSAttributedString(
+        string: "  —  until \(timeFormatter.string(from: extendedEnd))",
+        attributes: [
+            .font: NSFont.menuFont(ofSize: 0),
+            .foregroundColor: NSColor.secondaryLabelColor
+        ]
+    ))
+    return title
+}
+
+func focusDeadline(for state: TimerState) -> Date? {
+    switch state {
+    case let .working(deadline, _), let .warning(deadline), let .postponed(deadline):
+        return deadline
+    default:
+        return nil
     }
 }

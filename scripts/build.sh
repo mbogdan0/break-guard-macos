@@ -48,12 +48,17 @@ cat > "$BUNDLE_DIR/Contents/Info.plist" <<'PLIST'
   <key>LSUIElement</key>
   <true/>
   <key>NSHumanReadableCopyright</key>
-  <string>Personal local utility.</string>
+  <string>Copyright © 2026 Bohdan Melnichenko. Personal non-commercial license.</string>
 </dict>
 </plist>
 PLIST
 
 plutil -lint "$BUNDLE_DIR/Contents/Info.plist"
+
+# Note: the com.apple.developer.usernotifications.time-sensitive entitlement
+# cannot be included here — it is a restricted entitlement, and launchd
+# refuses to spawn an ad-hoc signed bundle carrying it. The app checks the
+# system capability and explicitly uses regular active delivery in this build.
 codesign --force --deep --sign - "$BUNDLE_DIR"
 codesign --verify --deep --strict --verbose=2 "$BUNDLE_DIR"
 echo "$BUNDLE_DIR"
