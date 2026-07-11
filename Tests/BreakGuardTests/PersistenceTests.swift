@@ -123,6 +123,38 @@ final class PersistenceTests: XCTestCase {
         XCTAssertNil(store.load())
     }
 
+    func testSaveSkipsWriteWhenDataUnchanged() throws {
+        let location = temporaryStateURL()
+        defer { try? FileManager.default.removeItem(at: location.deletingLastPathComponent()) }
+        let store = PersistenceStore(fileURL: location)
+        let data = StateMachine().data
+        store.save(data)
+
+        // Delete the file behind the store's back: an unchanged save must not recreate it.
+        try FileManager.default.removeItem(at: location)
+        store.save(data)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: location.path))
+
+        var changed = data
+        changed.statistics.completedBreaks += 1
+        store.save(changed)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: location.path))
+    }
+
+    func testLoadSeedsDedupeSoUnchangedDataIsNotRewritten() throws {
+        let location = temporaryStateURL()
+        defer { try? FileManager.default.removeItem(at: location.deletingLastPathComponent()) }
+        // Whole-second dates: the ISO8601 date encoding drops subseconds.
+        let clock = FakeClock(now: Date(timeIntervalSince1970: 9_500))
+        PersistenceStore(fileURL: location).save(StateMachine(clock: clock).data)
+
+        let store = PersistenceStore(fileURL: location)
+        let loaded = try XCTUnwrap(store.load())
+        try FileManager.default.removeItem(at: location)
+        store.save(loaded)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: location.path))
+    }
+
     private func temporaryStateURL() -> URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("BreakGuardTests-\(UUID().uuidString)", isDirectory: true)

@@ -394,7 +394,11 @@ final class AppState: ObservableObject {
             overlayManager?.hideAll()
             notifications.cancelWarning()
         }
-        refreshNotificationStatus()
+        // Polling notification settings is an XPC round-trip; the status label
+        // only needs to stay live while someone can actually see it.
+        if settingsWindow?.isVisible == true {
+            refreshNotificationStatus()
+        }
     }
 
     private func save() {

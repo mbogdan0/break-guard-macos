@@ -6,6 +6,7 @@ import os
 final class OverlayScreenManager {
     private weak var appState: AppState?
     private var windows: [String: BreakOverlayWindow] = [:]
+    private var currentBreakPrompt: String?
     private let logger = Logger(subsystem: "local.bohdan.BreakGuard", category: "Overlay")
 
     init(appState: AppState) {
@@ -20,11 +21,15 @@ final class OverlayScreenManager {
 
     func showOnAllScreens() {
         guard let appState else { return }
+        let prompt = currentBreakPrompt ?? BreakPromptCatalog.random()
+        currentBreakPrompt = prompt
         for screen in NSScreen.screens {
             let key = screenKey(screen)
             if windows[key] == nil {
                 let window = BreakOverlayWindow(screen: screen)
-                window.contentView = NSHostingView(rootView: BreakOverlayView(appState: appState))
+                window.contentView = NSHostingView(
+                    rootView: BreakOverlayView(appState: appState, breakPrompt: prompt)
+                )
                 windows[key] = window
                 logger.info("Overlay window created")
             }
@@ -56,6 +61,7 @@ final class OverlayScreenManager {
             window.orderOut(nil)
         }
         windows.removeAll()
+        currentBreakPrompt = nil
     }
 
     private func removeWindowsForDisconnectedScreens() {
@@ -69,6 +75,25 @@ final class OverlayScreenManager {
     private func screenKey(_ screen: NSScreen) -> String {
         let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber
         return number?.stringValue ?? NSStringFromRect(screen.frame)
+    }
+}
+
+enum BreakPromptCatalog {
+    static let all = [
+        "Stand up, step away from the screen, and give your eyes a rest.",
+        "Look into the distance, relax your focus, and let your mind unwind.",
+        "Move your body, breathe deeply, and reset your attention.",
+        "Give your eyes a break and your brain a moment to recharge.",
+        "Step away for a moment—your health matters more than the next task.",
+        "Stretch, blink slowly, and release the tension from your eyes.",
+        "Rest your vision, clear your mind, and return feeling refreshed.",
+        "Protect your eyes: look away, move around, and take a real pause.",
+        "Let your thoughts settle while your eyes recover from the screen.",
+        "Stand, breathe, and enjoy a short break for your body and mind."
+    ]
+
+    static func random() -> String {
+        all.randomElement()!
     }
 }
 
@@ -110,6 +135,7 @@ final class BreakOverlayWindow: NSPanel {
 
 struct BreakOverlayView: View {
     @ObservedObject var appState: AppState
+    let breakPrompt: String
 
     var body: some View {
         ZStack {
@@ -135,7 +161,7 @@ struct BreakOverlayView: View {
             Text(formatClock(appState.breakRemaining()))
                 .font(.system(size: 112, weight: .bold, design: .monospaced))
                 .padding(.top, 12)
-            Text("Stand up, move away from the screen, and rest your eyes.")
+            Text(breakPrompt)
                 .font(.system(size: 22))
                 .foregroundStyle(.white.opacity(0.7))
                 .multilineTextAlignment(.center)

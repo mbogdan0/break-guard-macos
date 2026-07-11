@@ -3,6 +3,8 @@ import os
 
 final class PersistenceStore {
     private let logger = Logger(subsystem: "local.bohdan.BreakGuard", category: "Persistence")
+    // What the file currently holds; save() skips the write when nothing changed.
+    private var lastSaved: PersistedAppData?
     let fileURL: URL
 
     init(fileManager: FileManager = .default) {
@@ -26,6 +28,7 @@ final class PersistenceStore {
             var decoded = try JSONDecoder.breakGuard.decode(PersistedAppData.self, from: data)
             switch decoded.schemaVersion {
             case PersistedAppData.currentSchemaVersion:
+                lastSaved = decoded
                 return decoded
             case 2:
                 // v2 stored per-tag session counts; the minute-based counters start from zero.
@@ -47,6 +50,7 @@ final class PersistenceStore {
     }
 
     func save(_ data: PersistedAppData) {
+        guard data != lastSaved else { return }
         do {
             let encoded = try JSONEncoder.breakGuard.encode(data)
             let temporary = fileURL.appendingPathExtension("tmp")
@@ -56,6 +60,7 @@ final class PersistenceStore {
             } else {
                 try FileManager.default.moveItem(at: temporary, to: fileURL)
             }
+            lastSaved = data
         } catch {
             logger.error("Persistence save failed: \(error.localizedDescription)")
         }

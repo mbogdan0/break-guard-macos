@@ -42,6 +42,46 @@ final class StateMachineTests: XCTestCase {
         XCTAssertEqual(machine.statistics.totalPostponements, 2)
     }
 
+    func testTakeBreakNowDoesNotDestroySuspension() {
+        let start = Date(timeIntervalSince1970: 4_200)
+        let clock = FakeClock(now: start)
+        var machine = StateMachine(clock: clock)
+        machine.suspend(until: start.addingTimeInterval(3_600))
+        let suspended = machine.runtime.timerState
+
+        machine.takeBreakNow()
+
+        XCTAssertEqual(machine.runtime.timerState, suspended)
+        XCTAssertNil(machine.runtime.manualBreakOrigin)
+    }
+
+    func testTakeBreakNowIsNoOpDuringBreakAndCompletion() {
+        let start = Date(timeIntervalSince1970: 4_300)
+        var clock = FakeClock(now: start)
+        var settings = AppSettings.defaults
+        settings.workInterval = 10 * 60
+        settings.breakDuration = 60
+        var machine = StateMachine(settings: settings, clock: clock)
+
+        clock.now = start.addingTimeInterval(10 * 60)
+        machine.clock = clock
+        XCTAssertEqual(machine.tick(), .breakDue)
+        machine.startBreak()
+        let breaking = machine.runtime.timerState
+
+        clock.now = clock.now.addingTimeInterval(30)
+        machine.clock = clock
+        machine.takeBreakNow()
+        XCTAssertEqual(machine.runtime.timerState, breaking)
+        XCTAssertNil(machine.runtime.manualBreakOrigin)
+
+        clock.now = clock.now.addingTimeInterval(31)
+        machine.clock = clock
+        XCTAssertEqual(machine.tick(), .breakCompleted)
+        machine.takeBreakNow()
+        XCTAssertEqual(machine.runtime.timerState, .breakCompleted)
+    }
+
     func testCleanBreakIncrementsStreakAndCreditsElapsedFocusMinutes() {
         let start = Date(timeIntervalSince1970: 3_000)
         var clock = FakeClock(now: start)

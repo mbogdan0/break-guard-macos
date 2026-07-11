@@ -171,6 +171,9 @@ struct StateMachine {
         runtime.timerState = .postponed(deadline: clock.now.addingTimeInterval(delay))
     }
 
+    // Only meaningful while a countdown is running: a no-op during a break,
+    // its completion screen, or a pause, so a stray caller cannot restart an
+    // in-progress break or silently destroy a suspension.
     mutating func takeBreakNow() {
         // Remember what the break interrupted so it can be cancelled from the
         // overlay. Scheduled breaks (tick reaching the deadline) never set
@@ -194,8 +197,8 @@ struct StateMachine {
                 remaining: max(1, deadline.timeIntervalSince(clock.now)),
                 capturedAt: clock.now
             )
-        default:
-            break
+        case .breakDue, .breaking, .breakCompleted, .suspended:
+            return
         }
         runtime.timerState = .breakDue
     }

@@ -267,11 +267,13 @@ private struct SystemSettingsView: View {
                 linkRow(
                     title: "Personal Website",
                     systemImage: "globe",
+                    visibleAddress: "mbogdan0.github.io",
                     destination: Self.authorWebsiteURL
                 )
                 linkRow(
                     title: "Source Code",
                     systemImage: "chevron.left.forwardslash.chevron.right",
+                    visibleAddress: "github.com/mbogdan0",
                     destination: Self.sourceCodeURL
                 )
             }
@@ -279,11 +281,16 @@ private struct SystemSettingsView: View {
         .formStyle(.grouped)
     }
 
-    private func linkRow(title: String, systemImage: String, destination: URL) -> some View {
+    private func linkRow(
+        title: String,
+        systemImage: String,
+        visibleAddress: String,
+        destination: URL
+    ) -> some View {
         HStack(spacing: 10) {
             Label(title, systemImage: systemImage)
             Spacer()
-            Link("Open", destination: destination)
+            Link(visibleAddress, destination: destination)
                 .buttonStyle(.link)
         }
     }

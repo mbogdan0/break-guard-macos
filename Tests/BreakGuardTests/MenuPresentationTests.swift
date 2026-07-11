@@ -161,4 +161,10 @@ final class MenuPresentationTests: XCTestCase {
         XCTAssertEqual(breakOverlayActionSet(isManualBreak: true), .cancel)
         XCTAssertEqual(breakOverlayActionSet(isManualBreak: false), .postpone)
     }
+
+    func testBreakPromptCatalogContainsTenUniqueMessages() {
+        XCTAssertEqual(BreakPromptCatalog.all.count, 10)
+        XCTAssertEqual(Set(BreakPromptCatalog.all).count, 10)
+        XCTAssertTrue(BreakPromptCatalog.all.allSatisfy { !$0.isEmpty })
+    }
 }
