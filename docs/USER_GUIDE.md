@@ -1,5 +1,21 @@
 # BreakGuard User Guide
 
+## First Launch
+
+For a fresh installation, run the one-command setup from the
+[README Quick Start](../README.md#quick-start). It downloads the source into `~/BreakGuard`, checks
+the local Swift and macOS toolchain, builds and ad-hoc signs the app, installs it under
+`~/Applications`, and launches it.
+
+After BreakGuard starts:
+
+1. Look for the eye-and-timer item in the menu bar.
+2. Approve notification permission if you want advance warning banners.
+3. Open **Settings** to review the default work interval, break duration, and warning lead time.
+4. Enable **Launch at Login** only if you want BreakGuard to start automatically with macOS.
+
+Notifications are optional. Declining permission does not affect the timer or break overlay.
+
 ## Menu and Break Actions
 
 The menu bar displays an eye icon and the current timer. Its menu contains the current status, **Take a Break Now**, **Just Took a Break**, **Extend Focus**, Settings, and Quit when those actions are available.

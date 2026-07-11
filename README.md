@@ -14,6 +14,18 @@ network requests.
 
 ![BreakGuard menu-bar timer and menu](docs/images/breakguard-menu-bar.png)
 
+## Quick Start
+
+On a new Mac, clone, validate, build, install, and launch BreakGuard with one Terminal command:
+
+```bash
+git clone --depth 1 https://github.com/mbogdan0/eyes-care.git "$HOME/BreakGuard" && "$HOME/BreakGuard/scripts/setup.sh"
+```
+
+The source is saved under `~/BreakGuard`, and the runnable app is installed at
+`~/Applications/BreakGuard.app`. On first launch, approve notification permission if you want warning
+banners; all timer and overlay features work without it.
+
 ## Highlights
 
 - Configurable focus and break intervals
@@ -32,7 +44,7 @@ network requests.
 
 A paid Apple Developer account is not required.
 
-## Install
+## Install from an Existing Checkout
 
 From the project root, check the development environment once:
 
@@ -76,6 +88,7 @@ notifications, launch at login, and statistics.
 | --- | --- |
 | `swift test` | Run all unit tests. |
 | `./scripts/build.sh` | Build and sign `build/BreakGuard.app` without installing it. |
+| `./scripts/setup.sh` | Validate the environment, then build, install, and launch the app. |
 | `./scripts/install.sh` | Build, install, restart, and verify that the app stays running. |
 | `./scripts/verify.sh` | Test, build, install, launch, and check for an immediate crash. |
 | `./scripts/run.sh` | Open the installed app. |
