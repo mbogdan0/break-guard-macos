@@ -19,7 +19,7 @@ network requests.
 On a new Mac, clone, validate, build, install, and launch BreakGuard with one Terminal command:
 
 ```bash
-git clone --depth 1 https://github.com/mbogdan0/eyes-care.git "$HOME/BreakGuard" && "$HOME/BreakGuard/scripts/setup.sh"
+git clone --depth 1 https://github.com/mbogdan0/break-guard-macos.git "$HOME/BreakGuard" && "$HOME/BreakGuard/scripts/setup.sh"
 ```
 
 The source is saved under `~/BreakGuard`, and the runnable app is installed at

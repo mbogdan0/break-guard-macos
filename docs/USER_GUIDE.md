@@ -28,7 +28,7 @@ Actions that skip or silence rest — **Just Took a Break**, longer **Extend Foc
 
 **Extend Focus** moves the current deadline by 15 minutes, 35 minutes, or 1 hour 5 minutes. Each menu option shows the resulting end time. Longer extensions require confirmation. Extended time counts as focus time but is not recorded as a postponement or streak violation.
 
-**Pause Until 9 AM** silences all break reminders until the next 9:00 AM (today's if it has not passed yet, otherwise tomorrow's) — for ending the workday without quitting the app. The menu option shows the exact resume time, the status line reads "Paused until 9:00 AM", and the pause survives sleep, quit, and relaunch. At 9 AM a fresh work cycle starts automatically. **Resume Now** ends the pause early; after a pause at least as long as a break it also starts a fresh cycle.
+**Pause Until 9 AM** silences all break reminders until the next 9:00 AM (today's if it has not passed yet, otherwise tomorrow's) — for ending the workday without quitting the app. While paused, the status line reads "Paused until 9:00 AM", and the pause survives sleep, quit, and relaunch. At 9 AM a fresh work cycle starts automatically. **Resume Now** ends the pause early; after a pause at least as long as a break it also starts a fresh cycle.
 
 When the break countdown reaches zero, the completion screen shows total rest time counting upward. Complete the break with a focus tag, choose **Skip**, or use **Continue Working** when focus tags are disabled.
 

@@ -138,18 +138,6 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         pauseItem.isHidden = presentation.primaryAction != .takeBreak
         resumeItem.isHidden = presentation.primaryAction != .resume
         updateExtendOptionTitles()
-        updatePauseItemTitle()
-    }
-
-    // The pause option shows the concrete resume time it would produce,
-    // greyed out next to the title, matching the extend options.
-    private func updatePauseItemTitle() {
-        guard let resumeDate = appState.nextMorningResumeDate() else {
-            pauseItem.attributedTitle = nil
-            pauseItem.title = "Pause Until 9 AM"
-            return
-        }
-        pauseItem.attributedTitle = makePauseUntilTitle(resumeDate: resumeDate)
     }
 
     // Each extend option shows the focus end time it would produce, greyed
@@ -312,27 +300,6 @@ func makeExtendFocusTitle(
     let extendedEnd = deadline.addingTimeInterval(minutes * 60)
     title.append(NSAttributedString(
         string: "  —  until \(timeFormatter.string(from: extendedEnd))",
-        attributes: [
-            .font: NSFont.menuFont(ofSize: 0),
-            .foregroundColor: NSColor.secondaryLabelColor
-        ]
-    ))
-    return title
-}
-
-func makePauseUntilTitle(
-    resumeDate: Date,
-    calendar: Calendar = .current,
-    now: Date = Date(),
-    timeFormatter: DateFormatter = .breakGuardTime
-) -> NSAttributedString {
-    let title = NSMutableAttributedString(
-        string: "Pause Until 9 AM",
-        attributes: [.font: NSFont.menuFont(ofSize: 0)]
-    )
-    let day = calendar.isDate(resumeDate, inSameDayAs: now) ? "today" : "tomorrow"
-    title.append(NSAttributedString(
-        string: "  —  \(day) at \(timeFormatter.string(from: resumeDate))",
         attributes: [
             .font: NSFont.menuFont(ofSize: 0),
             .foregroundColor: NSColor.secondaryLabelColor

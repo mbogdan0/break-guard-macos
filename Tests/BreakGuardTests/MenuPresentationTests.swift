@@ -146,31 +146,6 @@ final class MenuPresentationTests: XCTestCase {
         }
     }
 
-    func testPauseUntilTitleShowsResolvedDay() throws {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "UTC"))
-
-        let today = makePauseUntilTitle(
-            resumeDate: now.addingTimeInterval(125),
-            calendar: calendar,
-            now: now,
-            timeFormatter: timeFormatter
-        )
-        XCTAssertEqual(today.string, "Pause Until 9 AM  —  today at 02:48")
-
-        let tomorrow = makePauseUntilTitle(
-            resumeDate: now.addingTimeInterval(24 * 3600),
-            calendar: calendar,
-            now: now,
-            timeFormatter: timeFormatter
-        )
-        XCTAssertEqual(tomorrow.string, "Pause Until 9 AM  —  tomorrow at 02:46")
-
-        let suffixIndex = ("Pause Until 9 AM" as NSString).length
-        let color = today.attribute(.foregroundColor, at: suffixIndex, effectiveRange: nil) as? NSColor
-        XCTAssertEqual(color, NSColor.secondaryLabelColor)
-    }
-
     func testExtendFocusDeadlineFollowsExtendableStates() {
         let deadline = now.addingTimeInterval(600)
         XCTAssertEqual(focusDeadline(for: .working(deadline: deadline, warningDeadline: now)), deadline)
