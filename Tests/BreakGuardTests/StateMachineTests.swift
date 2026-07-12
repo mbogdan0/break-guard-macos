@@ -23,6 +23,49 @@ final class StateMachineTests: XCTestCase {
         XCTAssertEqual(machine.tick(), .breakDue)
     }
 
+    func testFocusPaceScalesTheWorkInterval() {
+        let start = Date(timeIntervalSince1970: 1_500)
+        var settings = AppSettings.defaults
+        settings.workInterval = 30 * 60
+        settings.warningLeadTime = 60
+
+        let cases: [(FocusPace, TimeInterval)] = [
+            (.moreBreaks, 24 * 60),
+            (.normal, 30 * 60),
+            (.deepFocus, 36 * 60)
+        ]
+        for (pace, expected) in cases {
+            settings.focusPace = pace
+            let machine = StateMachine(settings: settings, clock: FakeClock(now: start))
+            guard case let .working(deadline, warningDeadline) = machine.runtime.timerState else {
+                return XCTFail("Expected working state for \(pace)")
+            }
+            XCTAssertEqual(deadline, start.addingTimeInterval(expected))
+            XCTAssertEqual(warningDeadline, start.addingTimeInterval(expected - 60))
+        }
+    }
+
+    func testFocusPaceCycleCreditsActualElapsedMinutes() {
+        let start = Date(timeIntervalSince1970: 1_600)
+        var clock = FakeClock(now: start)
+        var settings = AppSettings.defaults
+        settings.workInterval = 30 * 60
+        settings.breakDuration = 60
+        settings.focusPace = .deepFocus
+        var machine = StateMachine(settings: settings, clock: clock)
+
+        clock.now = start.addingTimeInterval(36 * 60)
+        machine.clock = clock
+        XCTAssertEqual(machine.tick(), .breakDue)
+        machine.startBreak()
+        clock.now = clock.now.addingTimeInterval(61)
+        machine.clock = clock
+        XCTAssertEqual(machine.tick(), .breakCompleted)
+        machine.completeBreak(classification: .tag(id: "work"))
+
+        XCTAssertEqual(machine.statistics.focusMinutesByTag["work"], 36)
+    }
+
     func testFirstPostponementViolatesCycleOnce() {
         let start = Date(timeIntervalSince1970: 2_000)
         var clock = FakeClock(now: start)
@@ -386,6 +429,34 @@ final class StateMachineTests: XCTestCase {
         XCTAssertEqual(machine.statistics.completedBreaks, 2)
         XCTAssertEqual(machine.statistics.focusMinutesByTag["study"], 10)
         XCTAssertEqual(machine.statistics.skippedFocusMinutes, 5)
+    }
+
+    func testCompletedBreaksCreditTagIndependentDailyMinutes() {
+        // Midday UTC keeps every event on one local calendar day in any zone.
+        let start = Date(timeIntervalSince1970: 50_000)
+        var clock = FakeClock(now: start)
+        var settings = AppSettings.defaults
+        settings.breakDuration = 60
+        var machine = StateMachine(settings: settings, clock: clock)
+
+        // Three same-day cycles: tagged, skipped, and untracked all count.
+        let cycles: [(focusMinutes: Int, classification: FocusClassification)] = [
+            (10, .tag(id: "work")),
+            (5, .skipped),
+            (7, .untracked)
+        ]
+        for cycle in cycles {
+            clock.now = clock.now.addingTimeInterval(TimeInterval(cycle.focusMinutes * 60))
+            machine.clock = clock
+            machine.takeBreakNow()
+            machine.startBreak()
+            clock.now = clock.now.addingTimeInterval(61)
+            machine.clock = clock
+            _ = machine.tick()
+            machine.completeBreak(classification: cycle.classification)
+        }
+
+        XCTAssertEqual(machine.statistics.focusMinutesByDay, [FocusDay.key(for: clock.now): 22])
     }
 
     func testCompletionIsIgnoredOutsideCompletedStateOrForUnknownTag() {

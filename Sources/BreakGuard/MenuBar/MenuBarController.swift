@@ -113,7 +113,9 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     private func updatePresentation() {
         let presentation = makeMenuPresentation(
             for: appState.timerState,
-            showSeconds: appState.settings.showSecondsInMenuBar
+            showSeconds: appState.settings.showSecondsInMenuBar,
+            coarseSeconds: appState.settings.coarseSecondsInMenuBar,
+            warningLeadTime: appState.settings.warningLeadTime
         )
         if let button = statusItem.button {
             if presentation.isUrgent {

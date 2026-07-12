@@ -24,8 +24,34 @@ enum SuspendedState: Codable, Equatable {
     case postponed
 }
 
+// A convenience scale on top of the configured work interval, so switching
+// between paces does not require editing the interval itself. Statistics
+// always record the actual elapsed focus time.
+enum FocusPace: String, Codable, CaseIterable {
+    case moreBreaks
+    case normal
+    case deepFocus
+
+    var title: String {
+        switch self {
+        case .moreBreaks: return "More Breaks"
+        case .normal: return "Normal"
+        case .deepFocus: return "Deep Focus"
+        }
+    }
+
+    var workIntervalMultiplier: Double {
+        switch self {
+        case .moreBreaks: return 0.8
+        case .normal: return 1.0
+        case .deepFocus: return 1.2
+        }
+    }
+}
+
 struct AppSettings: Codable, Equatable {
     var workInterval: TimeInterval = 30 * 60
+    var focusPace: FocusPace = .normal
     var breakDuration: TimeInterval = 2 * 60
     var warningLeadTime: TimeInterval = 60
     var firstPostponeDuration: TimeInterval = 2 * 60
@@ -33,9 +59,15 @@ struct AppSettings: Codable, Equatable {
     var notificationSound: Bool = true
     var launchAtLogin: Bool = true
     var showSecondsInMenuBar: Bool = true
+    var coarseSecondsInMenuBar: Bool = false
     var focusTagsEnabled: Bool = true
 
     static let defaults = AppSettings()
+
+    // The interval a new work cycle actually runs for.
+    var effectiveWorkInterval: TimeInterval {
+        workInterval * focusPace.workIntervalMultiplier
+    }
 
     mutating func clamp() {
         workInterval = min(max(workInterval, 60), 240 * 60)
@@ -50,6 +82,7 @@ struct AppSettings: Codable, Equatable {
 extension AppSettings {
     private enum CodingKeys: String, CodingKey {
         case workInterval
+        case focusPace
         case breakDuration
         case warningLeadTime
         case firstPostponeDuration
@@ -57,6 +90,7 @@ extension AppSettings {
         case notificationSound
         case launchAtLogin
         case showSecondsInMenuBar
+        case coarseSecondsInMenuBar
         case focusTagsEnabled
     }
 
@@ -66,6 +100,9 @@ extension AppSettings {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let defaults = AppSettings()
         workInterval = try container.decodeIfPresent(TimeInterval.self, forKey: .workInterval) ?? defaults.workInterval
+        // Decoded through the raw string so an unknown pace from a newer
+        // build degrades to the default instead of failing the whole load.
+        focusPace = FocusPace(rawValue: try container.decodeIfPresent(String.self, forKey: .focusPace) ?? "") ?? defaults.focusPace
         breakDuration = try container.decodeIfPresent(TimeInterval.self, forKey: .breakDuration) ?? defaults.breakDuration
         warningLeadTime = try container.decodeIfPresent(TimeInterval.self, forKey: .warningLeadTime) ?? defaults.warningLeadTime
         firstPostponeDuration = try container.decodeIfPresent(TimeInterval.self, forKey: .firstPostponeDuration) ?? defaults.firstPostponeDuration
@@ -73,6 +110,7 @@ extension AppSettings {
         notificationSound = try container.decodeIfPresent(Bool.self, forKey: .notificationSound) ?? defaults.notificationSound
         launchAtLogin = try container.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? defaults.launchAtLogin
         showSecondsInMenuBar = try container.decodeIfPresent(Bool.self, forKey: .showSecondsInMenuBar) ?? defaults.showSecondsInMenuBar
+        coarseSecondsInMenuBar = try container.decodeIfPresent(Bool.self, forKey: .coarseSecondsInMenuBar) ?? defaults.coarseSecondsInMenuBar
         focusTagsEnabled = try container.decodeIfPresent(Bool.self, forKey: .focusTagsEnabled) ?? defaults.focusTagsEnabled
     }
 }
@@ -124,6 +162,8 @@ struct Statistics: Codable, Equatable {
     var lastCompletedBreakDate: Date?
     var focusMinutesByTag: [String: Int] = [:]
     var skippedFocusMinutes: Int = 0
+    // Tag-independent daily totals, keyed by local-calendar day ("yyyy-MM-dd").
+    var focusMinutesByDay: [String: Int] = [:]
 
     static let empty = Statistics()
 
@@ -142,6 +182,7 @@ extension Statistics {
         case lastCompletedBreakDate
         case focusMinutesByTag
         case skippedFocusMinutes
+        case focusMinutesByDay
     }
 
     // Lenient decoding: fields absent from older schema versions fall back to
@@ -156,6 +197,7 @@ extension Statistics {
         lastCompletedBreakDate = try container.decodeIfPresent(Date.self, forKey: .lastCompletedBreakDate)
         focusMinutesByTag = try container.decodeIfPresent([String: Int].self, forKey: .focusMinutesByTag) ?? [:]
         skippedFocusMinutes = try container.decodeIfPresent(Int.self, forKey: .skippedFocusMinutes) ?? 0
+        focusMinutesByDay = try container.decodeIfPresent([String: Int].self, forKey: .focusMinutesByDay) ?? [:]
     }
 }
 
@@ -228,8 +270,9 @@ struct MenuPresentation: Equatable {
     let menuBarTitle: String
     let statusTitle: String
     let primaryAction: MenuPrimaryAction
-    // True inside the warning window (the notification lead time before a break),
-    // so the menu bar can render the countdown in red.
+    // True inside the warning window (the lead time before a break, during
+    // warning or near the end of a postponement), so the menu bar can render
+    // the countdown in red.
     let isUrgent: Bool
 
     init(
@@ -261,12 +304,18 @@ extension DateFormatter {
 func makeMenuPresentation(
     for state: TimerState,
     showSeconds: Bool,
+    coarseSeconds: Bool = false,
+    warningLeadTime: TimeInterval = 0,
     now: Date = Date(),
     timeFormatter: DateFormatter = .breakGuardTime
 ) -> MenuPresentation {
     func countdown(_ interval: TimeInterval) -> String {
         if showSeconds {
-            return formatClock(interval)
+            // Coarse mode rounds up to the next 10 seconds, so the rendered
+            // string only changes once per 10 seconds and never understates
+            // the remaining time.
+            let displayed = coarseSeconds ? ceil(interval / 10) * 10 : interval
+            return formatClock(displayed)
         }
 
         let totalMinutes = max(0, Int(ceil(interval / 60)))
@@ -295,11 +344,14 @@ func makeMenuPresentation(
             isUrgent: true
         )
     case let .postponed(deadline):
-        let remaining = countdown(deadline.timeIntervalSince(now))
+        let interval = deadline.timeIntervalSince(now)
+        // A postponement never re-notifies, but the menu bar still turns red
+        // for the same lead window so the upcoming break is not a surprise.
         return MenuPresentation(
-            menuBarTitle: "+\(remaining)",
+            menuBarTitle: "+\(countdown(interval))",
             statusTitle: "Postponed break at \(timeFormatter.string(from: deadline))",
-            primaryAction: .takeBreak
+            primaryAction: .takeBreak,
+            isUrgent: warningLeadTime > 0 && interval <= warningLeadTime
         )
     case let .breaking(deadline, _, _):
         let remaining = countdown(deadline.timeIntervalSince(now))

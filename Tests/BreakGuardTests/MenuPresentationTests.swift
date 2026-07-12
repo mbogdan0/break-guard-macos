@@ -30,6 +30,44 @@ final class MenuPresentationTests: XCTestCase {
         XCTAssertEqual(presentation.statusTitle, "Next break at 02:51")
     }
 
+    func testCoarseSecondsRoundUpToTenSecondSteps() {
+        let cases: [(TimeInterval, String)] = [
+            (12 * 60 + 34, "12:40"),
+            (12 * 60 + 31, "12:40"),
+            (12 * 60 + 30, "12:30"),
+            (5 * 60 + 7, "05:10")
+        ]
+
+        for (remaining, expected) in cases {
+            let presentation = makeMenuPresentation(
+                for: .working(
+                    deadline: now.addingTimeInterval(remaining),
+                    warningDeadline: now.addingTimeInterval(remaining - 60)
+                ),
+                showSeconds: true,
+                coarseSeconds: true,
+                now: now,
+                timeFormatter: timeFormatter
+            )
+            XCTAssertEqual(presentation.menuBarTitle, expected)
+        }
+    }
+
+    func testCoarseSecondsHaveNoEffectWhenSecondsAreHidden() {
+        let presentation = makeMenuPresentation(
+            for: .working(
+                deadline: now.addingTimeInterval(5 * 60 + 7),
+                warningDeadline: now.addingTimeInterval(4 * 60)
+            ),
+            showSeconds: false,
+            coarseSeconds: true,
+            now: now,
+            timeFormatter: timeFormatter
+        )
+
+        XCTAssertEqual(presentation.menuBarTitle, "6m")
+    }
+
     func testCountdownRoundsUpToMinutesWhenSecondsAreHidden() {
         let presentation = makeMenuPresentation(
             for: .working(
@@ -89,6 +127,36 @@ final class MenuPresentationTests: XCTestCase {
             let presentation = makeMenuPresentation(for: state, showSeconds: true, now: now)
             XCTAssertEqual(presentation.isUrgent, expected, "Unexpected urgency for \(state)")
         }
+    }
+
+    func testPostponedTurnsUrgentInsideWarningLeadTime() {
+        let deadline = now.addingTimeInterval(45)
+
+        let inside = makeMenuPresentation(
+            for: .postponed(deadline: deadline),
+            showSeconds: true,
+            warningLeadTime: 60,
+            now: now
+        )
+        XCTAssertTrue(inside.isUrgent)
+        XCTAssertEqual(inside.menuBarTitle, "+00:45")
+
+        let outside = makeMenuPresentation(
+            for: .postponed(deadline: now.addingTimeInterval(90)),
+            showSeconds: true,
+            warningLeadTime: 60,
+            now: now
+        )
+        XCTAssertFalse(outside.isUrgent)
+
+        // No warning window configured: the postponement never turns red.
+        let disabled = makeMenuPresentation(
+            for: .postponed(deadline: deadline),
+            showSeconds: true,
+            warningLeadTime: 0,
+            now: now
+        )
+        XCTAssertFalse(disabled.isUrgent)
     }
 
     func testMenuActionsFollowTimerState() {

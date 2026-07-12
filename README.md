@@ -12,7 +12,7 @@ BreakGuard counts down focus time, warns before a break, and shows a full-screen
 it is time to look away. Everything stays on your Mac: there are no accounts, servers, analytics, or
 network requests.
 
-![BreakGuard menu-bar timer and menu](docs/images/breakguard-menu-bar.png)
+![BreakGuard menu-bar timer and menu](docs/images/breakguard-menu-bar.jpg)
 
 ## Quick Start
 

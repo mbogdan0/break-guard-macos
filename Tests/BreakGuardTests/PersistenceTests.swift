@@ -15,6 +15,7 @@ final class PersistenceTests: XCTestCase {
         let custom = try machine.addFocusTag(named: "Writing")
         machine.statistics.focusMinutesByTag[custom.id] = 120
         machine.statistics.skippedFocusMinutes = 45
+        machine.statistics.focusMinutesByDay = ["2026-07-11": 75, "2026-07-12": 30]
 
         store.save(machine.data)
         let loaded = try XCTUnwrap(store.load())
@@ -23,6 +24,7 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(loaded.focusTags, machine.focusTags)
         XCTAssertEqual(loaded.statistics.focusMinutesByTag[custom.id], 120)
         XCTAssertEqual(loaded.statistics.skippedFocusMinutes, 45)
+        XCTAssertEqual(loaded.statistics.focusMinutesByDay, ["2026-07-11": 75, "2026-07-12": 30])
     }
 
     func testSchemaV2MigratesKeepingEverythingButFocusCounters() throws {
@@ -67,7 +69,12 @@ final class PersistenceTests: XCTestCase {
         var object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
         var settings = try XCTUnwrap(object["settings"] as? [String: Any])
         settings.removeValue(forKey: "focusTagsEnabled")
+        settings.removeValue(forKey: "coarseSecondsInMenuBar")
+        settings.removeValue(forKey: "focusPace")
         object["settings"] = settings
+        var statistics = try XCTUnwrap(object["statistics"] as? [String: Any])
+        statistics.removeValue(forKey: "focusMinutesByDay")
+        object["statistics"] = statistics
         var runtime = try XCTUnwrap(object["runtime"] as? [String: Any])
         runtime.removeValue(forKey: "breakStartedAt")
         runtime.removeValue(forKey: "manualBreakOrigin")
@@ -76,8 +83,27 @@ final class PersistenceTests: XCTestCase {
 
         let loaded = try XCTUnwrap(store.load())
         XCTAssertTrue(loaded.settings.focusTagsEnabled)
+        XCTAssertFalse(loaded.settings.coarseSecondsInMenuBar)
+        XCTAssertEqual(loaded.settings.focusPace, .normal)
+        XCTAssertTrue(loaded.statistics.focusMinutesByDay.isEmpty)
         XCTAssertNil(loaded.runtime.breakStartedAt)
         XCTAssertNil(loaded.runtime.manualBreakOrigin)
+    }
+
+    func testUnknownFocusPaceFallsBackToNormal() throws {
+        let location = temporaryStateURL()
+        defer { try? FileManager.default.removeItem(at: location.deletingLastPathComponent()) }
+        let store = PersistenceStore(fileURL: location)
+
+        let encoded = try JSONEncoder.breakGuard.encode(StateMachine().data)
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        var settings = try XCTUnwrap(object["settings"] as? [String: Any])
+        settings["focusPace"] = "hyperdrive"
+        object["settings"] = settings
+        try JSONSerialization.data(withJSONObject: object).write(to: location)
+
+        let loaded = try XCTUnwrap(store.load())
+        XCTAssertEqual(loaded.settings.focusPace, .normal)
     }
 
     func testManualBreakOriginAndBreakStartRoundTrip() throws {

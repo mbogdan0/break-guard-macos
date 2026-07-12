@@ -14,8 +14,8 @@ struct StateMachine {
         self.focusTags = FocusTag.defaults
         self.statistics = statistics
         self.clock = clock
-        let warning = clock.now.addingTimeInterval(max(0, validated.workInterval - validated.warningLeadTime))
-        let deadline = clock.now.addingTimeInterval(validated.workInterval)
+        let warning = clock.now.addingTimeInterval(max(0, validated.effectiveWorkInterval - validated.warningLeadTime))
+        let deadline = clock.now.addingTimeInterval(validated.effectiveWorkInterval)
         self.runtime = RuntimeState(
             timerState: .working(deadline: deadline, warningDeadline: warning),
             cycleViolated: false,
@@ -90,17 +90,20 @@ struct StateMachine {
     mutating func completeBreak(classification: FocusClassification) {
         guard runtime.timerState == .breakCompleted else { return }
 
+        let minutes = creditedFocusMinutes()
         switch classification {
         case let .tag(id):
             guard focusTags.contains(where: { $0.id == id }) else { return }
-            statistics.focusMinutesByTag[id, default: 0] += creditedFocusMinutes()
+            statistics.focusMinutesByTag[id, default: 0] += minutes
         case .skipped:
-            statistics.skippedFocusMinutes += creditedFocusMinutes()
+            statistics.skippedFocusMinutes += minutes
         case .untracked:
             // Focus tags are disabled: the break still counts, but no
-            // focus minutes are credited anywhere.
+            // focus minutes are credited to a tag bucket.
             break
         }
+        // The daily total is tag-independent, so every completed break counts.
+        statistics.focusMinutesByDay[FocusDay.key(for: clock.now), default: 0] += minutes
 
         statistics.completedBreaks += 1
         statistics.lastCompletedBreakDate = clock.now
@@ -136,8 +139,8 @@ struct StateMachine {
         settings.clamp()
         runtime = RuntimeState(
             timerState: .working(
-                deadline: clock.now.addingTimeInterval(settings.workInterval),
-                warningDeadline: clock.now.addingTimeInterval(max(0, settings.workInterval - settings.warningLeadTime))
+                deadline: clock.now.addingTimeInterval(settings.effectiveWorkInterval),
+                warningDeadline: clock.now.addingTimeInterval(max(0, settings.effectiveWorkInterval - settings.warningLeadTime))
             ),
             cycleViolated: false,
             cyclePostponements: 0,
@@ -376,7 +379,7 @@ struct StateMachine {
     }
 
     private func creditedFocusMinutes() -> Int {
-        let duration = runtime.cycleFocusDuration ?? settings.workInterval
+        let duration = runtime.cycleFocusDuration ?? settings.effectiveWorkInterval
         return max(0, Int((duration / 60).rounded()))
     }
 

@@ -24,6 +24,14 @@ Actions that skip or silence rest — **Just Took a Break**, longer **Extend Foc
 
 **Take a Break Now** starts a manual break. Its overlay shows only **Cancel Break**, which restores the remaining focus time without recording the overlay time. A scheduled break instead shows the configured postpone actions and cannot be cancelled.
 
+<p align="center">
+  <img
+    src="images/breakguard-manual-break.png"
+    width="720"
+    alt="BreakGuard full-screen manual break countdown with a Cancel Break button"
+  >
+</p>
+
 **Just Took a Break** records rest that BreakGuard could not observe, such as time away for coffee. After confirmation, it starts a fresh work cycle without changing focus statistics or streaks.
 
 **Extend Focus** moves the current deadline by 15 minutes, 35 minutes, or 1 hour 5 minutes. Each menu option shows the resulting end time. Longer extensions require confirmation. Extended time counts as focus time but is not recorded as a postponement or streak violation.
