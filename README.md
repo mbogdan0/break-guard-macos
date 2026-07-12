@@ -14,6 +14,10 @@ network requests.
 
 ![BreakGuard menu-bar timer and menu](docs/images/breakguard-menu-bar.jpg)
 
+This is what the full-screen break looks like:
+
+![BreakGuard full-screen break countdown](docs/images/breakguard-manual-break.png)
+
 ## Quick Start
 
 On a new Mac, clone, validate, build, install, and launch BreakGuard with one Terminal command:
