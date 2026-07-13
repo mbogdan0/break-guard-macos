@@ -493,6 +493,8 @@ final class StateMachineTests: XCTestCase {
             return XCTFail("Expected working state")
         }
         XCTAssertEqual(deadline.timeIntervalSince(clock.now), 25 * 60, accuracy: 0.1)
+        // A short pause resumes in place and credits nothing.
+        XCTAssertEqual(machine.statistics, .empty)
     }
 
     func testPauseAtLeastBreakDurationStartsFreshCycle() {
@@ -516,8 +518,13 @@ final class StateMachineTests: XCTestCase {
         }
         XCTAssertEqual(deadline.timeIntervalSince(clock.now), 30 * 60, accuracy: 0.1)
         XCTAssertEqual(machine.runtime.cycleStartDate, clock.now)
-        XCTAssertEqual(machine.statistics, .empty)
         XCTAssertEqual(machine.runtime.cyclePostponements, 0)
+        // The 5 minutes of focus before the downtime are credited to the day
+        // they happened, but no break is counted for an arbitrary lock.
+        let dayKey = FocusDay.key(for: start.addingTimeInterval(5 * 60))
+        XCTAssertEqual(machine.statistics.focusMinutesByDay, [dayKey: 5])
+        XCTAssertEqual(machine.statistics.completedBreaks, 0)
+        XCTAssertEqual(machine.statistics.currentCleanStreak, 0)
     }
 
     func testLongSleepDuringBreakStartsFreshCycle() {
@@ -542,7 +549,12 @@ final class StateMachineTests: XCTestCase {
         }
         XCTAssertNil(machine.runtime.breakStartedAt)
         XCTAssertNil(machine.runtime.manualBreakOrigin)
-        XCTAssertEqual(machine.statistics, .empty)
+        // The sleep finished the break: it counts as completed and the focus
+        // captured at startBreak() is credited.
+        XCTAssertEqual(machine.statistics.completedBreaks, 1)
+        XCTAssertEqual(machine.statistics.currentCleanStreak, 1)
+        let dayKey = FocusDay.key(for: start.addingTimeInterval(10 * 60))
+        XCTAssertEqual(machine.statistics.focusMinutesByDay, [dayKey: 10])
     }
 
     func testDowntimeWithBreakDueResetsOnlyAfterLongPause() {
@@ -565,7 +577,8 @@ final class StateMachineTests: XCTestCase {
         XCTAssertEqual(machine.runtime.timerState, .breakDue)
         XCTAssertNil(machine.runtime.preservedAt)
 
-        // A long one counts as the break itself.
+        // A long one counts as the break itself: completed, with the focus
+        // up to the preservation moment (10.5 min, rounded) credited.
         machine.preserveForSleep()
         clock.now = clock.now.addingTimeInterval(2 * 60)
         machine.clock = clock
@@ -573,7 +586,9 @@ final class StateMachineTests: XCTestCase {
         guard case .working = machine.runtime.timerState else {
             return XCTFail("Expected working state")
         }
-        XCTAssertEqual(machine.statistics, .empty)
+        XCTAssertEqual(machine.statistics.completedBreaks, 1)
+        let dayKey = FocusDay.key(for: start.addingTimeInterval(10 * 60 + 30))
+        XCTAssertEqual(machine.statistics.focusMinutesByDay, [dayKey: 11])
     }
 
     func testInitFromPersistedDataAppliesLongPauseReset() {
@@ -843,6 +858,10 @@ final class StateMachineTests: XCTestCase {
         }
         XCTAssertEqual(deadline.timeIntervalSince(clock.now), 30 * 60, accuracy: 0.1)
         XCTAssertEqual(machine.runtime.cycleStartDate, clock.now)
+        // The 5 minutes of focus before the pause survive in the day total.
+        let dayKey = FocusDay.key(for: start.addingTimeInterval(5 * 60))
+        XCTAssertEqual(machine.statistics.focusMinutesByDay, [dayKey: 5])
+        XCTAssertEqual(machine.statistics.completedBreaks, 0)
     }
 
     func testTimedPauseSurvivesSleepWakeWhileActive() {
@@ -883,5 +902,74 @@ final class StateMachineTests: XCTestCase {
             return XCTFail("Expected working state")
         }
         XCTAssertEqual(deadline.timeIntervalSince(clock.now), 30 * 60, accuracy: 0.1)
+        // The pause started with no focus accumulated, so nothing is credited.
+        XCTAssertEqual(machine.statistics, .empty)
+    }
+
+    // The reported bug: the user rested through the break, walked away, the
+    // screen saver locked the screen, and unlocking after >= breakDuration
+    // used to discard the completion screen together with the whole cycle's
+    // focus. The rest is system-verified, so the break must count and the
+    // focus must be credited.
+    func testLongLockDuringBreakCompletedCountsBreakAndCreditsFocus() {
+        let start = Date(timeIntervalSince1970: 4_400)
+        var clock = FakeClock(now: start)
+        var settings = AppSettings.defaults
+        settings.workInterval = 30 * 60
+        settings.breakDuration = 2 * 60
+        var machine = StateMachine(settings: settings, clock: clock)
+
+        clock.now = start.addingTimeInterval(30 * 60)
+        machine.clock = clock
+        XCTAssertEqual(machine.tick(), .breakDue)
+        machine.startBreak()
+        clock.now = clock.now.addingTimeInterval(2 * 60)
+        machine.clock = clock
+        XCTAssertEqual(machine.tick(), .breakCompleted)
+
+        // Screen saver / lock engages on the completion screen…
+        machine.preserveForSleep()
+        clock.now = clock.now.addingTimeInterval(2 * 60 + 15)
+        machine.clock = clock
+        machine.restoreAfterSleep()
+
+        // …and unlocking starts a fresh cycle with everything credited.
+        guard case .working = machine.runtime.timerState else {
+            return XCTFail("Expected working state")
+        }
+        XCTAssertEqual(machine.runtime.cycleStartDate, clock.now)
+        XCTAssertEqual(machine.statistics.completedBreaks, 1)
+        XCTAssertEqual(machine.statistics.currentCleanStreak, 1)
+        XCTAssertEqual(machine.statistics.lastCompletedBreakDate, clock.now)
+        let dayKey = FocusDay.key(for: start.addingTimeInterval(30 * 60))
+        XCTAssertEqual(machine.statistics.focusMinutesByDay, [dayKey: 30])
+    }
+
+    func testExpiredTimedPauseCreditsFocusToPauseStartDay() {
+        // Anchor to real local-calendar days so the pause spans midnight.
+        let dayStart = Calendar.current.startOfDay(for: Date(timeIntervalSince1970: 200_000))
+        let start = dayStart.addingTimeInterval(12 * 3600) // noon
+        var clock = FakeClock(now: start)
+        var settings = AppSettings.defaults
+        settings.workInterval = 30 * 60
+        settings.breakDuration = 2 * 60
+        var machine = StateMachine(settings: settings, clock: clock)
+
+        // 25 minutes of focus, then "Pause Until 9 AM".
+        clock.now = start.addingTimeInterval(25 * 60)
+        machine.clock = clock
+        machine.suspend(until: dayStart.addingTimeInterval(33 * 3600))
+
+        // Waking the next morning after the end date starts a fresh cycle;
+        // the focus belongs to the day it happened, not the day of the wake.
+        clock.now = dayStart.addingTimeInterval(34 * 3600)
+        machine.clock = clock
+        machine.restoreAfterSleep()
+
+        guard case .working = machine.runtime.timerState else {
+            return XCTFail("Expected working state")
+        }
+        XCTAssertEqual(machine.statistics.focusMinutesByDay, [FocusDay.key(for: start): 25])
+        XCTAssertEqual(machine.statistics.completedBreaks, 0)
     }
 }

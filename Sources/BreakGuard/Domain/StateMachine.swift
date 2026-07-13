@@ -291,7 +291,7 @@ struct StateMachine {
         // the screen: start a fresh cycle instead of restoring the countdown.
         if let preservedAt = runtime.preservedAt,
            clock.now.timeIntervalSince(preservedAt) >= settings.breakDuration {
-            startWorkCycle()
+            finishCycleAfterVerifiedRest()
             return
         }
         // Paused time is not focus time: push the cycle start forward by the pause length.
@@ -337,16 +337,16 @@ struct StateMachine {
         // passed, the whole pause counted as rest, so a fresh cycle starts.
         if case let .suspended(_, _, until) = runtime.timerState, let until {
             if clock.now < until { return }
-            startWorkCycle()
+            finishCycleAfterVerifiedRest()
             return
         }
 
         // A pause at least as long as a break means the user certainly rested:
-        // start a fresh cycle as if a break just ended, recording nothing
-        // (same semantics as markBreakTaken).
+        // start a fresh cycle as if a break just ended, crediting the focus
+        // accumulated before the downtime so statistics do not lose it.
         if let preservedAt = runtime.preservedAt,
            clock.now.timeIntervalSince(preservedAt) >= settings.breakDuration {
-            startWorkCycle()
+            finishCycleAfterVerifiedRest()
             return
         }
 
@@ -376,6 +376,43 @@ struct StateMachine {
             runtime.preservedAt = nil
             runtime.preservedRemaining = nil
         }
+    }
+
+    // Downtime verified by the system (lock, sleep, screen saver, or an
+    // expired timed pause) lasted at least a break, so the cycle it
+    // interrupted ends here. The focus accumulated before the downtime is
+    // credited to the day it actually happened; when the downtime caught a
+    // break in progress or on its completion screen, the break itself also
+    // counts as completed — the user rested exactly as instructed and should
+    // not lose the break just because the screen locked before they returned
+    // to classify it.
+    private mutating func finishCycleAfterVerifiedRest() {
+        let focusEnd: Date
+        let focusDuration: TimeInterval
+        switch runtime.timerState {
+        case .breaking, .breakDue, .breakCompleted:
+            focusEnd = runtime.breakStartedAt ?? runtime.preservedAt ?? clock.now
+            focusDuration = runtime.cycleFocusDuration
+                ?? max(0, focusEnd.timeIntervalSince(runtime.cycleStartDate))
+            statistics.completedBreaks += 1
+            statistics.lastCompletedBreakDate = clock.now
+            if runtime.cycleViolated {
+                statistics.currentCleanStreak = 0
+            } else {
+                statistics.currentCleanStreak += 1
+                statistics.bestCleanStreak = max(statistics.bestCleanStreak, statistics.currentCleanStreak)
+            }
+        case .suspended, .working, .warning, .postponed:
+            focusEnd = runtime.preservedAt ?? clock.now
+            focusDuration = max(0, focusEnd.timeIntervalSince(runtime.cycleStartDate))
+        }
+        // No classification is available, so only the tag-independent daily
+        // total is credited (same as an .untracked completion).
+        let minutes = max(0, Int((focusDuration / 60).rounded()))
+        if minutes > 0 {
+            statistics.focusMinutesByDay[FocusDay.key(for: focusEnd), default: 0] += minutes
+        }
+        startWorkCycle()
     }
 
     private func creditedFocusMinutes() -> Int {

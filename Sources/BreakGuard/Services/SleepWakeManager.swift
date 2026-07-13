@@ -17,6 +17,13 @@ final class SleepWakeManager {
         let distributed = DistributedNotificationCenter.default()
         distributed.addObserver(self, selector: #selector(screenLocked), name: Notification.Name("com.apple.screenIsLocked"), object: nil)
         distributed.addObserver(self, selector: #selector(screenUnlocked), name: Notification.Name("com.apple.screenIsUnlocked"), object: nil)
+        // The screen saver can run before the lock engages (or with the
+        // password requirement disabled, without any lock at all); that time
+        // is rest, not focus, so it is treated exactly like a lock. When the
+        // lock follows the saver, preserveForSleep()/restoreAfterSleep() are
+        // idempotent, so the double fire is harmless.
+        distributed.addObserver(self, selector: #selector(screenSaverStarted), name: Notification.Name("com.apple.screensaver.didstart"), object: nil)
+        distributed.addObserver(self, selector: #selector(screenSaverStopped), name: Notification.Name("com.apple.screensaver.didstop"), object: nil)
     }
 
     @objc private func willSleep() { appState?.handleSleepOrInactive() }
@@ -25,5 +32,7 @@ final class SleepWakeManager {
     @objc private func sessionActive() { appState?.handleWakeOrActive() }
     @objc private func screenLocked() { appState?.handleSleepOrInactive() }
     @objc private func screenUnlocked() { appState?.handleWakeOrActive() }
+    @objc private func screenSaverStarted() { appState?.handleSleepOrInactive() }
+    @objc private func screenSaverStopped() { appState?.handleWakeOrActive() }
     @objc private func screensChanged() { appState?.startBreakIfDue() }
 }
