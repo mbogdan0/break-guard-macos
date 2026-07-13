@@ -44,7 +44,7 @@ struct WeeklyFocusSection: View {
         switch summary.comparison {
         case .noHistory:
             // A dayless, historyless row carries no signal worth a caption.
-            return summary.minutes > 0 ? "No other \(category) days recorded" : nil
+            return summary.minutes > 0 ? "Not enough \(category) days recorded to compare" : nil
         case let .delta(percent):
             if percent == 0 {
                 return "Matches your \(category) average"

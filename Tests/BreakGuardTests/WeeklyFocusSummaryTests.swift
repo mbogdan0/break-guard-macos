@@ -98,8 +98,26 @@ final class WeeklyFocusSummaryTests: XCTestCase {
         XCTAssertEqual(summaries[0].comparison, .noHistory)
     }
 
+    func testSingleBaselineDayIsNotEnoughForComparison() {
+        // One other weekend day is not an average yet.
+        let history = ["2026-07-12": 120, "2026-07-05": 100]
+        let summaries = makeWeeklyFocusSummary(minutesByDay: history, now: now, calendar: calendar)
+
+        XCTAssertEqual(summaries[0].comparison, .noHistory)
+    }
+
+    func testUntrackedDayGetsNoComparison() {
+        // Sat Jul 11 has no recorded focus time: comparing it would render
+        // as a meaningless "100% less".
+        let history = ["2026-07-12": 120, "2026-07-05": 100, "2026-07-04": 80]
+        let summaries = makeWeeklyFocusSummary(minutesByDay: history, now: now, calendar: calendar)
+
+        XCTAssertEqual(summaries[1].minutes, 0)
+        XCTAssertEqual(summaries[1].comparison, .noHistory)
+    }
+
     func testZeroBaselineYieldsNoComparison() {
-        let history = ["2026-07-12": 120, "2026-07-05": 0]
+        let history = ["2026-07-12": 120, "2026-07-05": 0, "2026-07-04": 0]
         let summaries = makeWeeklyFocusSummary(minutesByDay: history, now: now, calendar: calendar)
 
         XCTAssertEqual(summaries[0].comparison, .noHistory)

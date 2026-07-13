@@ -16,12 +16,17 @@ enum DayCategory: Equatable {
 
 // How a day's focus time relates to the user's history for its category.
 enum DayCategoryComparison: Equatable {
-    // No other recorded day falls into the same category.
+    // Not enough recorded days in the category for a meaningful average.
     case noHistory
     // Percent difference from the average of all other recorded days in the
     // same category: +10 means 10% more than a typical such day.
     case delta(percent: Int)
 }
+
+// A single-day baseline is not an average worth comparing against, and a
+// day without recorded focus time carries no signal — both read as noise
+// ("100% less than your weekend average" on an untracked Saturday).
+private let minimumBaselineDays = 2
 
 struct DailyFocusSummary: Equatable, Identifiable {
     // Start of the summarized day in the local calendar.
@@ -35,8 +40,10 @@ struct DailyFocusSummary: Equatable, Identifiable {
 
 // Summaries for the last 7 days (today first), each compared against the
 // average of all *other* recorded days in the same category (weekday or
-// weekend). Days absent from the history were simply not tracked, so they
-// never drag a category's average toward zero.
+// weekend). A comparison appears only once the day itself is recorded and
+// the baseline holds at least `minimumBaselineDays` days. Days absent from
+// the history were simply not tracked, so they never drag a category's
+// average toward zero.
 func makeWeeklyFocusSummary(
     minutesByDay: [String: Int],
     now: Date = Date(),
@@ -54,19 +61,19 @@ func makeWeeklyFocusSummary(
         let key = FocusDay.key(for: date, calendar: calendar)
         let category = DayCategory(date: date, calendar: calendar)
         let baseline = (minutesByCategory[category] ?? [:]).filter { $0.key != key }.values
+        let minutes = minutesByDay[key] ?? 0
         let comparison: DayCategoryComparison
-        if baseline.isEmpty {
+        if minutes == 0 || baseline.count < minimumBaselineDays {
             comparison = .noHistory
         } else {
             let average = Double(baseline.reduce(0, +)) / Double(baseline.count)
-            let minutes = minutesByDay[key] ?? 0
             comparison = average > 0
                 ? .delta(percent: Int(((Double(minutes) - average) / average * 100).rounded()))
                 : .noHistory
         }
         return DailyFocusSummary(
             date: date,
-            minutes: minutesByDay[key] ?? 0,
+            minutes: minutes,
             category: category,
             comparison: comparison
         )

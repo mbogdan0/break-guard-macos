@@ -51,6 +51,14 @@ struct GeneralSettingsView: View {
             }
         }
         .formStyle(.grouped)
+        .onAppear {
+            // SwiftUI gives initial key focus to the first text field (work
+            // interval), which opens the pane with its value selected for
+            // editing. Nothing should be focused until the user clicks.
+            DispatchQueue.main.async {
+                NSApp.keyWindow?.makeFirstResponder(nil)
+            }
+        }
     }
 
     private var focusPaceFooter: String {
