@@ -2,11 +2,13 @@ import XCTest
 @testable import BreakGuard
 
 final class WeeklyFocusSummaryTests: XCTestCase {
-    // Fixed calendar: the production default follows the user's time zone,
-    // which would make day boundaries and weekdays flaky.
+    // Fixed calendar and locale: the production default follows the user's
+    // time zone and locale, which would make day boundaries and the
+    // weekday/weekend split flaky.
     private let calendar: Calendar = {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: "UTC")!
+        calendar.locale = Locale(identifier: "en_US")
         return calendar
     }()
 
@@ -35,25 +37,52 @@ final class WeeklyFocusSummaryTests: XCTestCase {
         XCTAssertEqual(summaries[2].minutes, 45)
     }
 
-    func testDeltaComparesAgainstOtherSameWeekdayAverage() {
-        // Earlier Sundays averaged (100 + 200) / 2 = 150; today 210 → +40%.
-        // June 28 sits outside the 7-day window but still feeds the baseline.
+    func testDaysAreCategorizedAsWeekdayOrWeekend() {
+        let summaries = makeWeeklyFocusSummary(minutesByDay: [:], now: now, calendar: calendar)
+
+        XCTAssertEqual(summaries[0].category, .weekend) // Sun Jul 12
+        XCTAssertEqual(summaries[1].category, .weekend) // Sat Jul 11
+        XCTAssertEqual(summaries[2].category, .weekday) // Fri Jul 10
+        XCTAssertEqual(summaries[6].category, .weekday) // Mon Jul 6
+    }
+
+    func testWeekendDayComparesAgainstOtherWeekendDaysOnly() {
+        // Sunday Jul 12 compares against Sat Jul 11 and Sun Jul 5:
+        // (100 + 200) / 2 = 150; today 210 → +40%. The weekday Thu Jul 9
+        // must not feed the baseline.
         let history = [
             "2026-07-12": 210,
-            "2026-07-05": 100,
-            "2026-06-28": 200
+            "2026-07-11": 100,
+            "2026-07-05": 200,
+            "2026-07-09": 1000
         ]
         let summaries = makeWeeklyFocusSummary(minutesByDay: history, now: now, calendar: calendar)
 
         XCTAssertEqual(summaries[0].comparison, .delta(percent: 40))
     }
 
-    func testNegativeDeltaIsRounded() {
-        // 100 vs a 150 average → −33.3…% rounded to −33%.
+    func testWeekdayComparesAgainstAllOtherWeekdays() {
+        // Friday Jul 10 compares against Thu Jul 9 and Mon Jul 6 (mixed
+        // weekdays): (60 + 120) / 2 = 90; Friday 180 → +100%. Weekend days
+        // must not feed the baseline.
+        let history = [
+            "2026-07-10": 180,
+            "2026-07-09": 60,
+            "2026-07-06": 120,
+            "2026-07-11": 1000
+        ]
+        let summaries = makeWeeklyFocusSummary(minutesByDay: history, now: now, calendar: calendar)
+
+        XCTAssertEqual(summaries[2].comparison, .delta(percent: 100))
+    }
+
+    func testBaselineIncludesDaysOutsideTheWindow() {
+        // Sat Jun 27 sits outside the 7-day window but is still a weekend
+        // baseline day: (100 + 200) / 2 = 150; today 100 → −33.3…% → −33%.
         let history = [
             "2026-07-12": 100,
             "2026-07-05": 100,
-            "2026-06-28": 200
+            "2026-06-27": 200
         ]
         let summaries = makeWeeklyFocusSummary(minutesByDay: history, now: now, calendar: calendar)
 
@@ -61,8 +90,8 @@ final class WeeklyFocusSummaryTests: XCTestCase {
     }
 
     func testOwnDayIsExcludedFromItsBaseline() {
-        // The only recorded Sunday is the one being shown: no comparison,
-        // not a meaningless 0%.
+        // The only recorded weekend day is the one being shown: no
+        // comparison, not a meaningless 0%.
         let history = ["2026-07-12": 120]
         let summaries = makeWeeklyFocusSummary(minutesByDay: history, now: now, calendar: calendar)
 

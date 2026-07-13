@@ -1,7 +1,7 @@
 import SwiftUI
 
 // "Last 7 Days" section of the Statistics tab: one row per day with the
-// focus total and how it compares to the user's average for that weekday.
+// focus total and how it compares to the user's weekday or weekend average.
 struct WeeklyFocusSection: View {
     let summaries: [DailyFocusSummary]
 
@@ -13,7 +13,7 @@ struct WeeklyFocusSection: View {
         } header: {
             Text("Last 7 Days")
         } footer: {
-            Text("Each day is compared with your average for that weekday across all recorded days.")
+            Text("Weekdays are compared with your weekday average, weekend days with your weekend average, across all recorded days.")
                 .foregroundStyle(.secondary)
         }
     }
@@ -40,17 +40,17 @@ struct WeeklyFocusSection: View {
     }
 
     private func comparisonCaption(for summary: DailyFocusSummary) -> String? {
-        let weekday = summary.date.formatted(.dateTime.weekday(.wide))
+        let category = summary.category.title
         switch summary.comparison {
         case .noHistory:
             // A dayless, historyless row carries no signal worth a caption.
-            return summary.minutes > 0 ? "No previous \(weekday)s recorded" : nil
+            return summary.minutes > 0 ? "No other \(category) days recorded" : nil
         case let .delta(percent):
             if percent == 0 {
-                return "Matches your \(weekday) average"
+                return "Matches your \(category) average"
             }
             let direction = percent > 0 ? "more" : "less"
-            return "\(abs(percent))% \(direction) than your \(weekday) average"
+            return "\(abs(percent))% \(direction) than your \(category) average"
         }
     }
 }

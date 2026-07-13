@@ -1,11 +1,25 @@
 import Foundation
 
-// How a day's focus time relates to the user's history for that weekday.
-enum WeekdayComparison: Equatable {
-    // No other recorded day falls on the same weekday.
+// Days are compared within two categories: workweek days against other
+// workweek days, weekend days against other weekend days. The split follows
+// the calendar's locale-aware notion of a weekend (Sat/Sun in most locales).
+enum DayCategory: Equatable {
+    case weekday
+    case weekend
+
+    init(date: Date, calendar: Calendar) {
+        self = calendar.isDateInWeekend(date) ? .weekend : .weekday
+    }
+
+    var title: String { self == .weekend ? "weekend" : "weekday" }
+}
+
+// How a day's focus time relates to the user's history for its category.
+enum DayCategoryComparison: Equatable {
+    // No other recorded day falls into the same category.
     case noHistory
-    // Percent difference from the average of all other recorded same-weekday
-    // days: +10 means 10% more than a typical such day.
+    // Percent difference from the average of all other recorded days in the
+    // same category: +10 means 10% more than a typical such day.
     case delta(percent: Int)
 }
 
@@ -13,33 +27,34 @@ struct DailyFocusSummary: Equatable, Identifiable {
     // Start of the summarized day in the local calendar.
     let date: Date
     let minutes: Int
-    let comparison: WeekdayComparison
+    let category: DayCategory
+    let comparison: DayCategoryComparison
 
     var id: Date { date }
 }
 
 // Summaries for the last 7 days (today first), each compared against the
-// average of all *other* recorded days that fall on the same weekday. Days
-// absent from the history were simply not tracked, so they never drag a
-// weekday's average toward zero.
+// average of all *other* recorded days in the same category (weekday or
+// weekend). Days absent from the history were simply not tracked, so they
+// never drag a category's average toward zero.
 func makeWeeklyFocusSummary(
     minutesByDay: [String: Int],
     now: Date = Date(),
     calendar: Calendar = .current
 ) -> [DailyFocusSummary] {
-    var minutesByWeekday: [Int: [String: Int]] = [:]
+    var minutesByCategory: [DayCategory: [String: Int]] = [:]
     for (key, minutes) in minutesByDay {
         guard let date = FocusDay.date(fromKey: key, calendar: calendar) else { continue }
-        minutesByWeekday[calendar.component(.weekday, from: date), default: [:]][key] = minutes
+        minutesByCategory[DayCategory(date: date, calendar: calendar), default: [:]][key] = minutes
     }
 
     let today = calendar.startOfDay(for: now)
     return (0..<7).compactMap { offset in
         guard let date = calendar.date(byAdding: .day, value: -offset, to: today) else { return nil }
         let key = FocusDay.key(for: date, calendar: calendar)
-        let sameWeekday = minutesByWeekday[calendar.component(.weekday, from: date)] ?? [:]
-        let baseline = sameWeekday.filter { $0.key != key }.values
-        let comparison: WeekdayComparison
+        let category = DayCategory(date: date, calendar: calendar)
+        let baseline = (minutesByCategory[category] ?? [:]).filter { $0.key != key }.values
+        let comparison: DayCategoryComparison
         if baseline.isEmpty {
             comparison = .noHistory
         } else {
@@ -52,6 +67,7 @@ func makeWeeklyFocusSummary(
         return DailyFocusSummary(
             date: date,
             minutes: minutesByDay[key] ?? 0,
+            category: category,
             comparison: comparison
         )
     }

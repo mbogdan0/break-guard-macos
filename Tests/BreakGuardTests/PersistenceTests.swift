@@ -27,83 +27,15 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(loaded.statistics.focusMinutesByDay, ["2026-07-11": 75, "2026-07-12": 30])
     }
 
-    func testSchemaV2MigratesKeepingEverythingButFocusCounters() throws {
+    func testOlderSchemaIsRejected() throws {
         let location = temporaryStateURL()
         defer { try? FileManager.default.removeItem(at: location.deletingLastPathComponent()) }
         let store = PersistenceStore(fileURL: location)
-        var machine = StateMachine()
-        machine.statistics.currentCleanStreak = 4
-        machine.statistics.bestCleanStreak = 6
-        machine.statistics.completedBreaks = 9
+        var data = StateMachine().data
+        data.schemaVersion = PersistedAppData.currentSchemaVersion - 1
+        store.save(data)
 
-        // Rewrite the payload into schema-2 shape: session counters instead of minutes.
-        let encoded = try JSONEncoder.breakGuard.encode(machine.data)
-        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
-        object["schemaVersion"] = 2
-        var statistics = try XCTUnwrap(object["statistics"] as? [String: Any])
-        statistics.removeValue(forKey: "focusMinutesByTag")
-        statistics.removeValue(forKey: "skippedFocusMinutes")
-        statistics["focusSessionsByTag"] = ["work": 5]
-        statistics["skippedFocusSessions"] = 2
-        object["statistics"] = statistics
-        try JSONSerialization.data(withJSONObject: object).write(to: location)
-
-        let loaded = try XCTUnwrap(store.load())
-        XCTAssertEqual(loaded.schemaVersion, PersistedAppData.currentSchemaVersion)
-        XCTAssertTrue(loaded.statistics.focusMinutesByTag.isEmpty)
-        XCTAssertEqual(loaded.statistics.skippedFocusMinutes, 0)
-        XCTAssertEqual(loaded.statistics.currentCleanStreak, 4)
-        XCTAssertEqual(loaded.statistics.bestCleanStreak, 6)
-        XCTAssertEqual(loaded.statistics.completedBreaks, 9)
-        XCTAssertEqual(loaded.settings, machine.settings)
-        XCTAssertEqual(loaded.focusTags, machine.focusTags)
-    }
-
-    func testSchema3WithoutNewFieldsStillLoads() throws {
-        let location = temporaryStateURL()
-        defer { try? FileManager.default.removeItem(at: location.deletingLastPathComponent()) }
-        let store = PersistenceStore(fileURL: location)
-
-        // Rewrite the payload into the pre-focusTagsEnabled schema-3 shape.
-        let encoded = try JSONEncoder.breakGuard.encode(StateMachine().data)
-        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
-        var settings = try XCTUnwrap(object["settings"] as? [String: Any])
-        settings.removeValue(forKey: "focusTagsEnabled")
-        settings.removeValue(forKey: "coarseSecondsInMenuBar")
-        settings.removeValue(forKey: "focusPace")
-        object["settings"] = settings
-        var statistics = try XCTUnwrap(object["statistics"] as? [String: Any])
-        statistics.removeValue(forKey: "focusMinutesByDay")
-        object["statistics"] = statistics
-        var runtime = try XCTUnwrap(object["runtime"] as? [String: Any])
-        runtime.removeValue(forKey: "breakStartedAt")
-        runtime.removeValue(forKey: "manualBreakOrigin")
-        object["runtime"] = runtime
-        try JSONSerialization.data(withJSONObject: object).write(to: location)
-
-        let loaded = try XCTUnwrap(store.load())
-        XCTAssertTrue(loaded.settings.focusTagsEnabled)
-        XCTAssertFalse(loaded.settings.coarseSecondsInMenuBar)
-        XCTAssertEqual(loaded.settings.focusPace, .normal)
-        XCTAssertTrue(loaded.statistics.focusMinutesByDay.isEmpty)
-        XCTAssertNil(loaded.runtime.breakStartedAt)
-        XCTAssertNil(loaded.runtime.manualBreakOrigin)
-    }
-
-    func testUnknownFocusPaceFallsBackToNormal() throws {
-        let location = temporaryStateURL()
-        defer { try? FileManager.default.removeItem(at: location.deletingLastPathComponent()) }
-        let store = PersistenceStore(fileURL: location)
-
-        let encoded = try JSONEncoder.breakGuard.encode(StateMachine().data)
-        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
-        var settings = try XCTUnwrap(object["settings"] as? [String: Any])
-        settings["focusPace"] = "hyperdrive"
-        object["settings"] = settings
-        try JSONSerialization.data(withJSONObject: object).write(to: location)
-
-        let loaded = try XCTUnwrap(store.load())
-        XCTAssertEqual(loaded.settings.focusPace, .normal)
+        XCTAssertNil(store.load())
     }
 
     func testManualBreakOriginAndBreakStartRoundTrip() throws {
