@@ -36,7 +36,7 @@ Line Tools. Approve it, wait for the installation to finish, and run the same co
 
 ## Highlights
 
-- Configurable focus and break intervals
+- Configurable focus and break intervals, precise to the second
 - Full-screen break overlays on every connected display
 - Early breaks, planned focus extensions, and controlled postponements
 - Pause until 9 AM for the rest of the day, surviving sleep and relaunch

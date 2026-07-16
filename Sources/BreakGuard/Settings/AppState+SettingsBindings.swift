@@ -15,16 +15,16 @@ extension AppState {
         )
     }
 
-    func minuteBinding(
+    func secondsBinding(
         _ keyPath: WritableKeyPath<AppSettings, TimeInterval>,
         range: ClosedRange<Int>
     ) -> Binding<Int> {
         Binding(
-            get: { Int(self.settings[keyPath: keyPath] / 60) },
+            get: { Int(self.settings[keyPath: keyPath].rounded()) },
             set: { newValue in
                 var updated = self.settings
                 let clamped = min(max(newValue, range.lowerBound), range.upperBound)
-                updated[keyPath: keyPath] = TimeInterval(clamped * 60)
+                updated[keyPath: keyPath] = TimeInterval(clamped)
                 self.updateSettings(updated)
             }
         )

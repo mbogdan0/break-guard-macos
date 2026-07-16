@@ -52,7 +52,7 @@ Settings contains four tabs:
   >
 </p>
 
-- **General** controls work and break timing, postponement durations, and whether menu-bar seconds are shown.
+- **General** controls work and break timing, postponement durations, and whether menu-bar seconds are shown. Every duration is entered as `minutes:seconds` — `2:30` is two and a half minutes, and a plain number means minutes. The stepper nudges by a minute and leaves the seconds alone. The shortest interval is 30 seconds; a warning lead time of `0:00` disables the warning.
 - **Focus Tags** enables classification after breaks and manages the tag catalog. `Work` and `Study` are provided by default.
 - **System** controls notification sound, tests notification delivery, and manages launch at login.
 - **Statistics** shows focused minutes by tag, skipped time, streaks, and break history, and includes a confirmed reset action.

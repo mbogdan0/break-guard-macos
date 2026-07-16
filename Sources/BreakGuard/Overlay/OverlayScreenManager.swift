@@ -300,9 +300,9 @@ struct BreakOverlayView: View {
 
     private func postponeButton(_ duration: TimeInterval) -> some View {
         Button {
-            appState.postpone(minutes: duration / 60)
+            appState.postpone(seconds: duration)
         } label: {
-            Text("Postpone for \(Int(duration / 60)) minutes")
+            Text("Postpone for \(formatDurationPhrase(duration))")
                 .font(.system(size: 18, weight: .medium))
                 .frame(maxWidth: .infinity, minHeight: 40)
         }

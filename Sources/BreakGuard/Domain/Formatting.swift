@@ -24,3 +24,60 @@ func formatMinutes(_ minutes: Int) -> String {
     }
     return "\(clamped) min"
 }
+
+// Spoken duration for overlay buttons and settings footers. Hours matter here:
+// the deep-focus pace scales a 240-minute interval up to 288.
+func formatDurationPhrase(_ interval: TimeInterval) -> String {
+    let total = max(0, Int(interval.rounded()))
+    let units: [(count: Int, name: String)] = [
+        (total / 3600, "hour"),
+        (total % 3600 / 60, "minute"),
+        (total % 60, "second")
+    ]
+    let parts = units
+        .filter { $0.count > 0 }
+        .map { "\($0.count) \($0.name)\($0.count == 1 ? "" : "s")" }
+    return parts.isEmpty ? "0 seconds" : parts.joined(separator: " ")
+}
+
+// mm:ss entry for the settings timing fields. A bare number keeps the old
+// minutes-only habit working: "30" is 30 minutes, "0:30" is 30 seconds.
+struct DurationFieldStyle: ParseableFormatStyle {
+    var parseStrategy: DurationFieldStrategy { DurationFieldStrategy() }
+
+    func format(_ value: Int) -> String {
+        let seconds = max(0, value)
+        return String(format: "%d:%02d", seconds / 60, seconds % 60)
+    }
+}
+
+struct DurationFieldStrategy: ParseStrategy {
+    func parse(_ value: String) throws -> Int {
+        guard let seconds = parseDurationField(value) else {
+            throw DurationFieldError.invalid
+        }
+        return seconds
+    }
+}
+
+enum DurationFieldError: Error {
+    case invalid
+}
+
+func parseDurationField(_ text: String) -> Int? {
+    let trimmed = text.trimmingCharacters(in: .whitespaces)
+    let parts = trimmed.split(separator: ":", omittingEmptySubsequences: false)
+    switch parts.count {
+    case 1:
+        guard let minutes = Int(parts[0]), minutes >= 0 else { return nil }
+        return minutes * 60
+    case 2:
+        guard let minutes = Int(parts[0]), minutes >= 0,
+              parts[1].count <= 2, let seconds = Int(parts[1]),
+              (0...59).contains(seconds)
+        else { return nil }
+        return minutes * 60 + seconds
+    default:
+        return nil
+    }
+}

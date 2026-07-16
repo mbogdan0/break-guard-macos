@@ -165,9 +165,9 @@ final class AppState: ObservableObject {
         publishAndReconcile()
     }
 
-    func postpone(minutes: Double) {
-        machine.postpone(by: minutes * 60)
-        logger.info("Postponed for \(minutes, privacy: .public) minutes")
+    func postpone(seconds: TimeInterval) {
+        machine.postpone(by: seconds)
+        logger.info("Postponed for \(seconds, privacy: .public) seconds")
         publishAndReconcile()
     }
 

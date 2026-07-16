@@ -5,10 +5,15 @@ struct GeneralSettingsView: View {
 
     var body: some View {
         Form {
-            Section("Timing") {
-                minuteRow("Work interval", keyPath: \.workInterval, range: 1...240)
-                minuteRow("Break duration", keyPath: \.breakDuration, range: 1...60)
-                minuteRow("Warning lead time", keyPath: \.warningLeadTime, range: 0...30)
+            Section {
+                durationRow("Work interval", keyPath: \.workInterval, range: SettingsRange.workInterval)
+                durationRow("Break duration", keyPath: \.breakDuration, range: SettingsRange.breakDuration)
+                durationRow("Warning lead time", keyPath: \.warningLeadTime, range: SettingsRange.warningLeadTime)
+            } header: {
+                Text("Timing")
+            } footer: {
+                Text("Durations are minutes:seconds — 2:30 is two and a half minutes. A plain number means minutes.")
+                    .foregroundStyle(.secondary)
             }
 
             Section {
@@ -26,8 +31,16 @@ struct GeneralSettingsView: View {
             }
 
             Section("Postponement") {
-                minuteRow("First postponement", keyPath: \.firstPostponeDuration, range: 1...120)
-                minuteRow("Second postponement", keyPath: \.secondPostponeDuration, range: 1...120)
+                durationRow(
+                    "First postponement",
+                    keyPath: \.firstPostponeDuration,
+                    range: SettingsRange.postponeDuration
+                )
+                durationRow(
+                    "Second postponement",
+                    keyPath: \.secondPostponeDuration,
+                    range: SettingsRange.postponeDuration
+                )
             }
 
             Section {
@@ -63,7 +76,7 @@ struct GeneralSettingsView: View {
 
     private var focusPaceFooter: String {
         let settings = appState.settings
-        let effective = formatMinutes(Int(settings.effectiveWorkInterval / 60))
+        let effective = formatDurationPhrase(settings.effectiveWorkInterval)
         let pace: String
         switch settings.focusPace {
         case .normal:
@@ -76,21 +89,21 @@ struct GeneralSettingsView: View {
         return pace + " Takes effect from the next cycle."
     }
 
-    private func minuteRow(
+    // The stepper nudges by a minute and leaves the seconds component alone;
+    // the field is where an exact value gets typed.
+    private func durationRow(
         _ title: String,
         keyPath: WritableKeyPath<AppSettings, TimeInterval>,
         range: ClosedRange<Int>
     ) -> some View {
-        let binding = appState.minuteBinding(keyPath, range: range)
+        let binding = appState.secondsBinding(keyPath, range: range)
         return LabeledContent(title) {
             HStack(spacing: 6) {
-                TextField(title, value: binding, format: .number)
+                TextField(title, value: binding, format: DurationFieldStyle())
                     .labelsHidden()
                     .multilineTextAlignment(.trailing)
-                    .frame(width: 52)
-                Text("min")
-                    .foregroundStyle(.secondary)
-                Stepper(title, value: binding, in: range)
+                    .frame(width: 64)
+                Stepper(title, value: binding, in: range, step: 60)
                     .labelsHidden()
             }
         }
