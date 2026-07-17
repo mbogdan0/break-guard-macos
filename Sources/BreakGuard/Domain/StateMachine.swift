@@ -6,6 +6,10 @@ struct StateMachine {
     var runtime: RuntimeState
     var clock: TimeProvider
 
+    // A gap this long without focus means the workday ended: the tapering
+    // session counter starts over and sessions run at full length again.
+    static let taperingResetGap: TimeInterval = 6 * 60 * 60
+
     init(settings: AppSettings = .defaults, statistics: Statistics = .empty, clock: TimeProvider = SystemClock()) {
         var validated = settings
         validated.clamp()
@@ -24,7 +28,8 @@ struct StateMachine {
             preservedRemaining: nil,
             cycleFocusDuration: nil,
             breakStartedAt: nil,
-            manualBreakOrigin: nil
+            manualBreakOrigin: nil,
+            completedFocusSessions: 0
         )
     }
 
@@ -101,10 +106,21 @@ struct StateMachine {
 
     mutating func startWorkCycle() {
         settings.clamp()
+        // The cycle being closed counts toward tapering unless the last focus
+        // activity ended long enough ago that the workday started over.
+        let lastFocusActivity = runtime.breakStartedAt ?? runtime.preservedAt
+        let sessions: Int
+        if let lastFocusActivity,
+           clock.now.timeIntervalSince(lastFocusActivity) >= Self.taperingResetGap {
+            sessions = 0
+        } else {
+            sessions = runtime.completedFocusSessions + 1
+        }
+        let interval = settings.effectiveWorkInterval(sessionsCompleted: sessions)
         runtime = RuntimeState(
             timerState: .working(
-                deadline: clock.now.addingTimeInterval(settings.effectiveWorkInterval),
-                warningDeadline: clock.now.addingTimeInterval(max(0, settings.effectiveWorkInterval - settings.warningLeadTime))
+                deadline: clock.now.addingTimeInterval(interval),
+                warningDeadline: clock.now.addingTimeInterval(max(0, interval - settings.warningLeadTime))
             ),
             cycleViolated: false,
             cyclePostponements: 0,
@@ -114,7 +130,8 @@ struct StateMachine {
             preservedRemaining: nil,
             cycleFocusDuration: nil,
             breakStartedAt: nil,
-            manualBreakOrigin: nil
+            manualBreakOrigin: nil,
+            completedFocusSessions: sessions
         )
     }
 
@@ -335,6 +352,10 @@ struct StateMachine {
             // a break's worth of time, the downtime counts as a taken break.
             if runtime.preservedAt == nil,
                clock.now.timeIntervalSince(deadline) >= settings.breakDuration {
+                // Without a preserved timestamp the stale deadline is the best
+                // available end of the last focus; recording it lets
+                // startWorkCycle() reset tapering after a long-dead deadline.
+                runtime.preservedAt = deadline
                 startWorkCycle()
             }
         case .breakDue, .breakCompleted:
@@ -380,7 +401,8 @@ struct StateMachine {
     }
 
     private func creditedFocusMinutes() -> Int {
-        let duration = runtime.cycleFocusDuration ?? settings.effectiveWorkInterval
+        let duration = runtime.cycleFocusDuration
+            ?? settings.effectiveWorkInterval(sessionsCompleted: runtime.completedFocusSessions)
         return max(0, Int((duration / 60).rounded()))
     }
 

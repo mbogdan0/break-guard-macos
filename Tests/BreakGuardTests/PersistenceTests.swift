@@ -62,6 +62,7 @@ final class PersistenceTests: XCTestCase {
         var object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
         var runtime = try XCTUnwrap(object["runtime"] as? [String: Any])
         runtime.removeValue(forKey: "focusExtended")
+        runtime.removeValue(forKey: "completedFocusSessions")
         object["runtime"] = runtime
         var settings = try XCTUnwrap(object["settings"] as? [String: Any])
         settings.removeValue(forKey: "workingHoursEnabled")
@@ -75,6 +76,7 @@ final class PersistenceTests: XCTestCase {
 
         let loaded = try XCTUnwrap(store.load())
         XCTAssertFalse(loaded.runtime.focusExtended)
+        XCTAssertEqual(loaded.runtime.completedFocusSessions, 0)
         XCTAssertFalse(loaded.settings.workingHoursEnabled)
         XCTAssertEqual(loaded.settings.weekdayWorkingHours, WorkingHoursRange(enabled: true))
         XCTAssertEqual(loaded.settings.weekendWorkingHours, WorkingHoursRange(enabled: false))
@@ -91,11 +93,13 @@ final class PersistenceTests: XCTestCase {
         machine.settings.weekdayWorkingHours = WorkingHoursRange(
             enabled: true, startMinutes: 11 * 60, endMinutes: 19 * 60
         )
+        machine.runtime.completedFocusSessions = 5
 
         store.save(machine.data)
         let loaded = try XCTUnwrap(store.load())
 
         XCTAssertTrue(loaded.runtime.focusExtended)
+        XCTAssertEqual(loaded.runtime.completedFocusSessions, 5)
         XCTAssertTrue(loaded.settings.workingHoursEnabled)
         XCTAssertEqual(loaded.settings.weekdayWorkingHours.startMinutes, 11 * 60)
         XCTAssertEqual(loaded.settings.weekdayWorkingHours.endMinutes, 19 * 60)

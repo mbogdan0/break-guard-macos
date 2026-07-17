@@ -7,21 +7,37 @@ enum FocusPace: String, Codable, CaseIterable {
     case moreBreaks
     case normal
     case deepFocus
+    case tapering
 
     var title: String {
         switch self {
         case .moreBreaks: return "More Breaks"
         case .normal: return "Normal"
         case .deepFocus: return "Deep Focus"
+        case .tapering: return "Tapering"
         }
     }
 
     var workIntervalMultiplier: Double {
         switch self {
         case .moreBreaks: return 0.8
-        case .normal: return 1.0
+        case .normal, .tapering: return 1.0
         case .deepFocus: return 1.2
         }
+    }
+
+    // Tapering shortens each successive focus session as fatigue accumulates.
+    // A Gaussian falloff toward a floor keeps the first sessions near full
+    // length, drops fastest mid-day, and levels off instead of collapsing:
+    // for a 30-minute interval, session 17 (8h in) runs ~22 minutes and the
+    // curve bottoms out at ~19:30.
+    static let taperingFloor = 0.65
+    static let taperingTau = 13.0
+
+    static func taperingMultiplier(sessionsCompleted: Int) -> Double {
+        let n = Double(max(0, sessionsCompleted))
+        let x = n / taperingTau
+        return taperingFloor + (1 - taperingFloor) * exp(-x * x)
     }
 }
 
@@ -54,6 +70,13 @@ struct AppSettings: Codable, Equatable {
     // The interval a new work cycle actually runs for.
     var effectiveWorkInterval: TimeInterval {
         workInterval * focusPace.workIntervalMultiplier
+    }
+
+    // Session-aware variant: in tapering mode the interval shrinks with each
+    // completed session since the last long rest.
+    func effectiveWorkInterval(sessionsCompleted: Int) -> TimeInterval {
+        guard focusPace == .tapering else { return effectiveWorkInterval }
+        return effectiveWorkInterval * FocusPace.taperingMultiplier(sessionsCompleted: sessionsCompleted)
     }
 
     mutating func clamp() {

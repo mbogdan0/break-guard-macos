@@ -25,17 +25,21 @@ struct RuntimeState: Codable, Equatable {
     // When the current/most recent break started; drives the completion count-up.
     var breakStartedAt: Date?
     var manualBreakOrigin: ManualBreakOrigin?
+    // Focus sessions completed since the last 6+ hour gap; drives the
+    // tapering pace. 0 means the current session runs at full length.
+    var completedFocusSessions: Int
 }
 
-// focusExtended was added after schema 3 shipped. Older files lack the key,
-// and a plain synthesized decode would reject them — discarding all user
-// statistics — so the decoder falls back to false instead. The init lives in
-// an extension to keep the memberwise initializer.
+// focusExtended and completedFocusSessions were added after schema 3 shipped.
+// Older files lack the keys, and a plain synthesized decode would reject them
+// — discarding all user statistics — so the decoder falls back to defaults
+// instead. The init lives in an extension to keep the memberwise initializer.
 extension RuntimeState {
     private enum CodingKeys: String, CodingKey {
         case timerState, cycleViolated, cyclePostponements, focusExtended,
              cycleStartDate, preservedAt, preservedRemaining,
-             cycleFocusDuration, breakStartedAt, manualBreakOrigin
+             cycleFocusDuration, breakStartedAt, manualBreakOrigin,
+             completedFocusSessions
     }
 
     init(from decoder: Decoder) throws {
@@ -50,6 +54,7 @@ extension RuntimeState {
         cycleFocusDuration = try container.decodeIfPresent(TimeInterval.self, forKey: .cycleFocusDuration)
         breakStartedAt = try container.decodeIfPresent(Date.self, forKey: .breakStartedAt)
         manualBreakOrigin = try container.decodeIfPresent(ManualBreakOrigin.self, forKey: .manualBreakOrigin)
+        completedFocusSessions = try container.decodeIfPresent(Int.self, forKey: .completedFocusSessions) ?? 0
     }
 }
 

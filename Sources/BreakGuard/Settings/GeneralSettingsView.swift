@@ -85,6 +85,14 @@ struct GeneralSettingsView: View {
             pace = "Work interval −20%: \(effective)."
         case .deepFocus:
             pace = "Work interval +20%: \(effective)."
+        case .tapering:
+            let after8h = formatDurationPhrase(
+                settings.workInterval * FocusPace.taperingMultiplier(sessionsCompleted: 16)
+            )
+            let floor = formatDurationPhrase(settings.workInterval * FocusPace.taperingFloor)
+            pace = "Each focus gets a little shorter as the day goes on: "
+                + "\(effective) shrinks to about \(after8h) after 16 sessions, "
+                + "leveling off near \(floor). A 6+ hour pause starts the day over."
         }
         return pace + " Takes effect from the next cycle."
     }

@@ -93,4 +93,42 @@ final class AppSettingsTests: XCTestCase {
         settings.clamp()
         XCTAssertEqual(settings, AppSettings.defaults)
     }
+
+    func testTaperingMultiplierCurveShape() {
+        // First session at full length; ~27% down after 16 sessions (a 30-min
+        // interval lands near 22 minutes); ~32% down after 20; floored at 65%.
+        XCTAssertEqual(FocusPace.taperingMultiplier(sessionsCompleted: 0), 1.0)
+        XCTAssertEqual(FocusPace.taperingMultiplier(sessionsCompleted: 16), 0.727, accuracy: 0.01)
+        XCTAssertEqual(FocusPace.taperingMultiplier(sessionsCompleted: 20), 0.683, accuracy: 0.01)
+
+        var previous = FocusPace.taperingMultiplier(sessionsCompleted: 0)
+        for n in 1...60 {
+            let current = FocusPace.taperingMultiplier(sessionsCompleted: n)
+            XCTAssertLessThanOrEqual(current, previous, "not monotonic at n=\(n)")
+            XCTAssertGreaterThanOrEqual(current, FocusPace.taperingFloor)
+            previous = current
+        }
+
+        // The early decline is gentle: the second session loses only seconds.
+        let secondSessionLoss = 30 * 60 * (1 - FocusPace.taperingMultiplier(sessionsCompleted: 1))
+        XCTAssertLessThan(secondSessionLoss, 15)
+    }
+
+    func testSessionAwareIntervalAppliesOnlyToTapering() {
+        var settings = AppSettings.defaults
+        settings.workInterval = 30 * 60
+
+        settings.focusPace = .normal
+        XCTAssertEqual(settings.effectiveWorkInterval(sessionsCompleted: 16), 30 * 60)
+        settings.focusPace = .deepFocus
+        XCTAssertEqual(settings.effectiveWorkInterval(sessionsCompleted: 16), 36 * 60)
+
+        settings.focusPace = .tapering
+        XCTAssertEqual(settings.effectiveWorkInterval(sessionsCompleted: 0), 30 * 60)
+        XCTAssertEqual(
+            settings.effectiveWorkInterval(sessionsCompleted: 16),
+            30 * 60 * FocusPace.taperingMultiplier(sessionsCompleted: 16),
+            accuracy: 0.001
+        )
+    }
 }

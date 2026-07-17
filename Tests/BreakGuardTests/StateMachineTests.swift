@@ -907,4 +907,167 @@ final class StateMachineTests: XCTestCase {
         XCTAssertEqual(machine.statistics.focusMinutesByDay, [FocusDay.key(for: start): 25])
         XCTAssertEqual(machine.statistics.completedBreaks, 0)
     }
+
+    // Runs one full focus-break cycle on a machine whose deadline is due now.
+    private func completeCycle(_ machine: inout StateMachine, _ clock: inout FakeClock) {
+        machine.runtime.timerState = .breakDue
+        machine.startBreak()
+        clock.now = clock.now.addingTimeInterval(machine.settings.breakDuration + 1)
+        machine.clock = clock
+        XCTAssertEqual(machine.tick(), .breakCompleted)
+        machine.completeBreak()
+    }
+
+    func testTaperingShortensSuccessiveCycles() {
+        let start = Date(timeIntervalSince1970: 5_000)
+        var clock = FakeClock(now: start)
+        var settings = AppSettings.defaults
+        settings.workInterval = 30 * 60
+        settings.breakDuration = 2 * 60
+        settings.focusPace = .tapering
+        var machine = StateMachine(settings: settings, clock: clock)
+
+        // The first session runs at full length.
+        guard case let .working(firstDeadline, _) = machine.runtime.timerState else {
+            return XCTFail("Expected working state")
+        }
+        XCTAssertEqual(firstDeadline, start.addingTimeInterval(30 * 60))
+        XCTAssertEqual(machine.runtime.completedFocusSessions, 0)
+
+        clock.now = firstDeadline
+        machine.clock = clock
+        completeCycle(&machine, &clock)
+
+        XCTAssertEqual(machine.runtime.completedFocusSessions, 1)
+        guard case let .working(secondDeadline, _) = machine.runtime.timerState else {
+            return XCTFail("Expected working state")
+        }
+        let expected = 30 * 60 * FocusPace.taperingMultiplier(sessionsCompleted: 1)
+        XCTAssertEqual(secondDeadline.timeIntervalSince(clock.now), expected, accuracy: 0.001)
+        XCTAssertLessThan(expected, 30 * 60)
+    }
+
+    func testTaperingCountsHonorSystemBreaks() {
+        let start = Date(timeIntervalSince1970: 5_500)
+        var clock = FakeClock(now: start)
+        var settings = AppSettings.defaults
+        settings.workInterval = 30 * 60
+        settings.focusPace = .tapering
+        var machine = StateMachine(settings: settings, clock: clock)
+
+        clock.now = start.addingTimeInterval(20 * 60)
+        machine.clock = clock
+        machine.markBreakTaken()
+
+        XCTAssertEqual(machine.runtime.completedFocusSessions, 1)
+        guard case let .working(deadline, _) = machine.runtime.timerState else {
+            return XCTFail("Expected working state")
+        }
+        let expected = 30 * 60 * FocusPace.taperingMultiplier(sessionsCompleted: 1)
+        XCTAssertEqual(deadline.timeIntervalSince(clock.now), expected, accuracy: 0.001)
+    }
+
+    func testTaperingResetsAfterSixHourGap() {
+        let start = Date(timeIntervalSince1970: 6_000)
+        var clock = FakeClock(now: start)
+        var settings = AppSettings.defaults
+        settings.workInterval = 30 * 60
+        settings.breakDuration = 2 * 60
+        settings.focusPace = .tapering
+        var machine = StateMachine(settings: settings, clock: clock)
+
+        clock.now = start.addingTimeInterval(30 * 60)
+        machine.clock = clock
+        completeCycle(&machine, &clock)
+        XCTAssertEqual(machine.runtime.completedFocusSessions, 1)
+
+        // Lock the screen for 7 hours: the workday is over.
+        machine.preserveForSleep()
+        clock.now = clock.now.addingTimeInterval(7 * 3600)
+        machine.clock = clock
+        machine.restoreAfterSleep()
+
+        XCTAssertEqual(machine.runtime.completedFocusSessions, 0)
+        guard case let .working(deadline, _) = machine.runtime.timerState else {
+            return XCTFail("Expected working state")
+        }
+        XCTAssertEqual(deadline, clock.now.addingTimeInterval(30 * 60))
+    }
+
+    func testTaperingSurvivesShortVerifiedRest() {
+        let start = Date(timeIntervalSince1970: 6_500)
+        var clock = FakeClock(now: start)
+        var settings = AppSettings.defaults
+        settings.workInterval = 30 * 60
+        settings.breakDuration = 2 * 60
+        settings.focusPace = .tapering
+        var machine = StateMachine(settings: settings, clock: clock)
+
+        clock.now = start.addingTimeInterval(30 * 60)
+        machine.clock = clock
+        completeCycle(&machine, &clock)
+        XCTAssertEqual(machine.runtime.completedFocusSessions, 1)
+
+        // A one-hour lunch away from the screen ends the cycle but not the day.
+        machine.preserveForSleep()
+        clock.now = clock.now.addingTimeInterval(3600)
+        machine.clock = clock
+        machine.restoreAfterSleep()
+
+        XCTAssertEqual(machine.runtime.completedFocusSessions, 2)
+        guard case let .working(deadline, _) = machine.runtime.timerState else {
+            return XCTFail("Expected working state")
+        }
+        let expected = 30 * 60 * FocusPace.taperingMultiplier(sessionsCompleted: 2)
+        XCTAssertEqual(deadline.timeIntervalSince(clock.now), expected, accuracy: 0.001)
+    }
+
+    func testTaperingResetsAfterCrashWithLongDeadDeadline() {
+        let start = Date(timeIntervalSince1970: 7_000)
+        var clock = FakeClock(now: start)
+        var settings = AppSettings.defaults
+        settings.workInterval = 30 * 60
+        settings.breakDuration = 2 * 60
+        settings.focusPace = .tapering
+        var machine = StateMachine(settings: settings, clock: clock)
+
+        clock.now = start.addingTimeInterval(30 * 60)
+        machine.clock = clock
+        completeCycle(&machine, &clock)
+        XCTAssertEqual(machine.runtime.completedFocusSessions, 1)
+
+        // The app was killed mid-focus and relaunched 8 hours later: no
+        // preserved timestamp, only a long-dead deadline.
+        let data = machine.data
+        clock.now = clock.now.addingTimeInterval(8 * 3600)
+        let relaunched = StateMachine(data: data, clock: clock)
+
+        XCTAssertEqual(relaunched.runtime.completedFocusSessions, 0)
+        guard case let .working(deadline, _) = relaunched.runtime.timerState else {
+            return XCTFail("Expected working state")
+        }
+        XCTAssertEqual(deadline, clock.now.addingTimeInterval(30 * 60))
+    }
+
+    func testSessionCountDoesNotAffectOtherPaces() {
+        let start = Date(timeIntervalSince1970: 7_500)
+        var clock = FakeClock(now: start)
+        var settings = AppSettings.defaults
+        settings.workInterval = 30 * 60
+        settings.breakDuration = 2 * 60
+        settings.focusPace = .normal
+        var machine = StateMachine(settings: settings, clock: clock)
+
+        clock.now = start.addingTimeInterval(30 * 60)
+        machine.clock = clock
+        completeCycle(&machine, &clock)
+
+        // The counter still tracks sessions (so switching to Tapering mid-day
+        // picks up where the day is), but Normal ignores it.
+        XCTAssertEqual(machine.runtime.completedFocusSessions, 1)
+        guard case let .working(deadline, _) = machine.runtime.timerState else {
+            return XCTFail("Expected working state")
+        }
+        XCTAssertEqual(deadline, clock.now.addingTimeInterval(30 * 60))
+    }
 }
