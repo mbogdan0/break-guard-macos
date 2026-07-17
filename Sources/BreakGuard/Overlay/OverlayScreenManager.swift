@@ -210,64 +210,7 @@ struct BreakOverlayView: View {
                 .foregroundStyle(.white.opacity(0.6))
                 .padding(.top, 4)
 
-            if appState.settings.focusTagsEnabled {
-                tagSelectionContent
-            } else {
-                continueWorkingContent
-            }
-        }
-    }
-
-    private var tagSelectionContent: some View {
-        VStack(spacing: 0) {
-            Text("What were you focused on?")
-                .font(.system(size: 24, weight: .medium))
-                .foregroundStyle(.white.opacity(0.85))
-                .padding(.top, 28)
-
-            if appState.focusTags.isEmpty {
-                Text("No focus tags are configured. You can add them in Settings.")
-                    .font(.system(size: 18))
-                    .foregroundStyle(.white.opacity(0.7))
-                    .padding(.top, 36)
-            } else {
-                LazyVGrid(columns: tagColumns, spacing: 14) {
-                    ForEach(appState.focusTags) { tag in
-                        Button {
-                            appState.completeBreak(classification: .tag(id: tag.id))
-                        } label: {
-                            Text(tag.name)
-                                .font(.system(size: 20, weight: .semibold))
-                                .lineLimit(1)
-                                .frame(maxWidth: .infinity, minHeight: 44)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.large)
-                    }
-                }
-                .padding(.top, 36)
-            }
-
-            Divider()
-                .overlay(.white.opacity(0.15))
-                .padding(.vertical, 28)
-
-            Button {
-                appState.completeBreak(classification: .skipped)
-            } label: {
-                Text("Skip")
-                    .font(.system(size: 18, weight: .semibold))
-                    .frame(maxWidth: .infinity, minHeight: 36)
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.large)
-            .keyboardShortcut(.defaultAction)
-
-            Text("The focus interval and break still count, but no category receives credit.")
-                .font(.system(size: 15))
-                .foregroundStyle(.white.opacity(0.6))
-                .multilineTextAlignment(.center)
-                .padding(.top, 16)
+            continueWorkingContent
         }
     }
 
@@ -278,7 +221,7 @@ struct BreakOverlayView: View {
                 .foregroundStyle(.white.opacity(0.7))
                 .padding(.top, 24)
             Button {
-                appState.completeBreak(classification: .untracked)
+                appState.completeBreak()
             } label: {
                 Text("Continue Working")
                     .font(.system(size: 20, weight: .semibold))
@@ -289,13 +232,6 @@ struct BreakOverlayView: View {
             .keyboardShortcut(.defaultAction)
             .padding(.top, 32)
         }
-    }
-
-    // Two equal columns keep tag buttons uniform; an odd last tag stays
-    // left-aligned instead of floating centered like the adaptive grid did.
-    private var tagColumns: [GridItem] {
-        let count = appState.focusTags.count > 1 ? 2 : 1
-        return Array(repeating: GridItem(.flexible(), spacing: 14), count: count)
     }
 
     private func postponeButton(_ duration: TimeInterval) -> some View {

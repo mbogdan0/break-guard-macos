@@ -41,7 +41,8 @@ Line Tools. Approve it, wait for the installation to finish, and run the same co
 - Early breaks, planned focus extensions, and controlled postponements
 - Pause until 9 AM for the rest of the day, surviving sleep and relaunch
 - Honesty-first confirmations for every action that skips or silences rest
-- Optional focus tags, streaks, history, and focused-minute statistics
+- Streaks, daily focus history, and focused-minute statistics
+- Optional working hours that turn the menu bar yellow outside them
 - Sleep and inactivity detection that avoids counting time away as work
 - Local notifications with capability-aware Time Sensitive delivery
 - Local-only, schema-versioned persistence
@@ -86,13 +87,13 @@ specific username or checkout location, and compatible settings and statistics a
 1. Work while the menu-bar timer counts down.
 2. Receive an optional warning shortly before the break.
 3. When time expires, rest while BreakGuard covers the screens with a countdown.
-4. Complete the break, optionally classify the focus interval, and start a new cycle.
+4. Complete the break and start a new cycle.
 
 Use **Take a Break Now** for an early break, **Just Took a Break** for rest the app did not observe,
 **Extend Focus** when a break must be delayed in advance, and **Pause Until 9 AM** when you are done
 for the day — reminders stay silent until the next morning and **Resume Now** ends the pause early.
 Extending, pausing, marking an unobserved break, and quitting each ask for confirmation. Settings
-control timing, focus tags, notifications, launch at login, and statistics.
+control timing, working hours, notifications, launch at login, and statistics.
 
 ## Commands
 

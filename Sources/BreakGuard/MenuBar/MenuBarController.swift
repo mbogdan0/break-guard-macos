@@ -115,20 +115,26 @@ final class MenuBarController: NSObject, NSMenuDelegate {
             for: appState.timerState,
             showSeconds: appState.settings.showSecondsInMenuBar,
             coarseSeconds: appState.settings.coarseSecondsInMenuBar,
-            warningLeadTime: appState.settings.warningLeadTime
+            warningLeadTime: appState.settings.warningLeadTime,
+            focusExtended: appState.isFocusExtended,
+            outsideWorkingHours: appState.settings.isOutsideWorkingHours(at: Date())
         )
         if let button = statusItem.button {
-            if presentation.isUrgent {
-                // The menu bar tints button text through its own template/vibrancy
-                // pipeline, which flattens explicit text colors. A pre-rendered,
-                // non-template image is displayed with its original colors.
-                button.image = urgentStatusImage(countdown: presentation.menuBarTitle)
-                button.imagePosition = .imageOnly
-                button.title = ""
-            } else {
+            switch presentation.emphasis {
+            case .none:
                 button.image = Self.templateEyeImage
                 button.imagePosition = .imageLeading
                 button.title = " \(presentation.menuBarTitle)"
+            case .caution, .urgent:
+                // The menu bar tints button text through its own template/vibrancy
+                // pipeline, which flattens explicit text colors. A pre-rendered,
+                // non-template image is displayed with its original colors.
+                button.image = statusPillImage(
+                    countdown: presentation.menuBarTitle,
+                    style: presentation.emphasis == .urgent ? .urgent : .caution
+                )
+                button.imagePosition = .imageOnly
+                button.title = ""
             }
             button.toolTip = presentation.statusTitle
         }
@@ -164,16 +170,29 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         focusDeadline(for: appState.timerState)
     }
 
-    private func urgentStatusImage(countdown: String) -> NSImage {
+    private struct StatusPillStyle {
+        let background: NSColor
+        let foreground: NSColor
+
+        static let urgent = StatusPillStyle(background: .systemRed, foreground: .white)
+        // A muted ochre-amber: clearly a warning, but dimmer and warmer than
+        // systemRed so the red pill keeps its alarm value.
+        static let caution = StatusPillStyle(
+            background: NSColor(srgbRed: 0.702, green: 0.478, blue: 0.075, alpha: 1),
+            foreground: .white
+        )
+    }
+
+    private func statusPillImage(countdown: String, style: StatusPillStyle) -> NSImage {
         let text = NSAttributedString(
             string: countdown,
             attributes: [
                 .font: NSFont.monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .semibold),
-                .foregroundColor: NSColor.white
+                .foregroundColor: style.foreground
             ]
         )
         let symbolConfiguration = NSImage.SymbolConfiguration(pointSize: NSFont.systemFontSize, weight: .regular)
-            .applying(NSImage.SymbolConfiguration(paletteColors: [.white]))
+            .applying(NSImage.SymbolConfiguration(paletteColors: [style.foreground]))
         let icon = NSImage(systemSymbolName: "eye", accessibilityDescription: "BreakGuard")?
             .withSymbolConfiguration(symbolConfiguration)
         let textSize = text.size()
@@ -186,7 +205,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
             height: max(iconSize.height, ceil(textSize.height)) + verticalPadding * 2
         )
         let image = NSImage(size: size, flipped: false) { rect in
-            NSColor.systemRed.setFill()
+            style.background.setFill()
             NSBezierPath(roundedRect: rect, xRadius: 5, yRadius: 5).fill()
             icon?.draw(
                 at: NSPoint(x: horizontalPadding, y: (rect.height - iconSize.height) / 2),

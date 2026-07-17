@@ -11,15 +11,6 @@ struct StatisticsSettingsView: View {
             )
 
             Section {
-                if appState.focusTags.isEmpty {
-                    Text("No focus tags configured")
-                        .foregroundStyle(.secondary)
-                } else {
-                    ForEach(appState.focusTags) { tag in
-                        statisticRow(tag.name, value: formatMinutes(appState.focusMinutes(for: tag.id)))
-                    }
-                }
-                statisticRow("Skipped", value: formatMinutes(appState.statistics.skippedFocusMinutes))
                 statisticRow("Total", value: formatMinutes(appState.statistics.totalFocusMinutes))
                     .fontWeight(.semibold)
             } header: {

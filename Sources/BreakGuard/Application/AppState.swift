@@ -61,10 +61,12 @@ enum NotificationAccessStatus: Equatable {
 final class AppState: ObservableObject {
     @Published var settings: AppSettings
     @Published var statistics: Statistics
-    @Published var focusTags: [FocusTag]
     @Published var timerState: TimerState
     // True while a break started via "Take a Break Now" can still be cancelled.
     @Published var isManualBreak = false
+    // True once the current focus window was extended; drives the yellow
+    // menu bar pill until a new cycle starts.
+    @Published var isFocusExtended = false
     @Published var notificationAccessStatus: NotificationAccessStatus = .checking
     @Published var loginStatusDescription = "Unknown"
     @Published var notificationTestMessage: String?
@@ -95,8 +97,8 @@ final class AppState: ObservableObject {
         }
         self.settings = machine.settings
         self.statistics = machine.statistics
-        self.focusTags = machine.focusTags
         self.timerState = machine.runtime.timerState
+        self.isFocusExtended = machine.runtime.focusExtended
     }
 
     func start() {
@@ -171,45 +173,10 @@ final class AppState: ObservableObject {
         publishAndReconcile()
     }
 
-    func completeBreak(classification: FocusClassification) {
-        machine.completeBreak(classification: classification)
-        logger.info("Break completion classified")
+    func completeBreak() {
+        machine.completeBreak()
+        logger.info("Break completed")
         publishAndReconcile()
-    }
-
-    @discardableResult
-    func addFocusTag(named name: String) -> String? {
-        do {
-            try machine.addFocusTag(named: name)
-            publishAndSave()
-            return nil
-        } catch let error as FocusTagNameError {
-            return error.message
-        } catch {
-            return "Unable to add the tag."
-        }
-    }
-
-    @discardableResult
-    func renameFocusTag(id: String, to name: String) -> String? {
-        do {
-            try machine.renameFocusTag(id: id, to: name)
-            publishAndSave()
-            return nil
-        } catch let error as FocusTagNameError {
-            return error.message
-        } catch {
-            return "Unable to rename the tag."
-        }
-    }
-
-    func deleteFocusTag(id: String) {
-        machine.deleteFocusTag(id: id)
-        publishAndSave()
-    }
-
-    func focusMinutes(for tagID: String) -> Int {
-        statistics.focusMinutesByTag[tagID, default: 0]
     }
 
     func sendTestNotification() {
@@ -360,17 +327,12 @@ final class AppState: ObservableObject {
         save()
     }
 
-    private func publishAndSave() {
-        publish()
-        save()
-    }
-
     private func publish() {
         settings = machine.settings
         statistics = machine.statistics
-        focusTags = machine.focusTags
         timerState = machine.runtime.timerState
         isManualBreak = machine.runtime.manualBreakOrigin != nil
+        isFocusExtended = machine.runtime.focusExtended
     }
 
     private func reconcileStateEffects() {

@@ -10,9 +10,9 @@ struct SettingsView: View {
                     Label("General", systemImage: "gearshape")
                 }
 
-            FocusTagsSettingsView(appState: appState)
+            WorkingHoursSettingsView(appState: appState)
                 .tabItem {
-                    Label("Focus Tags", systemImage: "tag")
+                    Label("Working Hours", systemImage: "clock")
                 }
 
             SystemSettingsView(appState: appState)

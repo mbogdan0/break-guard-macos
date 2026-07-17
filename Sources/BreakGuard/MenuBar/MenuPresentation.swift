@@ -6,25 +6,34 @@ enum MenuPrimaryAction: Equatable {
     case none
 }
 
+// How loudly the menu bar item should call attention to itself.
+enum MenuBarEmphasis: Equatable {
+    // Template eye + plain adaptive text.
+    case none
+    // Yellow pill: on borrowed time (postponed break, extended focus) or
+    // outside configured working hours.
+    case caution
+    // Red pill: inside the warning window (the lead time before a break,
+    // during warning or near the end of a postponement). Always wins.
+    case urgent
+}
+
 struct MenuPresentation: Equatable {
     let menuBarTitle: String
     let statusTitle: String
     let primaryAction: MenuPrimaryAction
-    // True inside the warning window (the lead time before a break, during
-    // warning or near the end of a postponement), so the menu bar can render
-    // the countdown in red.
-    let isUrgent: Bool
+    let emphasis: MenuBarEmphasis
 
     init(
         menuBarTitle: String,
         statusTitle: String,
         primaryAction: MenuPrimaryAction,
-        isUrgent: Bool = false
+        emphasis: MenuBarEmphasis = .none
     ) {
         self.menuBarTitle = menuBarTitle
         self.statusTitle = statusTitle
         self.primaryAction = primaryAction
-        self.isUrgent = isUrgent
+        self.emphasis = emphasis
     }
 
     var canExtend: Bool { primaryAction == .takeBreak }
@@ -46,6 +55,8 @@ func makeMenuPresentation(
     showSeconds: Bool,
     coarseSeconds: Bool = false,
     warningLeadTime: TimeInterval = 0,
+    focusExtended: Bool = false,
+    outsideWorkingHours: Bool = false,
     now: Date = Date(),
     timeFormatter: DateFormatter = .breakGuardTime
 ) -> MenuPresentation {
@@ -67,43 +78,47 @@ func makeMenuPresentation(
         return "\(totalMinutes)m"
     }
 
+    let base: MenuPresentation
     switch state {
     case let .working(deadline, _):
         let remaining = countdown(deadline.timeIntervalSince(now))
-        return MenuPresentation(
+        base = MenuPresentation(
             menuBarTitle: remaining,
             statusTitle: "Next break at \(timeFormatter.string(from: deadline))",
-            primaryAction: .takeBreak
+            primaryAction: .takeBreak,
+            // An extended focus window runs on borrowed time.
+            emphasis: focusExtended ? .caution : .none
         )
     case let .warning(deadline):
         let remaining = countdown(deadline.timeIntervalSince(now))
-        return MenuPresentation(
+        base = MenuPresentation(
             menuBarTitle: remaining,
             statusTitle: "Break starts in \(remaining)",
             primaryAction: .takeBreak,
-            isUrgent: true
+            emphasis: .urgent
         )
     case let .postponed(deadline):
         let interval = deadline.timeIntervalSince(now)
-        // A postponement never re-notifies, but the menu bar still turns red
-        // for the same lead window so the upcoming break is not a surprise.
-        return MenuPresentation(
+        // A postponement runs on borrowed time, so it is at least yellow. It
+        // never re-notifies, but the menu bar still turns red for the same
+        // lead window so the upcoming break is not a surprise.
+        base = MenuPresentation(
             menuBarTitle: "+\(countdown(interval))",
             statusTitle: "Postponed break at \(timeFormatter.string(from: deadline))",
             primaryAction: .takeBreak,
-            isUrgent: warningLeadTime > 0 && interval <= warningLeadTime
+            emphasis: warningLeadTime > 0 && interval <= warningLeadTime ? .urgent : .caution
         )
     case let .breaking(deadline, _, _):
         let remaining = countdown(deadline.timeIntervalSince(now))
-        return MenuPresentation(
+        base = MenuPresentation(
             menuBarTitle: "BREAK \(remaining)",
             statusTitle: "Break remaining \(remaining)",
             primaryAction: .none
         )
     case .breakDue:
-        return MenuPresentation(menuBarTitle: "BREAK", statusTitle: "Break due now", primaryAction: .none)
+        base = MenuPresentation(menuBarTitle: "BREAK", statusTitle: "Break due now", primaryAction: .none)
     case .breakCompleted:
-        return MenuPresentation(menuBarTitle: "DONE", statusTitle: "Break completed", primaryAction: .none)
+        base = MenuPresentation(menuBarTitle: "DONE", statusTitle: "Break completed", primaryAction: .none)
     case let .suspended(_, remaining, until):
         let statusTitle: String
         if let until {
@@ -111,6 +126,17 @@ func makeMenuPresentation(
         } else {
             statusTitle = "Paused with \(countdown(remaining)) remaining"
         }
-        return MenuPresentation(menuBarTitle: "PAUSED", statusTitle: statusTitle, primaryAction: .resume)
+        base = MenuPresentation(menuBarTitle: "PAUSED", statusTitle: statusTitle, primaryAction: .resume)
     }
+
+    // Outside working hours everything shows in the caution pill, but a state
+    // that is already yellow or red keeps its own emphasis — the red warning
+    // must never be diluted down to yellow.
+    guard outsideWorkingHours, base.emphasis == .none else { return base }
+    return MenuPresentation(
+        menuBarTitle: base.menuBarTitle,
+        statusTitle: base.statusTitle,
+        primaryAction: base.primaryAction,
+        emphasis: .caution
+    )
 }

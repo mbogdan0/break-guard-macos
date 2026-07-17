@@ -10,11 +10,11 @@ breakDue/breaking/breakCompleted -> postponed -> breakDue
 working/warning/postponed -> suspended -> previous state or a fresh cycle (sleep/inactivity, or user pause until 9 AM)
 ```
 
-The UI calls explicit methods such as `takeBreakNow`, `cancelManualBreak`, `extendFocus(by:)`, `markBreakTaken`, `postpone`, `startBreak`, and `completeBreak(classification:)`. A completed break must be classified with a configured focus-tag ID, the explicit skipped outcome, or `.untracked` (used when focus tags are disabled in settings: the break and streak count, but no focus minutes are credited anywhere). Streaks, focus-category totals, skipped totals, and violation counters are updated only by the state machine.
+The UI calls explicit methods such as `takeBreakNow`, `cancelManualBreak`, `extendFocus(by:)`, `markBreakTaken`, `postpone`, `startBreak`, and `completeBreak()`. Every completed break credits the actual focused minutes of its cycle to the daily focus totals. Streaks, daily focus totals, and violation counters are updated only by the state machine.
 
 `takeBreakNow` distinguishes manual breaks from scheduled ones by capturing a `ManualBreakOrigin` snapshot (interrupted phase, remaining time to the deadline, capture timestamp) in the runtime state; scheduled breaks reached through `tick` never set it. While the origin exists, the overlay offers only `cancelManualBreak`, which rebuilds the interrupted state with the remaining time re-anchored to the current moment (landing directly in `warning` when the remaining time is inside the warning lead), shifts the cycle start forward so overlay time is not credited as focus, and records nothing.
 
-`extendFocus(by:)` shifts the current work (or postponed) deadline forward before the break is due. It is planned-ahead honesty rather than a postponement: no violation is recorded and no statistics change, while the extended time later counts toward focus minutes.
+`extendFocus(by:)` shifts the current work (or postponed) deadline forward before the break is due. It is planned-ahead honesty rather than a postponement: no violation is recorded and no statistics change, while the extended time later counts toward focus minutes. It sets `runtime.focusExtended`, which keeps the menu bar in its caution color until a new cycle clears the flag.
 
 The `suspended` state is entered two ways: automatically by sleep/inactivity preservation (`suspend(until: nil)`), and by the user-facing **Pause Until 9 AM** menu action, which calls `suspend(until:)` with the next 9:00 AM. A timed pause outlives sleep and relaunch: `restoreAfterSleep()` leaves it untouched while its end date is in the future and starts a fresh cycle once that date has passed. While a pause of either kind is active, the menu offers **Resume Now**.
 
@@ -30,15 +30,15 @@ BreakGuard stores absolute deadlines for work, warning, break, postpone, and sus
 ~/Library/Application Support/BreakGuard/state.json
 ```
 
-The persisted data includes a schema version, settings, the ordered focus-tag catalog, statistics, current state, cycle violation status, current-cycle postponement count, cycle start date, the captured focus duration of the current cycle, preserved sleep/suspension timing, the break start timestamp (drives the completion-screen rest count-up), and the manual-break origin snapshot. Statistics credit focus time in minutes of actual focused work per cycle (postponed time counts, paused/sleep time does not). Schema-2 files are migrated in place with the minute-based focus counters starting from zero; files with any other non-current schema version are discarded and replaced with defaults.
+The persisted data includes a schema version, settings, statistics, current state, cycle violation status, current-cycle postponement count, the focus-extended flag, cycle start date, the captured focus duration of the current cycle, preserved sleep/suspension timing, the break start timestamp (drives the completion-screen rest count-up), and the manual-break origin snapshot. Statistics credit focus time in minutes of actual focused work per cycle (postponed time counts, paused/sleep time does not) into daily totals keyed by local-calendar day. Files with a non-current schema version are discarded and replaced with defaults.
 
-Later additions stay on schema 3 by being decode-lenient: the new runtime fields are optionals, and `AppSettings` (like `Statistics`) uses a lenient `init(from:)` so fields absent from older files fall back to their defaults instead of failing the load. `TimerState` cases deliberately keep their persisted payload shape; per-break metadata belongs in `RuntimeState`, not in new associated values.
+Later additions stay on schema 3 by being decode-lenient: `AppSettings` and `RuntimeState` use a lenient `init(from:)` so fields absent from older files (the working-hours settings, `focusExtended`) fall back to their defaults instead of failing the load, and JSON keys from removed features (the former focus-tag catalog and per-tag counters) are silently ignored. `TimerState` cases deliberately keep their persisted payload shape; per-break metadata belongs in `RuntimeState`, not in new associated values.
 
 ## Overlay Window Management
 
 `OverlayScreenManager` creates one borderless `NSPanel` per `NSScreen`, keeps the windows above normal application windows, joins Spaces, participates as a full-screen auxiliary window where macOS permits, and updates when displays change. Duplicate overlay windows are avoided by tracking screen identifiers.
 
-The overlay view has two modes. During the break it shows the countdown plus the postpone buttons for scheduled breaks, or a single Cancel Break button for manually started ones (postponing a break the user just chose makes no sense). After the countdown reaches zero it switches to the completion screen, where a green clock counts total rest time upward (now minus break start, refreshed by the same one-second publish cycle as the countdown) and the user classifies the cycle with a focus tag, Skip, or — when focus tags are disabled — a single Continue Working button.
+The overlay view has two modes. During the break it shows the countdown plus the postpone buttons for scheduled breaks, or a single Cancel Break button for manually started ones (postponing a break the user just chose makes no sense). After the countdown reaches zero it switches to the completion screen, where a green clock counts total rest time upward (now minus break start, refreshed by the same one-second publish cycle as the countdown) and a single Continue Working button completes the break.
 
 The overlay is a best-effort blocking interface. macOS still allows Force Quit, process termination, and system-level navigation.
 
@@ -50,7 +50,7 @@ Restoration applies a long-pause rule: if the preserved timestamp is at least on
 
 ## AppKit and SwiftUI Boundary
 
-AppKit owns the menu bar item and its standard `NSMenu`, windows, activation policy, screen behavior, and lifecycle. SwiftUI renders the break overlay and the tabbed settings window. The completion overlay lays focus tags out in a fixed-column grid with uniform full-width buttons so the editable focus-tag catalog can grow without changing the state flow. Menu titles and available actions are derived from a testable presentation model shared with the AppKit controller.
+AppKit owns the menu bar item and its standard `NSMenu`, windows, activation policy, screen behavior, and lifecycle. SwiftUI renders the break overlay and the tabbed settings window. Menu titles, available actions, and the menu bar emphasis (`none`/`caution`/`urgent`) are derived from a testable presentation model shared with the AppKit controller. `caution` (a muted amber pill) marks borrowed time — a postponed break, an extended focus window, or time outside the configured working hours; `urgent` (the red pill) marks the warning lead window and always wins over caution. Both pills are pre-rendered non-template bitmaps because the menu bar's template/vibrancy pipeline flattens explicit text colors.
 
 ## Notifications
 

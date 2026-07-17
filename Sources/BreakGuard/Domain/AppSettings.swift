@@ -45,7 +45,9 @@ struct AppSettings: Codable, Equatable {
     var launchAtLogin: Bool = true
     var showSecondsInMenuBar: Bool = true
     var coarseSecondsInMenuBar: Bool = false
-    var focusTagsEnabled: Bool = true
+    var workingHoursEnabled: Bool = false
+    var weekdayWorkingHours = WorkingHoursRange(enabled: true)
+    var weekendWorkingHours = WorkingHoursRange(enabled: false)
 
     static let defaults = AppSettings()
 
@@ -61,6 +63,40 @@ struct AppSettings: Codable, Equatable {
         firstPostponeDuration = clampSeconds(firstPostponeDuration, to: SettingsRange.postponeDuration)
         secondPostponeDuration = clampSeconds(secondPostponeDuration, to: SettingsRange.postponeDuration)
         warningLeadTime = min(warningLeadTime, workInterval)
+        weekdayWorkingHours.clamp()
+        weekendWorkingHours.clamp()
+    }
+}
+
+// Settings fields are added over time without bumping the schema version, so
+// files written by older builds lack the newer keys. A plain synthesized
+// decode would reject such a file — discarding all user data — so every field
+// falls back to its default instead. The init lives in an extension to keep
+// the memberwise initializer.
+extension AppSettings {
+    private enum CodingKeys: String, CodingKey {
+        case workInterval, focusPace, breakDuration, warningLeadTime,
+             firstPostponeDuration, secondPostponeDuration, notificationSound,
+             launchAtLogin, showSecondsInMenuBar, coarseSecondsInMenuBar,
+             workingHoursEnabled, weekdayWorkingHours, weekendWorkingHours
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let defaults = AppSettings.defaults
+        workInterval = try container.decodeIfPresent(TimeInterval.self, forKey: .workInterval) ?? defaults.workInterval
+        focusPace = try container.decodeIfPresent(FocusPace.self, forKey: .focusPace) ?? defaults.focusPace
+        breakDuration = try container.decodeIfPresent(TimeInterval.self, forKey: .breakDuration) ?? defaults.breakDuration
+        warningLeadTime = try container.decodeIfPresent(TimeInterval.self, forKey: .warningLeadTime) ?? defaults.warningLeadTime
+        firstPostponeDuration = try container.decodeIfPresent(TimeInterval.self, forKey: .firstPostponeDuration) ?? defaults.firstPostponeDuration
+        secondPostponeDuration = try container.decodeIfPresent(TimeInterval.self, forKey: .secondPostponeDuration) ?? defaults.secondPostponeDuration
+        notificationSound = try container.decodeIfPresent(Bool.self, forKey: .notificationSound) ?? defaults.notificationSound
+        launchAtLogin = try container.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? defaults.launchAtLogin
+        showSecondsInMenuBar = try container.decodeIfPresent(Bool.self, forKey: .showSecondsInMenuBar) ?? defaults.showSecondsInMenuBar
+        coarseSecondsInMenuBar = try container.decodeIfPresent(Bool.self, forKey: .coarseSecondsInMenuBar) ?? defaults.coarseSecondsInMenuBar
+        workingHoursEnabled = try container.decodeIfPresent(Bool.self, forKey: .workingHoursEnabled) ?? defaults.workingHoursEnabled
+        weekdayWorkingHours = try container.decodeIfPresent(WorkingHoursRange.self, forKey: .weekdayWorkingHours) ?? defaults.weekdayWorkingHours
+        weekendWorkingHours = try container.decodeIfPresent(WorkingHoursRange.self, forKey: .weekendWorkingHours) ?? defaults.weekendWorkingHours
     }
 }
 

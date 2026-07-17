@@ -18,7 +18,7 @@ Notifications are optional. Declining permission does not affect the timer or br
 
 ## Menu and Break Actions
 
-The menu bar displays an eye icon and the current timer. Its menu contains the current status, **Take a Break Now**, **Just Took a Break**, **Extend Focus**, **Pause Until 9 AM**, **Resume Now**, Settings, and Quit when those actions are available. In the last minute before a break, the countdown turns into a red badge with white text.
+The menu bar displays an eye icon and the current timer. Its menu contains the current status, **Take a Break Now**, **Just Took a Break**, **Extend Focus**, **Pause Until 9 AM**, **Resume Now**, Settings, and Quit when those actions are available. In the last minute before a break, the countdown turns into a red badge with white text. Borrowed time — a postponed break, an extended focus window, or time outside the configured working hours — shows a calmer yellow badge instead; the red warning always takes priority over it.
 
 Actions that skip or silence rest — **Just Took a Break**, longer **Extend Focus** options, **Pause Until 9 AM**, and **Quit** — ask for confirmation first. The dialogs are deliberately direct: nothing is logged or punished, so the only person a false answer can cheat is you.
 
@@ -34,11 +34,11 @@ Actions that skip or silence rest — **Just Took a Break**, longer **Extend Foc
 
 **Just Took a Break** records rest that BreakGuard could not observe, such as time away for coffee. After confirmation, it starts a fresh work cycle without changing focus statistics or streaks.
 
-**Extend Focus** moves the current deadline by 15 minutes, 35 minutes, or 1 hour 5 minutes. Each menu option shows the resulting end time. Longer extensions require confirmation. Extended time counts as focus time but is not recorded as a postponement or streak violation.
+**Extend Focus** moves the current deadline by 15 minutes, 35 minutes, or 1 hour 5 minutes. Each menu option shows the resulting end time. Longer extensions require confirmation. Extended time counts as focus time but is not recorded as a postponement or streak violation. The menu bar shows the yellow badge for the rest of the extended cycle as a reminder that the break is overdue by choice.
 
 **Pause Until 9 AM** silences all break reminders until the next 9:00 AM (today's if it has not passed yet, otherwise tomorrow's) — for ending the workday without quitting the app. While paused, the status line reads "Paused until 9:00 AM", and the pause survives sleep, quit, and relaunch. At 9 AM a fresh work cycle starts automatically. **Resume Now** ends the pause early; after a pause at least as long as a break it also starts a fresh cycle.
 
-When the break countdown reaches zero, the completion screen shows total rest time counting upward. Complete the break with a focus tag, choose **Skip**, or use **Continue Working** when focus tags are disabled.
+When the break countdown reaches zero, the completion screen shows total rest time counting upward. Press **Continue Working** to complete the break and start the next cycle. Postponing a break shows the yellow badge with a `+` countdown until the postponed break arrives.
 
 ## Settings and Statistics
 
@@ -53,13 +53,13 @@ Settings contains four tabs:
 </p>
 
 - **General** controls work and break timing, postponement durations, and whether menu-bar seconds are shown. Every duration is entered as `minutes:seconds` — `2:30` is two and a half minutes, and a plain number means minutes. The stepper nudges by a minute and leaves the seconds alone. The shortest interval is 30 seconds; a warning lead time of `0:00` disables the warning.
-- **Focus Tags** enables classification after breaks and manages the tag catalog. `Work` and `Study` are provided by default.
+- **Working Hours** turns the menu bar counter yellow outside your working hours as a reminder to wind down. The feature is off by default; when enabled, weekdays and weekends each have their own on/off toggle and start/end times (same-day ranges). A disabled day category shows normal colors all day. The red pre-break warning always takes priority over the yellow.
 - **System** controls notification sound, tests notification delivery, and manages launch at login.
-- **Statistics** shows focused minutes by tag, skipped time, streaks, and break history, and includes a confirmed reset action.
+- **Statistics** shows total and daily focused minutes, streaks, and break history, and includes a confirmed reset action.
 
 Settings are saved immediately. **Restore Defaults** resets configuration without clearing statistics.
 
-Completing a break with a tag credits that tag with actual focused minutes. Extended and postponed work counts; sleep and inactive time do not. An early break credits only elapsed work. **Skip** records the break and streak result but does not credit a tag. When focus-tag prompts are disabled, completed breaks still count but focus minutes are not recorded.
+Every completed break credits the actual focused minutes of its cycle to that day's total. Extended and postponed work counts; sleep and inactive time do not. An early break credits only elapsed work.
 
 ## Sleep, Quit, and Restart Behavior
 

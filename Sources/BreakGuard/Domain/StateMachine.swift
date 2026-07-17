@@ -2,7 +2,6 @@ import Foundation
 
 struct StateMachine {
     var settings: AppSettings
-    var focusTags: [FocusTag]
     var statistics: Statistics
     var runtime: RuntimeState
     var clock: TimeProvider
@@ -11,7 +10,6 @@ struct StateMachine {
         var validated = settings
         validated.clamp()
         self.settings = validated
-        self.focusTags = FocusTag.defaults
         self.statistics = statistics
         self.clock = clock
         let warning = clock.now.addingTimeInterval(max(0, validated.effectiveWorkInterval - validated.warningLeadTime))
@@ -20,6 +18,7 @@ struct StateMachine {
             timerState: .working(deadline: deadline, warningDeadline: warning),
             cycleViolated: false,
             cyclePostponements: 0,
+            focusExtended: false,
             cycleStartDate: clock.now,
             preservedAt: nil,
             preservedRemaining: nil,
@@ -33,7 +32,6 @@ struct StateMachine {
         var validated = data.settings
         validated.clamp()
         self.settings = validated
-        self.focusTags = data.focusTags
         self.statistics = data.statistics
         self.runtime = data.runtime
         self.clock = clock
@@ -44,7 +42,6 @@ struct StateMachine {
         PersistedAppData(
             schemaVersion: PersistedAppData.currentSchemaVersion,
             settings: settings,
-            focusTags: focusTags,
             statistics: statistics,
             runtime: runtime
         )
@@ -87,24 +84,10 @@ struct StateMachine {
         )
     }
 
-    mutating func completeBreak(classification: FocusClassification) {
+    mutating func completeBreak() {
         guard runtime.timerState == .breakCompleted else { return }
 
-        let minutes = creditedFocusMinutes()
-        switch classification {
-        case let .tag(id):
-            guard focusTags.contains(where: { $0.id == id }) else { return }
-            statistics.focusMinutesByTag[id, default: 0] += minutes
-        case .skipped:
-            statistics.skippedFocusMinutes += minutes
-        case .untracked:
-            // Focus tags are disabled: the break still counts, but no
-            // focus minutes are credited to a tag bucket.
-            break
-        }
-        // The daily total is tag-independent, so every completed break counts.
-        statistics.focusMinutesByDay[FocusDay.key(for: clock.now), default: 0] += minutes
-
+        statistics.focusMinutesByDay[FocusDay.key(for: clock.now), default: 0] += creditedFocusMinutes()
         statistics.completedBreaks += 1
         statistics.lastCompletedBreakDate = clock.now
         if runtime.cycleViolated {
@@ -116,25 +99,6 @@ struct StateMachine {
         startWorkCycle()
     }
 
-    @discardableResult
-    mutating func addFocusTag(named rawName: String) throws -> FocusTag {
-        let name = try validatedTagName(rawName)
-        let tag = FocusTag(id: UUID().uuidString, name: name)
-        focusTags.append(tag)
-        return tag
-    }
-
-    mutating func renameFocusTag(id: String, to rawName: String) throws {
-        guard let index = focusTags.firstIndex(where: { $0.id == id }) else { return }
-        let name = try validatedTagName(rawName, excluding: id)
-        focusTags[index].name = name
-    }
-
-    mutating func deleteFocusTag(id: String) {
-        focusTags.removeAll { $0.id == id }
-        statistics.focusMinutesByTag.removeValue(forKey: id)
-    }
-
     mutating func startWorkCycle() {
         settings.clamp()
         runtime = RuntimeState(
@@ -144,6 +108,7 @@ struct StateMachine {
             ),
             cycleViolated: false,
             cyclePostponements: 0,
+            focusExtended: false,
             cycleStartDate: clock.now,
             preservedAt: nil,
             preservedRemaining: nil,
@@ -249,8 +214,9 @@ struct StateMachine {
         case let .postponed(deadline):
             runtime.timerState = .postponed(deadline: deadline.addingTimeInterval(delta))
         default:
-            break
+            return
         }
+        runtime.focusExtended = true
     }
 
     // Honor-system reset: the user rested away from the screen, so the cycle
@@ -385,7 +351,7 @@ struct StateMachine {
     // break in progress or on its completion screen, the break itself also
     // counts as completed — the user rested exactly as instructed and should
     // not lose the break just because the screen locked before they returned
-    // to classify it.
+    // to confirm it.
     private mutating func finishCycleAfterVerifiedRest() {
         let focusEnd: Date
         let focusDuration: TimeInterval
@@ -406,8 +372,6 @@ struct StateMachine {
             focusEnd = runtime.preservedAt ?? clock.now
             focusDuration = max(0, focusEnd.timeIntervalSince(runtime.cycleStartDate))
         }
-        // No classification is available, so only the tag-independent daily
-        // total is credited (same as an .untracked completion).
         let minutes = max(0, Int((focusDuration / 60).rounded()))
         if minutes > 0 {
             statistics.focusMinutesByDay[FocusDay.key(for: focusEnd), default: 0] += minutes
@@ -430,17 +394,5 @@ struct StateMachine {
         if case .breaking = state { return true }
         if case .breakDue = state { return true }
         return false
-    }
-
-    private func validatedTagName(_ rawName: String, excluding excludedID: String? = nil) throws -> String {
-        let name = FocusTag.normalizedName(rawName)
-        guard !name.isEmpty else { throw FocusTagNameError.empty }
-        guard name.count <= FocusTag.maximumNameLength else { throw FocusTagNameError.tooLong }
-        guard !focusTags.contains(where: {
-            $0.id != excludedID && $0.name.caseInsensitiveCompare(name) == .orderedSame
-        }) else {
-            throw FocusTagNameError.duplicate
-        }
-        return name
     }
 }

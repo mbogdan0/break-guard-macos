@@ -7,14 +7,12 @@ struct Statistics: Codable, Equatable {
     var violatedCycles: Int = 0
     var totalPostponements: Int = 0
     var lastCompletedBreakDate: Date?
-    var focusMinutesByTag: [String: Int] = [:]
-    var skippedFocusMinutes: Int = 0
-    // Tag-independent daily totals, keyed by local-calendar day ("yyyy-MM-dd").
+    // Daily totals, keyed by local-calendar day ("yyyy-MM-dd").
     var focusMinutesByDay: [String: Int] = [:]
 
     static let empty = Statistics()
 
     var totalFocusMinutes: Int {
-        focusMinutesByTag.values.reduce(0, +) + skippedFocusMinutes
+        focusMinutesByDay.values.reduce(0, +)
     }
 }

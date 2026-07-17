@@ -29,4 +29,25 @@ extension AppState {
             }
         )
     }
+
+    // Bridges a minutes-from-midnight setting to the Date that DatePicker
+    // needs, anchored to today. Only the hour and minute survive the write.
+    func timeOfDayBinding(_ keyPath: WritableKeyPath<AppSettings, Int>) -> Binding<Date> {
+        Binding(
+            get: {
+                let startOfDay = Calendar.current.startOfDay(for: Date())
+                return Calendar.current.date(
+                    byAdding: .minute,
+                    value: self.settings[keyPath: keyPath],
+                    to: startOfDay
+                ) ?? startOfDay
+            },
+            set: { date in
+                let components = Calendar.current.dateComponents([.hour, .minute], from: date)
+                var updated = self.settings
+                updated[keyPath: keyPath] = (components.hour ?? 0) * 60 + (components.minute ?? 0)
+                self.updateSettings(updated)
+            }
+        )
+    }
 }

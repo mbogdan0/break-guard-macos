@@ -111,21 +111,22 @@ final class MenuPresentationTests: XCTestCase {
         }
     }
 
-    func testOnlyWarningStateIsUrgent() {
+    func testEmphasisFollowsTimerState() {
         let deadline = now.addingTimeInterval(60)
-        let states: [(TimerState, Bool)] = [
-            (.working(deadline: deadline, warningDeadline: now.addingTimeInterval(30)), false),
-            (.warning(deadline: deadline), true),
-            (.postponed(deadline: deadline), false),
-            (.breakDue, false),
-            (.breaking(deadline: deadline, startedAt: now, duration: 60), false),
-            (.breakCompleted, false),
-            (.suspended(previous: .working, remaining: 60, until: nil), false)
+        let states: [(TimerState, MenuBarEmphasis)] = [
+            (.working(deadline: deadline, warningDeadline: now.addingTimeInterval(30)), .none),
+            (.warning(deadline: deadline), .urgent),
+            // Postponed is borrowed time: at least yellow, even far from the deadline.
+            (.postponed(deadline: now.addingTimeInterval(90 * 60)), .caution),
+            (.breakDue, .none),
+            (.breaking(deadline: deadline, startedAt: now, duration: 60), .none),
+            (.breakCompleted, .none),
+            (.suspended(previous: .working, remaining: 60, until: nil), .none)
         ]
 
         for (state, expected) in states {
             let presentation = makeMenuPresentation(for: state, showSeconds: true, now: now)
-            XCTAssertEqual(presentation.isUrgent, expected, "Unexpected urgency for \(state)")
+            XCTAssertEqual(presentation.emphasis, expected, "Unexpected emphasis for \(state)")
         }
     }
 
@@ -138,7 +139,7 @@ final class MenuPresentationTests: XCTestCase {
             warningLeadTime: 60,
             now: now
         )
-        XCTAssertTrue(inside.isUrgent)
+        XCTAssertEqual(inside.emphasis, .urgent)
         XCTAssertEqual(inside.menuBarTitle, "+00:45")
 
         let outside = makeMenuPresentation(
@@ -147,16 +148,66 @@ final class MenuPresentationTests: XCTestCase {
             warningLeadTime: 60,
             now: now
         )
-        XCTAssertFalse(outside.isUrgent)
+        XCTAssertEqual(outside.emphasis, .caution)
 
-        // No warning window configured: the postponement never turns red.
+        // No warning window configured: the postponement never turns red,
+        // but it still shows the caution color.
         let disabled = makeMenuPresentation(
             for: .postponed(deadline: deadline),
             showSeconds: true,
             warningLeadTime: 0,
             now: now
         )
-        XCTAssertFalse(disabled.isUrgent)
+        XCTAssertEqual(disabled.emphasis, .caution)
+    }
+
+    func testExtendedFocusShowsCautionUntilWarning() {
+        let deadline = now.addingTimeInterval(20 * 60)
+
+        let extended = makeMenuPresentation(
+            for: .working(deadline: deadline, warningDeadline: deadline.addingTimeInterval(-60)),
+            showSeconds: true,
+            focusExtended: true,
+            now: now
+        )
+        XCTAssertEqual(extended.emphasis, .caution)
+
+        // The warning window keeps its red urgency in an extended cycle.
+        let warning = makeMenuPresentation(
+            for: .warning(deadline: now.addingTimeInterval(30)),
+            showSeconds: true,
+            focusExtended: true,
+            now: now
+        )
+        XCTAssertEqual(warning.emphasis, .urgent)
+    }
+
+    func testOutsideWorkingHoursUpgradesButNeverDowngrades() {
+        let deadline = now.addingTimeInterval(10 * 60)
+        let upgraded: [TimerState] = [
+            .working(deadline: deadline, warningDeadline: deadline.addingTimeInterval(-60)),
+            .breakDue,
+            .breaking(deadline: deadline, startedAt: now, duration: 60),
+            .breakCompleted,
+            .suspended(previous: .working, remaining: 60, until: nil)
+        ]
+        for state in upgraded {
+            let presentation = makeMenuPresentation(
+                for: state,
+                showSeconds: true,
+                outsideWorkingHours: true,
+                now: now
+            )
+            XCTAssertEqual(presentation.emphasis, .caution, "Expected caution for \(state)")
+        }
+
+        let warning = makeMenuPresentation(
+            for: .warning(deadline: now.addingTimeInterval(30)),
+            showSeconds: true,
+            outsideWorkingHours: true,
+            now: now
+        )
+        XCTAssertEqual(warning.emphasis, .urgent)
     }
 
     func testMenuActionsFollowTimerState() {
