@@ -69,6 +69,7 @@ final class PersistenceTests: XCTestCase {
         settings.removeValue(forKey: "workingHoursEnabled")
         settings.removeValue(forKey: "weekdayWorkingHours")
         settings.removeValue(forKey: "weekendWorkingHours")
+        settings.removeValue(forKey: "harderToSkipBreaks")
         object["settings"] = settings
         try FileManager.default.createDirectory(
             at: location.deletingLastPathComponent(), withIntermediateDirectories: true
@@ -81,6 +82,7 @@ final class PersistenceTests: XCTestCase {
         XCTAssertFalse(loaded.settings.workingHoursEnabled)
         XCTAssertEqual(loaded.settings.weekdayWorkingHours, WorkingHoursRange(enabled: true))
         XCTAssertEqual(loaded.settings.weekendWorkingHours, WorkingHoursRange(enabled: false))
+        XCTAssertFalse(loaded.settings.harderToSkipBreaks)
     }
 
     func testFocusExtendedAndWorkingHoursRoundTrip() throws {

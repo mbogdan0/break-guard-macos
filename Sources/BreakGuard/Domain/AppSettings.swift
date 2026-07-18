@@ -73,6 +73,9 @@ struct AppSettings: Codable, Equatable {
     // A gap this long without focus means the workday ended: tapering
     // starts over and sessions run at full length again.
     var taperingResetGap: TimeInterval = 6 * 60 * 60
+    // One extension per cycle, and after the first skip action (extend or
+    // postpone) every further postponement demands a doubled hold.
+    var harderToSkipBreaks: Bool = false
 
     static let defaults = AppSettings()
 
@@ -124,7 +127,7 @@ extension AppSettings {
              firstPostponeDuration, secondPostponeDuration, notificationSound,
              launchAtLogin, showSecondsInMenuBar, coarseSecondsInMenuBar,
              workingHoursEnabled, weekdayWorkingHours, weekendWorkingHours,
-             taperingFloorPercent, taperingResetGap
+             taperingFloorPercent, taperingResetGap, harderToSkipBreaks
     }
 
     init(from decoder: Decoder) throws {
@@ -145,6 +148,7 @@ extension AppSettings {
         weekendWorkingHours = try container.decodeIfPresent(WorkingHoursRange.self, forKey: .weekendWorkingHours) ?? defaults.weekendWorkingHours
         taperingFloorPercent = try container.decodeIfPresent(Int.self, forKey: .taperingFloorPercent) ?? defaults.taperingFloorPercent
         taperingResetGap = try container.decodeIfPresent(TimeInterval.self, forKey: .taperingResetGap) ?? defaults.taperingResetGap
+        harderToSkipBreaks = try container.decodeIfPresent(Bool.self, forKey: .harderToSkipBreaks) ?? defaults.harderToSkipBreaks
     }
 }
 

@@ -331,6 +331,83 @@ final class StateMachineTests: XCTestCase {
         XCTAssertFalse(machine.runtime.focusExtended)
     }
 
+    func testHarderModeAllowsOnlyOneExtensionPerCycle() {
+        let start = Date(timeIntervalSince1970: 6_600)
+        var settings = AppSettings.defaults
+        settings.workInterval = 30 * 60
+        settings.harderToSkipBreaks = true
+        let clock = FakeClock(now: start)
+        var machine = StateMachine(settings: settings, clock: clock)
+
+        XCTAssertTrue(machine.canExtendFocus)
+        machine.extendFocus(by: 15 * 60)
+        XCTAssertFalse(machine.canExtendFocus)
+
+        // The second extension is a no-op: the deadline stays put.
+        machine.extendFocus(by: 15 * 60)
+        guard case let .working(deadline, _) = machine.runtime.timerState else {
+            return XCTFail("Expected working state")
+        }
+        XCTAssertEqual(deadline, start.addingTimeInterval(45 * 60))
+
+        // A fresh cycle restores the allowance.
+        machine.markBreakTaken()
+        XCTAssertTrue(machine.canExtendFocus)
+    }
+
+    func testRepeatedExtensionsStillWorkWithHarderModeOff() {
+        let start = Date(timeIntervalSince1970: 6_700)
+        var settings = AppSettings.defaults
+        settings.workInterval = 30 * 60
+        let clock = FakeClock(now: start)
+        var machine = StateMachine(settings: settings, clock: clock)
+
+        machine.extendFocus(by: 15 * 60)
+        XCTAssertTrue(machine.canExtendFocus)
+        machine.extendFocus(by: 15 * 60)
+        guard case let .working(deadline, _) = machine.runtime.timerState else {
+            return XCTFail("Expected working state")
+        }
+        XCTAssertEqual(deadline, start.addingTimeInterval(60 * 60))
+    }
+
+    func testPostponePenaltyStartsAfterTheFirstSkipAction() {
+        let start = Date(timeIntervalSince1970: 6_800)
+        var settings = AppSettings.defaults
+        settings.harderToSkipBreaks = true
+        let clock = FakeClock(now: start)
+
+        // An extension spends the free skip.
+        var extended = StateMachine(settings: settings, clock: clock)
+        XCTAssertFalse(extended.postponePenalized)
+        extended.extendFocus(by: 15 * 60)
+        XCTAssertTrue(extended.postponePenalized)
+
+        // So does a postponement.
+        var postponed = StateMachine(settings: settings, clock: clock)
+        postponed.takeBreakNow()
+        postponed.startBreak()
+        XCTAssertFalse(postponed.postponePenalized)
+        postponed.postpone(by: 5 * 60)
+        XCTAssertTrue(postponed.postponePenalized)
+
+        // A fresh cycle clears the penalty.
+        postponed.markBreakTaken()
+        XCTAssertFalse(postponed.postponePenalized)
+    }
+
+    func testPostponePenaltyNeverAppliesWithHarderModeOff() {
+        let start = Date(timeIntervalSince1970: 6_900)
+        let clock = FakeClock(now: start)
+        var machine = StateMachine(clock: clock)
+
+        machine.extendFocus(by: 15 * 60)
+        machine.takeBreakNow()
+        machine.startBreak()
+        machine.postpone(by: 5 * 60)
+        XCTAssertFalse(machine.postponePenalized)
+    }
+
     func testExtendedCycleCreditsTheExtraFocusMinutes() {
         let start = Date(timeIntervalSince1970: 6_400)
         var settings = AppSettings.defaults

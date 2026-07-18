@@ -2,7 +2,7 @@ import AppKit
 import Combine
 
 @MainActor
-final class MenuBarController: NSObject, NSMenuDelegate {
+final class MenuBarController: NSObject, NSMenuDelegate, NSMenuItemValidation {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let menu = NSMenu()
     private let statusMenuItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
@@ -29,6 +29,15 @@ final class MenuBarController: NSObject, NSMenuDelegate {
 
     func menuWillOpen(_ menu: NSMenu) {
         updatePresentation()
+    }
+
+    // The menus autoenable their items, so this is where the extend options
+    // grey out once harder-to-skip mode's single extension is spent.
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if extendOptionItems.contains(where: { $0.item === menuItem }) {
+            return appState.canExtendFocus
+        }
+        return true
     }
 
     private static let templateEyeImage: NSImage? = {
@@ -64,6 +73,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         let extendOptions: [(title: String, minutes: Double, action: Selector)] = [
             ("By 15 Minutes", 15, #selector(extendBy15Minutes)),
             ("By 35 Minutes", 35, #selector(extendBy35Minutes)),
+            ("By 45 Minutes", 45, #selector(extendBy45Minutes)),
             ("By 1 Hour 5 Minutes", 65, #selector(extendBy65Minutes))
         ]
         for option in extendOptions {
@@ -257,6 +267,10 @@ final class MenuBarController: NSObject, NSMenuDelegate {
 
     @objc private func extendBy35Minutes() {
         confirmLongExtension(minutes: 35, label: "35 minutes")
+    }
+
+    @objc private func extendBy45Minutes() {
+        confirmLongExtension(minutes: 45, label: "45 minutes")
     }
 
     @objc private func extendBy65Minutes() {

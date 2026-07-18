@@ -282,11 +282,17 @@ final class MenuPresentationTests: XCTestCase {
     }
 
     func testPostponeHoldDurationScalesWithTheLongerPostponement() {
-        // The shorter postponement holds for 2 s, the longer for 5 s —
+        // The shorter postponement holds for 1 s, the longer for 3 s —
         // regardless of which of the two settings slots it occupies.
-        XCTAssertEqual(postponeHoldDuration(for: 2 * 60, comparedTo: 15 * 60), 2)
-        XCTAssertEqual(postponeHoldDuration(for: 15 * 60, comparedTo: 2 * 60), 5)
-        XCTAssertEqual(postponeHoldDuration(for: 15 * 60, comparedTo: 15 * 60), 2)
+        XCTAssertEqual(postponeHoldDuration(for: 2 * 60, comparedTo: 15 * 60), 1)
+        XCTAssertEqual(postponeHoldDuration(for: 15 * 60, comparedTo: 2 * 60), 3)
+        XCTAssertEqual(postponeHoldDuration(for: 15 * 60, comparedTo: 15 * 60), 1)
+    }
+
+    func testPostponeHoldDurationDoublesWhenPenalized() {
+        XCTAssertEqual(postponeHoldDuration(for: 2 * 60, comparedTo: 15 * 60, penalized: true), 2)
+        XCTAssertEqual(postponeHoldDuration(for: 15 * 60, comparedTo: 2 * 60, penalized: true), 6)
+        XCTAssertEqual(postponeHoldDuration(for: 15 * 60, comparedTo: 15 * 60, penalized: true), 2)
     }
 
     func testBreakPromptCatalogContainsTenUniqueMessages() {

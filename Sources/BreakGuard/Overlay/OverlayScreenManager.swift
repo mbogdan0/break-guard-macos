@@ -243,7 +243,11 @@ struct BreakOverlayView: View {
     private func postponeButton(_ duration: TimeInterval, comparedTo other: TimeInterval) -> some View {
         HoldToConfirmButton(
             title: "Postpone for \(formatDurationCompact(duration))",
-            holdDuration: postponeHoldDuration(for: duration, comparedTo: other)
+            holdDuration: postponeHoldDuration(
+                for: duration,
+                comparedTo: other,
+                penalized: appState.isPostponePenalized
+            )
         ) {
             appState.postpone(seconds: duration)
         }

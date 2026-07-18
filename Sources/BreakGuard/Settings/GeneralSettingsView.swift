@@ -31,6 +31,13 @@ struct GeneralSettingsView: View {
             }
 
             Section {
+                Toggle("Harder to skip breaks", isOn: appState.settingBinding(\.harderToSkipBreaks))
+            } footer: {
+                Text("Allows only one focus extension per cycle. After the first postponement or extension, postponing again requires holding the button twice as long.")
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
                 if advancedExpanded {
                     durationRow(
                         "Warning lead time",

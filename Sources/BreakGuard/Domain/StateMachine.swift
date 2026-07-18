@@ -41,6 +41,19 @@ struct StateMachine {
         statistics.pruneFocusHistory(now: clock.now)
     }
 
+    // Harder-to-skip mode grants one skip action per cycle at normal cost; an
+    // extend or a postpone spends it, and every postponement after that
+    // demands a doubled hold.
+    var postponePenalized: Bool {
+        settings.harderToSkipBreaks
+            && runtime.cyclePostponements + (runtime.focusExtended ? 1 : 0) >= 1
+    }
+
+    // Harder-to-skip mode allows a single extension per cycle.
+    var canExtendFocus: Bool {
+        !(settings.harderToSkipBreaks && runtime.focusExtended)
+    }
+
     var data: PersistedAppData {
         PersistedAppData(
             schemaVersion: PersistedAppData.currentSchemaVersion,
@@ -213,6 +226,7 @@ struct StateMachine {
     // Planned-ahead extension of the current focus window. Unlike postponing
     // at the overlay, this happens before the break is due and records nothing.
     mutating func extendFocus(by delta: TimeInterval) {
+        guard canExtendFocus else { return }
         switch runtime.timerState {
         case let .working(deadline, warningDeadline):
             runtime.timerState = .working(

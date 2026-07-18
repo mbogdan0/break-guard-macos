@@ -57,7 +57,13 @@ struct HoldToConfirmButton: View {
 // The shorter postponement is the lesser evil, so it needs the shorter hold;
 // the longer one demands more deliberation. Compared against the sibling
 // duration rather than the first/second position, because the user is free
-// to configure the "first" postponement to be the longer one.
-func postponeHoldDuration(for duration: TimeInterval, comparedTo other: TimeInterval) -> TimeInterval {
-    duration <= other ? 2 : 5
+// to configure the "first" postponement to be the longer one. Once the
+// cycle's free skip is spent (see StateMachine.postponePenalized), the hold
+// doubles.
+func postponeHoldDuration(
+    for duration: TimeInterval,
+    comparedTo other: TimeInterval,
+    penalized: Bool = false
+) -> TimeInterval {
+    (duration <= other ? 1 : 3) * (penalized ? 2 : 1)
 }

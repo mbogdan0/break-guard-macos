@@ -67,6 +67,11 @@ final class AppState: ObservableObject {
     // True once the current focus window was extended; drives the yellow
     // menu bar pill until a new cycle starts.
     @Published var isFocusExtended = false
+    // Harder-to-skip mode: true once the cycle's free skip action is spent,
+    // doubling the hold on the overlay's postpone buttons.
+    @Published var isPostponePenalized = false
+    // False once harder-to-skip mode's single extension is used up.
+    @Published var canExtendFocus = true
     @Published var notificationAccessStatus: NotificationAccessStatus = .checking
     @Published var loginStatusDescription = "Unknown"
     @Published var notificationTestMessage: String?
@@ -99,6 +104,8 @@ final class AppState: ObservableObject {
         self.statistics = machine.statistics
         self.timerState = machine.runtime.timerState
         self.isFocusExtended = machine.runtime.focusExtended
+        self.isPostponePenalized = machine.postponePenalized
+        self.canExtendFocus = machine.canExtendFocus
     }
 
     func start() {
@@ -333,6 +340,8 @@ final class AppState: ObservableObject {
         timerState = machine.runtime.timerState
         isManualBreak = machine.runtime.manualBreakOrigin != nil
         isFocusExtended = machine.runtime.focusExtended
+        isPostponePenalized = machine.postponePenalized
+        canExtendFocus = machine.canExtendFocus
     }
 
     private func reconcileStateEffects() {
