@@ -13,6 +13,7 @@ final class PersistenceTests: XCTestCase {
         let store = PersistenceStore(fileURL: location)
         var machine = StateMachine()
         machine.statistics.focusMinutesByDay = ["2026-07-11": 75, "2026-07-12": 30]
+        machine.statistics.totalFocusMinutes = 105
 
         store.save(machine.data)
         let loaded = try XCTUnwrap(store.load())

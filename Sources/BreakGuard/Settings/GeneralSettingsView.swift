@@ -2,13 +2,13 @@ import SwiftUI
 
 struct GeneralSettingsView: View {
     @ObservedObject var appState: AppState
+    @State private var advancedExpanded = false
 
     var body: some View {
         Form {
             Section {
                 durationRow("Work interval", keyPath: \.workInterval, range: SettingsRange.workInterval)
                 durationRow("Break duration", keyPath: \.breakDuration, range: SettingsRange.breakDuration)
-                durationRow("Warning lead time", keyPath: \.warningLeadTime, range: SettingsRange.warningLeadTime)
             } header: {
                 Text("Timing")
             } footer: {
@@ -30,28 +30,29 @@ struct GeneralSettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
-            Section("Postponement") {
-                durationRow(
-                    "First postponement",
-                    keyPath: \.firstPostponeDuration,
-                    range: SettingsRange.postponeDuration
-                )
-                durationRow(
-                    "Second postponement",
-                    keyPath: \.secondPostponeDuration,
-                    range: SettingsRange.postponeDuration
-                )
-            }
-
             Section {
-                Toggle("Show seconds in the menu bar", isOn: appState.settingBinding(\.showSecondsInMenuBar))
-                Toggle("Update seconds every 10 seconds", isOn: appState.settingBinding(\.coarseSecondsInMenuBar))
-                    .disabled(!appState.settings.showSecondsInMenuBar)
-            } header: {
-                Text("Menu Bar")
+                DisclosureGroup("Advanced", isExpanded: $advancedExpanded) {
+                    durationRow(
+                        "Warning lead time",
+                        keyPath: \.warningLeadTime,
+                        range: SettingsRange.warningLeadTime
+                    )
+                    durationRow(
+                        "First postponement",
+                        keyPath: \.firstPostponeDuration,
+                        range: SettingsRange.postponeDuration
+                    )
+                    durationRow(
+                        "Second postponement",
+                        keyPath: \.secondPostponeDuration,
+                        range: SettingsRange.postponeDuration
+                    )
+                }
             } footer: {
-                Text("A calmer countdown: seconds stay visible but tick only once every 10 seconds.")
-                    .foregroundStyle(.secondary)
+                if advancedExpanded {
+                    Text("The warning appears this long before a break is due. Postponing an overdue break waits the first duration; postponing again waits the second.")
+                        .foregroundStyle(.secondary)
+                }
             }
 
             Section {

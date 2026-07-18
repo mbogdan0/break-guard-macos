@@ -12,7 +12,7 @@ struct SettingsView: View {
 
             WorkingHoursSettingsView(appState: appState)
                 .tabItem {
-                    Label("Working Hours", systemImage: "clock")
+                    Label("Schedule", systemImage: "clock")
                 }
 
             SystemSettingsView(appState: appState)
@@ -23,6 +23,11 @@ struct SettingsView: View {
             StatisticsSettingsView(appState: appState)
                 .tabItem {
                     Label("Statistics", systemImage: "chart.bar")
+                }
+
+            AboutSettingsView()
+                .tabItem {
+                    Label("About", systemImage: "info.circle")
                 }
         }
         .frame(minWidth: 540, minHeight: 560)

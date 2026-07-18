@@ -13,7 +13,7 @@ struct WeeklyFocusSection: View {
         } header: {
             Text("Last 7 Days")
         } footer: {
-            Text("Weekdays are compared with your weekday average, weekend days with your weekend average, across all recorded days.")
+            Text("Weekdays are compared with your weekday average, weekend days with your weekend average, across the last 4 weeks.")
                 .foregroundStyle(.secondary)
         }
     }

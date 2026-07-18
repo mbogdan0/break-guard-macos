@@ -16,7 +16,7 @@ struct StatisticsSettingsView: View {
             } header: {
                 Text("Focus Time")
             } footer: {
-                Text("Each completed break credits the actual focused time of that cycle.")
+                Text("Each completed break credits the actual focused time of that cycle. The total is lifetime; day-by-day history is kept for the last 4 weeks.")
                     .foregroundStyle(.secondary)
             }
 

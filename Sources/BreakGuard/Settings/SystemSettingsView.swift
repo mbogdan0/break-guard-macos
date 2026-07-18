@@ -1,15 +1,12 @@
 import SwiftUI
 
 struct SystemSettingsView: View {
-    private static let authorWebsiteURL = URL(string: "https://mbogdan0.github.io/")!
-    private static let sourceCodeURL = URL(string: "https://github.com/mbogdan0/break-guard-macos")!
-
     @ObservedObject var appState: AppState
 
     var body: some View {
         Form {
             Section("Notifications") {
-                statusRow(
+                SettingsStatusRow(
                     title: "Permission",
                     systemImage: "bell",
                     status: appState.notificationAccessStatus.description,
@@ -37,9 +34,21 @@ struct SystemSettingsView: View {
                 }
             }
 
+            Section {
+                Toggle("Show seconds in the menu bar", isOn: appState.settingBinding(\.showSecondsInMenuBar))
+                Toggle("Update seconds every 10 seconds", isOn: appState.settingBinding(\.coarseSecondsInMenuBar))
+                    .disabled(!appState.settings.showSecondsInMenuBar)
+                    .padding(.leading, 20)
+            } header: {
+                Text("Menu Bar")
+            } footer: {
+                Text("A calmer countdown: seconds stay visible but tick only once every 10 seconds.")
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Login") {
                 Toggle("Launch at login", isOn: appState.settingBinding(\.launchAtLogin))
-                statusRow(
+                SettingsStatusRow(
                     title: "Status",
                     systemImage: "power",
                     status: appState.loginStatusDescription,
@@ -47,61 +56,7 @@ struct SystemSettingsView: View {
                     action: appState.openLoginItemSettings
                 )
             }
-
-            Section("About") {
-                HStack(spacing: 10) {
-                    Label("Author", systemImage: "person")
-                    Spacer()
-                    Text("Bohdan Melnichenko")
-                        .foregroundStyle(.secondary)
-                }
-                linkRow(
-                    title: "Personal Website",
-                    systemImage: "globe",
-                    visibleAddress: "mbogdan0.github.io",
-                    destination: Self.authorWebsiteURL
-                )
-                linkRow(
-                    title: "Source Code",
-                    systemImage: "chevron.left.forwardslash.chevron.right",
-                    visibleAddress: "github.com/mbogdan0",
-                    destination: Self.sourceCodeURL
-                )
-            }
         }
         .formStyle(.grouped)
-    }
-
-    private func linkRow(
-        title: String,
-        systemImage: String,
-        visibleAddress: String,
-        destination: URL
-    ) -> some View {
-        HStack(spacing: 10) {
-            Label(title, systemImage: systemImage)
-            Spacer()
-            Link(visibleAddress, destination: destination)
-                .buttonStyle(.link)
-        }
-    }
-
-    private func statusRow(
-        title: String,
-        systemImage: String,
-        status: String,
-        showsSettingsButton: Bool,
-        action: @escaping () -> Void
-    ) -> some View {
-        HStack(spacing: 10) {
-            Label(title, systemImage: systemImage)
-            Spacer()
-            Text(status)
-                .foregroundStyle(.secondary)
-            if showsSettingsButton {
-                Button("Open Settings…", action: action)
-                    .buttonStyle(.link)
-            }
-        }
     }
 }

@@ -41,6 +41,8 @@ struct StateMachine {
         self.runtime = data.runtime
         self.clock = clock
         restoreAfterSleep()
+        // After restore so focus credited during it lands before old days drop.
+        statistics.pruneFocusHistory(now: clock.now)
     }
 
     var data: PersistedAppData {
@@ -92,7 +94,7 @@ struct StateMachine {
     mutating func completeBreak() {
         guard runtime.timerState == .breakCompleted else { return }
 
-        statistics.focusMinutesByDay[FocusDay.key(for: clock.now), default: 0] += creditedFocusMinutes()
+        creditFocus(minutes: creditedFocusMinutes(), on: clock.now)
         statistics.completedBreaks += 1
         statistics.lastCompletedBreakDate = clock.now
         if runtime.cycleViolated {
@@ -395,9 +397,15 @@ struct StateMachine {
         }
         let minutes = max(0, Int((focusDuration / 60).rounded()))
         if minutes > 0 {
-            statistics.focusMinutesByDay[FocusDay.key(for: focusEnd), default: 0] += minutes
+            creditFocus(minutes: minutes, on: focusEnd)
         }
         startWorkCycle()
+    }
+
+    private mutating func creditFocus(minutes: Int, on date: Date) {
+        statistics.focusMinutesByDay[FocusDay.key(for: date), default: 0] += minutes
+        statistics.totalFocusMinutes += minutes
+        statistics.pruneFocusHistory(now: clock.now)
     }
 
     private func creditedFocusMinutes() -> Int {
