@@ -281,6 +281,14 @@ final class MenuPresentationTests: XCTestCase {
         XCTAssertEqual(breakOverlayActionSet(isManualBreak: false), .postpone)
     }
 
+    func testPostponeHoldDurationScalesWithTheLongerPostponement() {
+        // The shorter postponement holds for 2 s, the longer for 5 s —
+        // regardless of which of the two settings slots it occupies.
+        XCTAssertEqual(postponeHoldDuration(for: 2 * 60, comparedTo: 15 * 60), 2)
+        XCTAssertEqual(postponeHoldDuration(for: 15 * 60, comparedTo: 2 * 60), 5)
+        XCTAssertEqual(postponeHoldDuration(for: 15 * 60, comparedTo: 15 * 60), 2)
+    }
+
     func testBreakPromptCatalogContainsTenUniqueMessages() {
         XCTAssertEqual(BreakPromptCatalog.all.count, 10)
         XCTAssertEqual(Set(BreakPromptCatalog.all).count, 10)

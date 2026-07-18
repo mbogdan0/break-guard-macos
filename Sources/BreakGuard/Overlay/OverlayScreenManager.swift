@@ -185,11 +185,17 @@ struct BreakOverlayView: View {
                     .multilineTextAlignment(.center)
                     .padding(.top, 8)
             } else {
+                let first = appState.settings.firstPostponeDuration
+                let second = appState.settings.secondPostponeDuration
                 HStack(spacing: 16) {
-                    postponeButton(appState.settings.firstPostponeDuration)
-                    postponeButton(appState.settings.secondPostponeDuration)
+                    postponeButton(first, comparedTo: second)
+                    postponeButton(second, comparedTo: first)
                 }
                 .padding(.top, 48)
+                Text("Hold a button down to postpone.")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.white.opacity(0.5))
+                    .padding(.top, 8)
             }
         }
     }
@@ -234,16 +240,13 @@ struct BreakOverlayView: View {
         }
     }
 
-    private func postponeButton(_ duration: TimeInterval) -> some View {
-        Button {
+    private func postponeButton(_ duration: TimeInterval, comparedTo other: TimeInterval) -> some View {
+        HoldToConfirmButton(
+            title: "Postpone for \(formatDurationCompact(duration))",
+            holdDuration: postponeHoldDuration(for: duration, comparedTo: other)
+        ) {
             appState.postpone(seconds: duration)
-        } label: {
-            Text("Postpone for \(formatDurationCompact(duration))")
-                .font(.system(size: 18, weight: .medium))
-                .frame(maxWidth: .infinity, minHeight: 40)
         }
-        .buttonStyle(.bordered)
-        .controlSize(.large)
     }
 }
 
