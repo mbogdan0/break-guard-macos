@@ -263,6 +263,10 @@ final class AppState: ObservableObject {
         let launchAtLoginChanged = machine.settings.launchAtLogin != validated.launchAtLogin
         machine.settings = validated
         settings = validated
+        // Both depend on harderToSkipBreaks, so a toggle must not wait for
+        // the next tick to publish.
+        isPostponePenalized = machine.postponePenalized
+        canExtendFocus = machine.canExtendFocus
         if launchAtLoginChanged {
             applyLaunchAtLoginPreference()
             refreshLoginStatus()
