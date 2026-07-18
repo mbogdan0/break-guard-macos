@@ -69,4 +69,15 @@ final class FormattingTests: XCTestCase {
     func testDurationPhraseClampsNegativeToZero() {
         XCTAssertEqual(formatDurationPhrase(-10), "0 seconds")
     }
+
+    func testDurationCompactCoversEveryUnit() {
+        XCTAssertEqual(formatDurationCompact(0), "0s")
+        XCTAssertEqual(formatDurationCompact(45), "45s")
+        XCTAssertEqual(formatDurationCompact(60), "1m")
+        XCTAssertEqual(formatDurationCompact(140), "2m 20s")
+        XCTAssertEqual(formatDurationCompact(15 * 60), "15m")
+        XCTAssertEqual(formatDurationCompact(90 * 60), "1h 30m")
+        XCTAssertEqual(formatDurationCompact(3661), "1h 1m 1s")
+        XCTAssertEqual(formatDurationCompact(-10), "0s")
+    }
 }

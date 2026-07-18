@@ -6,10 +6,6 @@ struct StateMachine {
     var runtime: RuntimeState
     var clock: TimeProvider
 
-    // A gap this long without focus means the workday ended: the tapering
-    // session counter starts over and sessions run at full length again.
-    static let taperingResetGap: TimeInterval = 6 * 60 * 60
-
     init(settings: AppSettings = .defaults, statistics: Statistics = .empty, clock: TimeProvider = SystemClock()) {
         var validated = settings
         validated.clamp()
@@ -113,7 +109,7 @@ struct StateMachine {
         let lastFocusActivity = runtime.breakStartedAt ?? runtime.preservedAt
         let sessions: Int
         if let lastFocusActivity,
-           clock.now.timeIntervalSince(lastFocusActivity) >= Self.taperingResetGap {
+           clock.now.timeIntervalSince(lastFocusActivity) >= settings.taperingResetGap {
             sessions = 0
         } else {
             sessions = runtime.completedFocusSessions + 1

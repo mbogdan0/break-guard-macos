@@ -131,4 +131,32 @@ final class AppSettingsTests: XCTestCase {
             accuracy: 0.001
         )
     }
+
+    func testConfigurableTaperingFloorRaisesTheLevelingPoint() {
+        var settings = AppSettings.defaults
+        settings.workInterval = 30 * 60
+        settings.focusPace = .tapering
+        settings.taperingFloorPercent = 90
+
+        // Deep into the day the interval approaches the configured floor and
+        // never drops below it.
+        let late = settings.effectiveWorkInterval(sessionsCompleted: 60)
+        XCTAssertGreaterThanOrEqual(late, 30 * 60 * 0.9)
+        XCTAssertLessThan(late, 30 * 60 * 0.91)
+    }
+
+    func testClampBoundsTaperingSettings() {
+        var settings = AppSettings.defaults
+        settings.taperingFloorPercent = 5
+        settings.taperingResetGap = 30 * 60
+        settings.clamp()
+        XCTAssertEqual(settings.taperingFloorPercent, SettingsRange.taperingFloorPercent.lowerBound)
+        XCTAssertEqual(settings.taperingResetGap, 3600)
+
+        settings.taperingFloorPercent = 200
+        settings.taperingResetGap = 100 * 3600
+        settings.clamp()
+        XCTAssertEqual(settings.taperingFloorPercent, SettingsRange.taperingFloorPercent.upperBound)
+        XCTAssertEqual(settings.taperingResetGap, 24 * 3600)
+    }
 }

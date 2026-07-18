@@ -29,15 +29,15 @@ enum FocusPace: String, Codable, CaseIterable {
     // Tapering shortens each successive focus session as fatigue accumulates.
     // A Gaussian falloff toward a floor keeps the first sessions near full
     // length, drops fastest mid-day, and levels off instead of collapsing:
-    // for a 30-minute interval, session 17 (8h in) runs ~22 minutes and the
-    // curve bottoms out at ~19:30.
+    // with the default floor and a 30-minute interval, session 17 (8h in)
+    // runs ~22 minutes and the curve bottoms out at ~19:30.
     static let taperingFloor = 0.65
     static let taperingTau = 13.0
 
-    static func taperingMultiplier(sessionsCompleted: Int) -> Double {
+    static func taperingMultiplier(sessionsCompleted: Int, floor: Double = taperingFloor) -> Double {
         let n = Double(max(0, sessionsCompleted))
         let x = n / taperingTau
-        return taperingFloor + (1 - taperingFloor) * exp(-x * x)
+        return floor + (1 - floor) * exp(-x * x)
     }
 }
 
@@ -48,6 +48,10 @@ enum SettingsRange {
     static let breakDuration: ClosedRange<Int> = 30...(60 * 60)
     static let warningLeadTime: ClosedRange<Int> = 0...(30 * 60)
     static let postponeDuration: ClosedRange<Int> = 30...(120 * 60)
+    // Percent of the work interval that tapering levels off at.
+    static let taperingFloorPercent: ClosedRange<Int> = 40...95
+    // Hours without focus after which the tapering day starts over.
+    static let taperingResetGapHours: ClosedRange<Int> = 1...24
 }
 
 struct AppSettings: Codable, Equatable {
@@ -64,8 +68,17 @@ struct AppSettings: Codable, Equatable {
     var workingHoursEnabled: Bool = false
     var weekdayWorkingHours = WorkingHoursRange(enabled: true)
     var weekendWorkingHours = WorkingHoursRange(enabled: false)
+    // Shortest tapered session, as a percent of the work interval.
+    var taperingFloorPercent: Int = 65
+    // A gap this long without focus means the workday ended: tapering
+    // starts over and sessions run at full length again.
+    var taperingResetGap: TimeInterval = 6 * 60 * 60
 
     static let defaults = AppSettings()
+
+    var taperingFloorFraction: Double {
+        Double(taperingFloorPercent) / 100
+    }
 
     // The interval a new work cycle actually runs for.
     var effectiveWorkInterval: TimeInterval {
@@ -76,7 +89,10 @@ struct AppSettings: Codable, Equatable {
     // completed session since the last long rest.
     func effectiveWorkInterval(sessionsCompleted: Int) -> TimeInterval {
         guard focusPace == .tapering else { return effectiveWorkInterval }
-        return effectiveWorkInterval * FocusPace.taperingMultiplier(sessionsCompleted: sessionsCompleted)
+        return effectiveWorkInterval * FocusPace.taperingMultiplier(
+            sessionsCompleted: sessionsCompleted,
+            floor: taperingFloorFraction
+        )
     }
 
     mutating func clamp() {
@@ -88,6 +104,12 @@ struct AppSettings: Codable, Equatable {
         warningLeadTime = min(warningLeadTime, workInterval)
         weekdayWorkingHours.clamp()
         weekendWorkingHours.clamp()
+        taperingFloorPercent = min(
+            max(taperingFloorPercent, SettingsRange.taperingFloorPercent.lowerBound),
+            SettingsRange.taperingFloorPercent.upperBound
+        )
+        let gapRange = (SettingsRange.taperingResetGapHours.lowerBound * 3600)...(SettingsRange.taperingResetGapHours.upperBound * 3600)
+        taperingResetGap = clampSeconds(taperingResetGap, to: gapRange)
     }
 }
 
@@ -101,7 +123,8 @@ extension AppSettings {
         case workInterval, focusPace, breakDuration, warningLeadTime,
              firstPostponeDuration, secondPostponeDuration, notificationSound,
              launchAtLogin, showSecondsInMenuBar, coarseSecondsInMenuBar,
-             workingHoursEnabled, weekdayWorkingHours, weekendWorkingHours
+             workingHoursEnabled, weekdayWorkingHours, weekendWorkingHours,
+             taperingFloorPercent, taperingResetGap
     }
 
     init(from decoder: Decoder) throws {
@@ -120,6 +143,8 @@ extension AppSettings {
         workingHoursEnabled = try container.decodeIfPresent(Bool.self, forKey: .workingHoursEnabled) ?? defaults.workingHoursEnabled
         weekdayWorkingHours = try container.decodeIfPresent(WorkingHoursRange.self, forKey: .weekdayWorkingHours) ?? defaults.weekdayWorkingHours
         weekendWorkingHours = try container.decodeIfPresent(WorkingHoursRange.self, forKey: .weekendWorkingHours) ?? defaults.weekendWorkingHours
+        taperingFloorPercent = try container.decodeIfPresent(Int.self, forKey: .taperingFloorPercent) ?? defaults.taperingFloorPercent
+        taperingResetGap = try container.decodeIfPresent(TimeInterval.self, forKey: .taperingResetGap) ?? defaults.taperingResetGap
     }
 }
 

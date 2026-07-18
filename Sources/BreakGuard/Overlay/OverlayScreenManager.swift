@@ -238,7 +238,7 @@ struct BreakOverlayView: View {
         Button {
             appState.postpone(seconds: duration)
         } label: {
-            Text("Postpone for \(formatDurationPhrase(duration))")
+            Text("Postpone for \(formatDurationCompact(duration))")
                 .font(.system(size: 18, weight: .medium))
                 .frame(maxWidth: .infinity, minHeight: 40)
         }

@@ -30,6 +30,22 @@ extension AppState {
         )
     }
 
+    // Whole-hour view of a seconds-based setting, for coarse steppers.
+    func hoursBinding(
+        _ keyPath: WritableKeyPath<AppSettings, TimeInterval>,
+        range: ClosedRange<Int>
+    ) -> Binding<Int> {
+        Binding(
+            get: { Int((self.settings[keyPath: keyPath] / 3600).rounded()) },
+            set: { newValue in
+                var updated = self.settings
+                let clamped = min(max(newValue, range.lowerBound), range.upperBound)
+                updated[keyPath: keyPath] = TimeInterval(clamped * 3600)
+                self.updateSettings(updated)
+            }
+        )
+    }
+
     // Bridges a minutes-from-midnight setting to the Date that DatePicker
     // needs, anchored to today. Only the hour and minute survive the write.
     func timeOfDayBinding(_ keyPath: WritableKeyPath<AppSettings, Int>) -> Binding<Date> {

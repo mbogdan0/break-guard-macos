@@ -40,6 +40,21 @@ func formatDurationPhrase(_ interval: TimeInterval) -> String {
     return parts.isEmpty ? "0 seconds" : parts.joined(separator: " ")
 }
 
+// Compact duration for space-constrained controls like the overlay's
+// postpone buttons: "2m 20s", "15m", "1h 30m".
+func formatDurationCompact(_ interval: TimeInterval) -> String {
+    let total = max(0, Int(interval.rounded()))
+    let units: [(count: Int, suffix: String)] = [
+        (total / 3600, "h"),
+        (total % 3600 / 60, "m"),
+        (total % 60, "s")
+    ]
+    let parts = units
+        .filter { $0.count > 0 }
+        .map { "\($0.count)\($0.suffix)" }
+    return parts.isEmpty ? "0s" : parts.joined(separator: " ")
+}
+
 // mm:ss entry for the settings timing fields. A bare number keeps the old
 // minutes-only habit working: "30" is 30 minutes, "0:30" is 30 seconds.
 struct DurationFieldStyle: ParseableFormatStyle {

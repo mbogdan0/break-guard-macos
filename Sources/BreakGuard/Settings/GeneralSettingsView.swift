@@ -31,7 +31,7 @@ struct GeneralSettingsView: View {
             }
 
             Section {
-                DisclosureGroup("Advanced", isExpanded: $advancedExpanded) {
+                if advancedExpanded {
                     durationRow(
                         "Warning lead time",
                         keyPath: \.warningLeadTime,
@@ -47,20 +47,20 @@ struct GeneralSettingsView: View {
                         keyPath: \.secondPostponeDuration,
                         range: SettingsRange.postponeDuration
                     )
+                    taperingRows
+                    HStack {
+                        Spacer()
+                        Button("Restore Defaults") {
+                            appState.restoreDefaultSettings()
+                        }
+                    }
                 }
+            } header: {
+                advancedHeader
             } footer: {
                 if advancedExpanded {
-                    Text("The warning appears this long before a break is due. Postponing an overdue break waits the first duration; postponing again waits the second.")
+                    Text("The warning appears this long before a break is due. Postponing an overdue break waits the first duration; postponing again waits the second. Tapering never shortens a session below the floor, and a long enough pause starts the day over. Restore Defaults resets every setting on every tab.")
                         .foregroundStyle(.secondary)
-                }
-            }
-
-            Section {
-                HStack {
-                    Spacer()
-                    Button("Restore Defaults") {
-                        appState.restoreDefaultSettings()
-                    }
                 }
             }
         }
@@ -73,6 +73,61 @@ struct GeneralSettingsView: View {
                 NSApp.keyWindow?.makeFirstResponder(nil)
             }
         }
+    }
+
+    private var advancedHeader: some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.15)) {
+                advancedExpanded.toggle()
+            }
+        } label: {
+            HStack(spacing: 5) {
+                Text("Advanced")
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .rotationEffect(.degrees(advancedExpanded ? 90 : 0))
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    // Only meaningful for the Tapering pace; kept visible but dimmed
+    // otherwise so the knobs are discoverable.
+    @ViewBuilder private var taperingRows: some View {
+        let isTapering = appState.settings.focusPace == .tapering
+        LabeledContent("Tapering floor") {
+            HStack(spacing: 6) {
+                Text("\(appState.settings.taperingFloorPercent)%")
+                    .monospacedDigit()
+                Stepper(
+                    "Tapering floor",
+                    value: appState.settingBinding(\.taperingFloorPercent),
+                    in: SettingsRange.taperingFloorPercent,
+                    step: 5
+                )
+                .labelsHidden()
+            }
+        }
+        .disabled(!isTapering)
+        LabeledContent("Tapering day resets after") {
+            HStack(spacing: 6) {
+                Text(hoursText(appState.settings.taperingResetGap))
+                    .monospacedDigit()
+                Stepper(
+                    "Tapering day resets after",
+                    value: appState.hoursBinding(\.taperingResetGap, range: SettingsRange.taperingResetGapHours),
+                    in: SettingsRange.taperingResetGapHours
+                )
+                .labelsHidden()
+            }
+        }
+        .disabled(!isTapering)
+    }
+
+    private func hoursText(_ interval: TimeInterval) -> String {
+        let hours = Int((interval / 3600).rounded())
+        return hours == 1 ? "1 hour" : "\(hours) hours"
     }
 
     private var focusPaceFooter: String {
@@ -88,12 +143,16 @@ struct GeneralSettingsView: View {
             pace = "Work interval +20%: \(effective)."
         case .tapering:
             let after8h = formatDurationPhrase(
-                settings.workInterval * FocusPace.taperingMultiplier(sessionsCompleted: 16)
+                settings.workInterval * FocusPace.taperingMultiplier(
+                    sessionsCompleted: 16,
+                    floor: settings.taperingFloorFraction
+                )
             )
-            let floor = formatDurationPhrase(settings.workInterval * FocusPace.taperingFloor)
+            let floor = formatDurationPhrase(settings.workInterval * settings.taperingFloorFraction)
+            let gap = hoursText(settings.taperingResetGap)
             pace = "Each focus gets a little shorter as the day goes on: "
                 + "\(effective) shrinks to about \(after8h) after 16 sessions, "
-                + "leveling off near \(floor). A 6+ hour pause starts the day over."
+                + "leveling off near \(floor). A \(gap)+ pause starts the day over."
         }
         return pace + " Takes effect from the next cycle."
     }
