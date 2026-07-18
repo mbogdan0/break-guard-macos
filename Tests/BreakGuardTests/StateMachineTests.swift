@@ -994,6 +994,35 @@ final class StateMachineTests: XCTestCase {
         XCTAssertEqual(deadline, clock.now.addingTimeInterval(30 * 60))
     }
 
+    func testConfigurableResetGapDrivesTheDayReset() {
+        let start = Date(timeIntervalSince1970: 6_200)
+        var clock = FakeClock(now: start)
+        var settings = AppSettings.defaults
+        settings.workInterval = 30 * 60
+        settings.breakDuration = 2 * 60
+        settings.focusPace = .tapering
+        settings.taperingResetGap = 2 * 3600
+        var machine = StateMachine(settings: settings, clock: clock)
+
+        clock.now = start.addingTimeInterval(30 * 60)
+        machine.clock = clock
+        completeCycle(&machine, &clock)
+        XCTAssertEqual(machine.runtime.completedFocusSessions, 1)
+
+        // A 3-hour pause is under the old hardcoded 6 hours but over the
+        // configured 2-hour gap, so the day must start over.
+        machine.preserveForSleep()
+        clock.now = clock.now.addingTimeInterval(3 * 3600)
+        machine.clock = clock
+        machine.restoreAfterSleep()
+
+        XCTAssertEqual(machine.runtime.completedFocusSessions, 0)
+        guard case let .working(deadline, _) = machine.runtime.timerState else {
+            return XCTFail("Expected working state")
+        }
+        XCTAssertEqual(deadline, clock.now.addingTimeInterval(30 * 60))
+    }
+
     func testTaperingSurvivesShortVerifiedRest() {
         let start = Date(timeIntervalSince1970: 6_500)
         var clock = FakeClock(now: start)
