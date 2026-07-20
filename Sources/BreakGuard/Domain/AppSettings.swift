@@ -38,9 +38,22 @@ enum FocusPace: String, Codable, CaseIterable {
     // would drive the window toward zero and fire breaks back to back.
     static let taperingMinimumInterval: TimeInterval = 7 * 60
 
+    // Past this the penalty already exceeds the longest configurable window,
+    // so further accumulation cannot change the outcome. Capping is not just
+    // tidiness: the total is persisted as a JSON number, JSONEncoder throws on
+    // infinity and NaN, and PersistenceStore.save() only logs that throw — a
+    // poisoned value would silently freeze every future write.
+    static let taperingFocusCeiling = TimeInterval(SettingsRange.workInterval.upperBound) * 60
+
+    // Rejects NaN as well: every comparison against NaN is false, so it falls
+    // to the zero branch rather than propagating.
+    static func sanitizedTaperedFocus(_ seconds: TimeInterval) -> TimeInterval {
+        guard seconds > 0 else { return 0 }
+        return min(seconds, taperingFocusCeiling)
+    }
+
     static func taperingPenalty(forFocus focusSeconds: TimeInterval) -> TimeInterval {
-        guard focusSeconds > 0, focusSeconds.isFinite else { return 0 }
-        return focusSeconds / 60 * taperingSecondsPerFocusMinute
+        sanitizedTaperedFocus(focusSeconds) / 60 * taperingSecondsPerFocusMinute
     }
 }
 

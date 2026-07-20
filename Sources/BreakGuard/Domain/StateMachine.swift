@@ -164,7 +164,12 @@ struct StateMachine {
         if clock.now.timeIntervalSince(closed.end) >= settings.taperingResetGap {
             tapered = 0
         } else {
-            tapered = max(0, runtime.taperedFocusSeconds) + max(0, closed.duration)
+            // Both terms are sanitized before the sum so a poisoned stored
+            // value cannot make the total non-finite, and the sum is capped
+            // again so it stays inside the encodable range.
+            let banked = FocusPace.sanitizedTaperedFocus(runtime.taperedFocusSeconds)
+            let earned = FocusPace.sanitizedTaperedFocus(closed.duration)
+            tapered = FocusPace.sanitizedTaperedFocus(banked + earned)
         }
         let interval = settings.effectiveWorkInterval(taperedFocus: tapered)
         runtime = RuntimeState(
@@ -191,9 +196,13 @@ struct StateMachine {
 
     // Where the focus of the cycle being closed ended, and how long it ran.
     // One definition so the minutes credited to statistics and the minutes
-    // charged to tapering can never disagree. The break branch trusts the
-    // duration captured at startBreak(); the countdown branch must not,
-    // because postpone() leaves that capture behind stale.
+    // charged to tapering can never disagree.
+    //
+    // Only the break branch trusts the capture startBreak() took. Every exit
+    // from a break now clears it, so a countdown state should never carry one
+    // — the switch keeps that structural rather than relying on each future
+    // exit path to remember, since a stale capture fails silently by
+    // understating focus instead of crashing.
     private func closedCycleFocus() -> (end: Date, duration: TimeInterval) {
         switch runtime.timerState {
         case .breaking, .breakDue, .breakCompleted:
@@ -225,6 +234,13 @@ struct StateMachine {
         // Postponing a manual break opts into the standard postpone contract;
         // the penalty-free exit is cancelManualBreak().
         runtime.manualBreakOrigin = nil
+        // Postponing ends the break these describe, so the capture startBreak()
+        // took must not outlive it — the next break re-takes it. Left behind,
+        // it would understate the cycle's focus for anything that closes the
+        // cycle from a break state without a fresh startBreak(), such as
+        // sleeping through the moment the postponed break falls due.
+        runtime.cycleFocusDuration = nil
+        runtime.breakStartedAt = nil
         runtime.timerState = .postponed(deadline: clock.now.addingTimeInterval(delay))
     }
 
