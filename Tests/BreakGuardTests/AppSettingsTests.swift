@@ -94,69 +94,88 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(settings, AppSettings.defaults)
     }
 
-    func testTaperingMultiplierCurveShape() {
-        // First session at full length; ~27% down after 16 sessions (a 30-min
-        // interval lands near 22 minutes); ~32% down after 20; floored at 65%.
-        XCTAssertEqual(FocusPace.taperingMultiplier(sessionsCompleted: 0), 1.0)
-        XCTAssertEqual(FocusPace.taperingMultiplier(sessionsCompleted: 16), 0.727, accuracy: 0.01)
-        XCTAssertEqual(FocusPace.taperingMultiplier(sessionsCompleted: 20), 0.683, accuracy: 0.01)
-
-        var previous = FocusPace.taperingMultiplier(sessionsCompleted: 0)
-        for n in 1...60 {
-            let current = FocusPace.taperingMultiplier(sessionsCompleted: n)
-            XCTAssertLessThanOrEqual(current, previous, "not monotonic at n=\(n)")
-            XCTAssertGreaterThanOrEqual(current, FocusPace.taperingFloor)
-            previous = current
-        }
-
-        // The early decline is gentle: the second session loses only seconds.
-        let secondSessionLoss = 30 * 60 * (1 - FocusPace.taperingMultiplier(sessionsCompleted: 1))
-        XCTAssertLessThan(secondSessionLoss, 15)
+    func testTaperingPenaltyIsOneSecondPerFocusMinute() {
+        XCTAssertEqual(FocusPace.taperingPenalty(forFocus: 0), 0)
+        XCTAssertEqual(FocusPace.taperingPenalty(forFocus: 30 * 60), 30, accuracy: 0.001)
+        XCTAssertEqual(FocusPace.taperingPenalty(forFocus: 8 * 3600), 480, accuracy: 0.001)
+        // Linear, so twice the focus is exactly twice the penalty.
+        XCTAssertEqual(
+            FocusPace.taperingPenalty(forFocus: 2 * 3600),
+            2 * FocusPace.taperingPenalty(forFocus: 3600),
+            accuracy: 0.001
+        )
+        // Garbage in is not a negative penalty (which would lengthen a window).
+        XCTAssertEqual(FocusPace.taperingPenalty(forFocus: -600), 0)
+        XCTAssertEqual(FocusPace.taperingPenalty(forFocus: .nan), 0)
     }
 
-    func testSessionAwareIntervalAppliesOnlyToTapering() {
+    func testFocusAwareIntervalAppliesOnlyToTapering() {
         var settings = AppSettings.defaults
         settings.workInterval = 30 * 60
 
         settings.focusPace = .normal
-        XCTAssertEqual(settings.effectiveWorkInterval(sessionsCompleted: 16), 30 * 60)
+        XCTAssertEqual(settings.effectiveWorkInterval(taperedFocus: 8 * 3600), 30 * 60)
         settings.focusPace = .deepFocus
-        XCTAssertEqual(settings.effectiveWorkInterval(sessionsCompleted: 16), 36 * 60)
+        XCTAssertEqual(settings.effectiveWorkInterval(taperedFocus: 8 * 3600), 36 * 60)
 
         settings.focusPace = .tapering
-        XCTAssertEqual(settings.effectiveWorkInterval(sessionsCompleted: 0), 30 * 60)
+        XCTAssertEqual(settings.effectiveWorkInterval(taperedFocus: 0), 30 * 60)
+        // One 30-minute window banked costs the next one 30 seconds.
         XCTAssertEqual(
-            settings.effectiveWorkInterval(sessionsCompleted: 16),
-            30 * 60 * FocusPace.taperingMultiplier(sessionsCompleted: 16),
+            settings.effectiveWorkInterval(taperedFocus: 30 * 60),
+            30 * 60 - 30,
+            accuracy: 0.001
+        )
+        // An 8-hour day lands a 30-minute window at about 22 minutes.
+        XCTAssertEqual(
+            settings.effectiveWorkInterval(taperedFocus: 8 * 3600),
+            22 * 60,
             accuracy: 0.001
         )
     }
 
-    func testConfigurableTaperingFloorRaisesTheLevelingPoint() {
+    func testTaperingNeverFallsBelowTheSafetyBottom() {
         var settings = AppSettings.defaults
         settings.workInterval = 30 * 60
         settings.focusPace = .tapering
-        settings.taperingFloorPercent = 90
 
-        // Deep into the day the interval approaches the configured floor and
-        // never drops below it.
-        let late = settings.effectiveWorkInterval(sessionsCompleted: 60)
-        XCTAssertGreaterThanOrEqual(late, 30 * 60 * 0.9)
-        XCTAssertLessThan(late, 30 * 60 * 0.91)
+        // 100 hours of focus would drive the raw formula far below zero.
+        XCTAssertEqual(
+            settings.effectiveWorkInterval(taperedFocus: 100 * 3600),
+            FocusPace.taperingMinimumInterval
+        )
+
+        // An interval already shorter than the bottom is never lengthened by it.
+        settings.workInterval = 5 * 60
+        XCTAssertEqual(settings.effectiveWorkInterval(taperedFocus: 0), 5 * 60)
+        XCTAssertEqual(settings.effectiveWorkInterval(taperedFocus: 100 * 3600), 5 * 60)
     }
 
-    func testClampBoundsTaperingSettings() {
+    func testWarningLeadNeverSwallowsTheWholeWindow() {
         var settings = AppSettings.defaults
-        settings.taperingFloorPercent = 5
+        settings.workInterval = 15 * 60
+        settings.warningLeadTime = 60
+        // Comfortably inside the window: used as configured.
+        XCTAssertEqual(settings.effectiveWarningLeadTime(for: 15 * 60), 60)
+
+        // A lead longer than the window would start every cycle already
+        // warning; it is capped at the back half instead.
+        settings.warningLeadTime = 10 * 60
+        XCTAssertEqual(settings.effectiveWarningLeadTime(for: FocusPace.taperingMinimumInterval), 3.5 * 60)
+        XCTAssertEqual(settings.effectiveWarningLeadTime(for: 30 * 60), 10 * 60)
+
+        settings.warningLeadTime = 0
+        XCTAssertEqual(settings.effectiveWarningLeadTime(for: 15 * 60), 0)
+    }
+
+    func testClampBoundsTaperingResetGap() {
+        var settings = AppSettings.defaults
         settings.taperingResetGap = 30 * 60
         settings.clamp()
-        XCTAssertEqual(settings.taperingFloorPercent, SettingsRange.taperingFloorPercent.lowerBound)
         XCTAssertEqual(settings.taperingResetGap, 3600)
 
-        settings.taperingFloorPercent = 200
         settings.taperingResetGap = 100 * 3600
         settings.clamp()
-        XCTAssertEqual(settings.taperingFloorPercent, SettingsRange.taperingFloorPercent.upperBound)
         XCTAssertEqual(settings.taperingResetGap, 24 * 3600)
     }
 }

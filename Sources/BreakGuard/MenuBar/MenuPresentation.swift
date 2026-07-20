@@ -48,6 +48,15 @@ extension DateFormatter {
         formatter.timeStyle = .short
         return formatter
     }()
+
+    // For dates far enough out that the day matters, such as when the weekly
+    // emergency override comes back.
+    static let breakGuardDateTime: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter
+    }()
 }
 
 func makeMenuPresentation(

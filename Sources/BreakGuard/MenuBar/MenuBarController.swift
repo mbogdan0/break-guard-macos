@@ -7,7 +7,12 @@ final class MenuBarController: NSObject, NSMenuDelegate, NSMenuItemValidation {
     private let menu = NSMenu()
     private let statusMenuItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private let takeBreakItem = NSMenuItem(title: "Take a Break Now", action: #selector(takeBreakNow), keyEquivalent: "")
-    private let justTookBreakItem = NSMenuItem(title: "Just Took a Break", action: #selector(justTookBreak), keyEquivalent: "")
+    // "Just Took a Break" is hidden for now — this is deliberate, not a bug.
+    // Only the menu wiring is commented out (here, in configureMenu(), and in
+    // updatePresentation()); the action and the domain path behind it
+    // (AppState.markBreakTaken -> StateMachine.markBreakTaken) are kept intact
+    // and still covered by tests, so restoring the item is an uncomment.
+    // private let justTookBreakItem = NSMenuItem(title: "Just Took a Break", action: #selector(justTookBreak), keyEquivalent: "")
     private let extendItem = NSMenuItem(title: "Extend Focus", action: nil, keyEquivalent: "")
     private var extendOptionItems: [(item: NSMenuItem, baseTitle: String, minutes: Double)] = []
     private let pauseItem = NSMenuItem(title: "Pause Until 9 AM", action: #selector(pauseUntilMorning), keyEquivalent: "")
@@ -65,9 +70,10 @@ final class MenuBarController: NSObject, NSMenuDelegate, NSMenuItemValidation {
         takeBreakItem.image = Self.menuImage("cup.and.saucer")
         menu.addItem(takeBreakItem)
 
-        justTookBreakItem.target = self
-        justTookBreakItem.image = Self.menuImage("checkmark.circle")
-        menu.addItem(justTookBreakItem)
+        // Hidden temporarily — see the justTookBreakItem declaration above.
+        // justTookBreakItem.target = self
+        // justTookBreakItem.image = Self.menuImage("checkmark.circle")
+        // menu.addItem(justTookBreakItem)
 
         let extendMenu = NSMenu(title: "Extend Focus")
         let extendOptions: [(title: String, minutes: Double, action: Selector)] = [
@@ -151,7 +157,8 @@ final class MenuBarController: NSObject, NSMenuDelegate, NSMenuItemValidation {
         statusMenuItem.title = presentation.statusTitle
 
         takeBreakItem.isHidden = presentation.primaryAction != .takeBreak
-        justTookBreakItem.isHidden = presentation.primaryAction != .takeBreak
+        // Hidden temporarily — see the justTookBreakItem declaration above.
+        // justTookBreakItem.isHidden = presentation.primaryAction != .takeBreak
         extendItem.isHidden = !presentation.canExtend
         pauseItem.isHidden = presentation.primaryAction != .takeBreak
         resumeItem.isHidden = presentation.primaryAction != .resume

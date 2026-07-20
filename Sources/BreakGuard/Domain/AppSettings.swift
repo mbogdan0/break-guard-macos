@@ -26,18 +26,21 @@ enum FocusPace: String, Codable, CaseIterable {
         }
     }
 
-    // Tapering shortens each successive focus session as fatigue accumulates.
-    // A Gaussian falloff toward a floor keeps the first sessions near full
-    // length, drops fastest mid-day, and levels off instead of collapsing:
-    // with the default floor and a 30-minute interval, session 17 (8h in)
-    // runs ~22 minutes and the curve bottoms out at ~19:30.
-    static let taperingFloor = 0.65
-    static let taperingTau = 13.0
+    // Tapering shortens the focus window as fatigue accumulates. The measure
+    // is time actually focused, not sessions completed: a session counter
+    // rewards anyone who takes several short manual breaks in a row, since
+    // each one closes a cycle. One accumulated focus minute costs one second
+    // off the next window, so an 8-hour day trims a 30-minute window to ~22.
+    static let taperingSecondsPerFocusMinute = 1.0
 
-    static func taperingMultiplier(sessionsCompleted: Int, floor: Double = taperingFloor) -> Double {
-        let n = Double(max(0, sessionsCompleted))
-        let x = n / taperingTau
-        return floor + (1 - floor) * exp(-x * x)
+    // Non-configurable safety stop. The linear rule has no asymptote, so
+    // without a bottom a long enough day — or a very short work interval —
+    // would drive the window toward zero and fire breaks back to back.
+    static let taperingMinimumInterval: TimeInterval = 7 * 60
+
+    static func taperingPenalty(forFocus focusSeconds: TimeInterval) -> TimeInterval {
+        guard focusSeconds > 0, focusSeconds.isFinite else { return 0 }
+        return focusSeconds / 60 * taperingSecondsPerFocusMinute
     }
 }
 
@@ -48,10 +51,18 @@ enum SettingsRange {
     static let breakDuration: ClosedRange<Int> = 30...(60 * 60)
     static let warningLeadTime: ClosedRange<Int> = 0...(30 * 60)
     static let postponeDuration: ClosedRange<Int> = 30...(120 * 60)
-    // Percent of the work interval that tapering levels off at.
-    static let taperingFloorPercent: ClosedRange<Int> = 40...95
     // Hours without focus after which the tapering day starts over.
     static let taperingResetGapHours: ClosedRange<Int> = 1...24
+}
+
+// The once-a-week escape hatch offered at the bottom of a forced break's
+// overlay. Fixed constants rather than settings: a configurable pressure
+// valve is not a pressure valve.
+enum EmergencyOverride {
+    static let focusGrant: TimeInterval = 90 * 60
+    static let cooldown: TimeInterval = 7 * 24 * 60 * 60
+    // Longer than any postpone hold — this skips the break outright.
+    static let holdDuration: TimeInterval = 5
 }
 
 struct AppSettings: Codable, Equatable {
@@ -68,8 +79,6 @@ struct AppSettings: Codable, Equatable {
     var workingHoursEnabled: Bool = false
     var weekdayWorkingHours = WorkingHoursRange(enabled: true)
     var weekendWorkingHours = WorkingHoursRange(enabled: false)
-    // Shortest tapered session, as a percent of the work interval.
-    var taperingFloorPercent: Int = 65
     // A gap this long without focus means the workday ended: tapering
     // starts over and sessions run at full length again.
     var taperingResetGap: TimeInterval = 6 * 60 * 60
@@ -79,23 +88,30 @@ struct AppSettings: Codable, Equatable {
 
     static let defaults = AppSettings()
 
-    var taperingFloorFraction: Double {
-        Double(taperingFloorPercent) / 100
-    }
-
     // The interval a new work cycle actually runs for.
     var effectiveWorkInterval: TimeInterval {
         workInterval * focusPace.workIntervalMultiplier
     }
 
-    // Session-aware variant: in tapering mode the interval shrinks with each
-    // completed session since the last long rest.
-    func effectiveWorkInterval(sessionsCompleted: Int) -> TimeInterval {
+    // Fatigue-aware variant: in tapering mode the interval shrinks by one
+    // second for every focus minute accumulated since the last long rest.
+    // The inner min() matters — an interval already shorter than the safety
+    // bottom must not be lengthened by it.
+    func effectiveWorkInterval(taperedFocus: TimeInterval) -> TimeInterval {
         guard focusPace == .tapering else { return effectiveWorkInterval }
-        return effectiveWorkInterval * FocusPace.taperingMultiplier(
-            sessionsCompleted: sessionsCompleted,
-            floor: taperingFloorFraction
-        )
+        let base = effectiveWorkInterval
+        let penalty = FocusPace.taperingPenalty(forFocus: taperedFocus)
+        return max(min(base, FocusPace.taperingMinimumInterval), base - penalty)
+    }
+
+    // How long before a new cycle's deadline the warning fires. clamp() bounds
+    // the setting against the raw work interval, but the interval a cycle
+    // actually runs can be shorter — a tapered window, or a scaled pace. A
+    // lead at or past the whole window would open every cycle already warning,
+    // which drains the signal of meaning, so the warning never eats more than
+    // the back half of the window.
+    func effectiveWarningLeadTime(for interval: TimeInterval) -> TimeInterval {
+        max(0, min(warningLeadTime, interval / 2))
     }
 
     mutating func clamp() {
@@ -107,10 +123,6 @@ struct AppSettings: Codable, Equatable {
         warningLeadTime = min(warningLeadTime, workInterval)
         weekdayWorkingHours.clamp()
         weekendWorkingHours.clamp()
-        taperingFloorPercent = min(
-            max(taperingFloorPercent, SettingsRange.taperingFloorPercent.lowerBound),
-            SettingsRange.taperingFloorPercent.upperBound
-        )
         let gapRange = (SettingsRange.taperingResetGapHours.lowerBound * 3600)...(SettingsRange.taperingResetGapHours.upperBound * 3600)
         taperingResetGap = clampSeconds(taperingResetGap, to: gapRange)
     }
@@ -127,7 +139,7 @@ extension AppSettings {
              firstPostponeDuration, secondPostponeDuration, notificationSound,
              launchAtLogin, showSecondsInMenuBar, coarseSecondsInMenuBar,
              workingHoursEnabled, weekdayWorkingHours, weekendWorkingHours,
-             taperingFloorPercent, taperingResetGap, harderToSkipBreaks
+             taperingResetGap, harderToSkipBreaks
     }
 
     init(from decoder: Decoder) throws {
@@ -146,7 +158,6 @@ extension AppSettings {
         workingHoursEnabled = try container.decodeIfPresent(Bool.self, forKey: .workingHoursEnabled) ?? defaults.workingHoursEnabled
         weekdayWorkingHours = try container.decodeIfPresent(WorkingHoursRange.self, forKey: .weekdayWorkingHours) ?? defaults.weekdayWorkingHours
         weekendWorkingHours = try container.decodeIfPresent(WorkingHoursRange.self, forKey: .weekendWorkingHours) ?? defaults.weekendWorkingHours
-        taperingFloorPercent = try container.decodeIfPresent(Int.self, forKey: .taperingFloorPercent) ?? defaults.taperingFloorPercent
         taperingResetGap = try container.decodeIfPresent(TimeInterval.self, forKey: .taperingResetGap) ?? defaults.taperingResetGap
         harderToSkipBreaks = try container.decodeIfPresent(Bool.self, forKey: .harderToSkipBreaks) ?? defaults.harderToSkipBreaks
     }

@@ -196,8 +196,66 @@ struct BreakOverlayView: View {
                     .font(.system(size: 13))
                     .foregroundStyle(.white.opacity(0.5))
                     .padding(.top, 8)
+                emergencyOverrideSection
+                    .padding(.top, 40)
             }
         }
+    }
+
+    // Deliberately understated: a dim, collapsed row that stays out of the way
+    // until someone goes looking for it. Shown on a cooldown too — a hatch
+    // nobody knows about is one nobody can plan around.
+    private var emergencyOverrideSection: some View {
+        VStack(spacing: 0) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    appState.emergencyDisclosureExpanded.toggle()
+                }
+            } label: {
+                HStack(spacing: 5) {
+                    Text("Emergency override")
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .rotationEffect(.degrees(appState.emergencyDisclosureExpanded ? 90 : 0))
+                }
+                .font(.system(size: 12))
+                .foregroundStyle(.white.opacity(0.35))
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if appState.emergencyDisclosureExpanded {
+                if appState.canUseEmergencyOverride {
+                    HoldToConfirmButton(
+                        title: "Skip This Break — +\(formatDurationCompact(EmergencyOverride.focusGrant))",
+                        holdDuration: EmergencyOverride.holdDuration
+                    ) {
+                        appState.useEmergencyOverride()
+                    }
+                    .frame(width: 320)
+                    .padding(.top, 14)
+                    Text("Once every 7 days, whatever else is switched on. Spending it breaks your clean streak.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.white.opacity(0.45))
+                        .multilineTextAlignment(.center)
+                        .padding(.top, 8)
+                } else {
+                    Text(emergencyUnavailableText)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.white.opacity(0.45))
+                        .multilineTextAlignment(.center)
+                        .padding(.top, 12)
+                }
+            }
+        }
+    }
+
+    private var emergencyUnavailableText: String {
+        guard let availableAt = appState.emergencyOverrideAvailableAt else {
+            return "Not available for this break."
+        }
+        return "Already used this week. Available again on "
+            + DateFormatter.breakGuardDateTime.string(from: availableAt) + "."
     }
 
     private var completionContent: some View {

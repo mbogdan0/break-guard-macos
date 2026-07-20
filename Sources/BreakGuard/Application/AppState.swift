@@ -72,6 +72,17 @@ final class AppState: ObservableObject {
     @Published var isPostponePenalized = false
     // False once harder-to-skip mode's single extension is used up.
     @Published var canExtendFocus = true
+    // Focus accumulated since the last tapering reset; the settings pane
+    // derives the penalty from it with FocusPace.taperingPenalty(forFocus:).
+    @Published var taperedFocusSeconds: TimeInterval = 0
+    // True while the weekly emergency override can be spent on this break.
+    @Published var canUseEmergencyOverride = false
+    // When the override becomes available again; nil while never used.
+    @Published var emergencyOverrideAvailableAt: Date?
+    // Whether the overlay's emergency disclosure is open. Lives here, not in
+    // the view: one BreakOverlayView exists per screen, and a local @State
+    // would leave the other monitors collapsed.
+    @Published var emergencyDisclosureExpanded = false
     @Published var notificationAccessStatus: NotificationAccessStatus = .checking
     @Published var loginStatusDescription = "Unknown"
     @Published var notificationTestMessage: String?
@@ -106,6 +117,9 @@ final class AppState: ObservableObject {
         self.isFocusExtended = machine.runtime.focusExtended
         self.isPostponePenalized = machine.postponePenalized
         self.canExtendFocus = machine.canExtendFocus
+        self.taperedFocusSeconds = machine.runtime.taperedFocusSeconds
+        self.canUseEmergencyOverride = machine.canUseEmergencyOverride
+        self.emergencyOverrideAvailableAt = machine.emergencyOverrideAvailableAt
     }
 
     func start() {
@@ -183,6 +197,12 @@ final class AppState: ObservableObject {
     func completeBreak() {
         machine.completeBreak()
         logger.info("Break completed")
+        publishAndReconcile()
+    }
+
+    func useEmergencyOverride() {
+        machine.useEmergencyOverride()
+        logger.info("Weekly emergency override spent")
         publishAndReconcile()
     }
 
@@ -346,6 +366,17 @@ final class AppState: ObservableObject {
         isFocusExtended = machine.runtime.focusExtended
         isPostponePenalized = machine.postponePenalized
         canExtendFocus = machine.canExtendFocus
+        taperedFocusSeconds = machine.runtime.taperedFocusSeconds
+        canUseEmergencyOverride = machine.canUseEmergencyOverride
+        emergencyOverrideAvailableAt = machine.emergencyOverrideAvailableAt
+        // The disclosure belongs to one break: collapse it once that break is
+        // over so the next overlay opens closed on every screen.
+        switch timerState {
+        case .breakDue, .breaking, .breakCompleted:
+            break
+        default:
+            emergencyDisclosureExpanded = false
+        }
     }
 
     private func reconcileStateEffects() {

@@ -25,13 +25,17 @@ struct RuntimeState: Codable, Equatable {
     // When the current/most recent break started; drives the completion count-up.
     var breakStartedAt: Date?
     var manualBreakOrigin: ManualBreakOrigin?
-    // Focus sessions completed since the last 6+ hour gap; drives the
-    // tapering pace. 0 means the current session runs at full length.
-    var completedFocusSessions: Int
+    // Seconds actually focused since the last reset gap; drives the tapering
+    // pace. 0 means the next window runs at full length.
+    var taperedFocusSeconds: TimeInterval
+    // When the weekly emergency override was last spent. Lives here rather
+    // than in AppSettings or Statistics because "Restore Defaults" and "Reset
+    // Statistics" replace those wholesale, which would refill the quota.
+    var emergencyOverrideUsedAt: Date?
 }
 
-// focusExtended and completedFocusSessions were added after schema 3 shipped.
-// Older files lack the keys, and a plain synthesized decode would reject them
+// Fields are added after schema 3 shipped without bumping the version. Older
+// files lack the newer keys, and a plain synthesized decode would reject them
 // — discarding all user statistics — so the decoder falls back to defaults
 // instead. The init lives in an extension to keep the memberwise initializer.
 extension RuntimeState {
@@ -39,7 +43,7 @@ extension RuntimeState {
         case timerState, cycleViolated, cyclePostponements, focusExtended,
              cycleStartDate, preservedAt, preservedRemaining,
              cycleFocusDuration, breakStartedAt, manualBreakOrigin,
-             completedFocusSessions
+             taperedFocusSeconds, emergencyOverrideUsedAt
     }
 
     init(from decoder: Decoder) throws {
@@ -54,7 +58,8 @@ extension RuntimeState {
         cycleFocusDuration = try container.decodeIfPresent(TimeInterval.self, forKey: .cycleFocusDuration)
         breakStartedAt = try container.decodeIfPresent(Date.self, forKey: .breakStartedAt)
         manualBreakOrigin = try container.decodeIfPresent(ManualBreakOrigin.self, forKey: .manualBreakOrigin)
-        completedFocusSessions = try container.decodeIfPresent(Int.self, forKey: .completedFocusSessions) ?? 0
+        taperedFocusSeconds = try container.decodeIfPresent(TimeInterval.self, forKey: .taperedFocusSeconds) ?? 0
+        emergencyOverrideUsedAt = try container.decodeIfPresent(Date.self, forKey: .emergencyOverrideUsedAt)
     }
 }
 

@@ -63,7 +63,8 @@ final class PersistenceTests: XCTestCase {
         var object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
         var runtime = try XCTUnwrap(object["runtime"] as? [String: Any])
         runtime.removeValue(forKey: "focusExtended")
-        runtime.removeValue(forKey: "completedFocusSessions")
+        runtime.removeValue(forKey: "taperedFocusSeconds")
+        runtime.removeValue(forKey: "emergencyOverrideUsedAt")
         object["runtime"] = runtime
         var settings = try XCTUnwrap(object["settings"] as? [String: Any])
         settings.removeValue(forKey: "workingHoursEnabled")
@@ -78,7 +79,8 @@ final class PersistenceTests: XCTestCase {
 
         let loaded = try XCTUnwrap(store.load())
         XCTAssertFalse(loaded.runtime.focusExtended)
-        XCTAssertEqual(loaded.runtime.completedFocusSessions, 0)
+        XCTAssertEqual(loaded.runtime.taperedFocusSeconds, 0)
+        XCTAssertNil(loaded.runtime.emergencyOverrideUsedAt)
         XCTAssertFalse(loaded.settings.workingHoursEnabled)
         XCTAssertEqual(loaded.settings.weekdayWorkingHours, WorkingHoursRange(enabled: true))
         XCTAssertEqual(loaded.settings.weekendWorkingHours, WorkingHoursRange(enabled: false))
@@ -96,13 +98,18 @@ final class PersistenceTests: XCTestCase {
         machine.settings.weekdayWorkingHours = WorkingHoursRange(
             enabled: true, startMinutes: 11 * 60, endMinutes: 19 * 60
         )
-        machine.runtime.completedFocusSessions = 5
+        machine.runtime.taperedFocusSeconds = 5 * 60
+        // Whole seconds: JSONEncoder.breakGuard uses ISO-8601, which drops
+        // subseconds, so a fractional date would not survive the round trip.
+        let usedAt = Date(timeIntervalSince1970: 9_000)
+        machine.runtime.emergencyOverrideUsedAt = usedAt
 
         store.save(machine.data)
         let loaded = try XCTUnwrap(store.load())
 
         XCTAssertTrue(loaded.runtime.focusExtended)
-        XCTAssertEqual(loaded.runtime.completedFocusSessions, 5)
+        XCTAssertEqual(loaded.runtime.taperedFocusSeconds, 5 * 60)
+        XCTAssertEqual(loaded.runtime.emergencyOverrideUsedAt, usedAt)
         XCTAssertTrue(loaded.settings.workingHoursEnabled)
         XCTAssertEqual(loaded.settings.weekdayWorkingHours.startMinutes, 11 * 60)
         XCTAssertEqual(loaded.settings.weekdayWorkingHours.endMinutes, 19 * 60)

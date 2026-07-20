@@ -89,10 +89,11 @@ specific username or checkout location, and compatible settings and statistics a
 3. When time expires, rest while BreakGuard covers the screens with a countdown.
 4. Complete the break and start a new cycle.
 
-Use **Take a Break Now** for an early break, **Just Took a Break** for rest the app did not observe,
-**Extend Focus** when a break must be delayed in advance, and **Pause Until 9 AM** when you are done
-for the day — reminders stay silent until the next morning and **Resume Now** ends the pause early.
-Extending, pausing, marking an unobserved break, and quitting each ask for confirmation. Settings
+Use **Take a Break Now** for an early break, **Extend Focus** when a break must be delayed in
+advance, and **Pause Until 9 AM** when you are done for the day — reminders stay silent until the
+next morning and **Resume Now** ends the pause early. Extending, pausing, and quitting each ask for
+confirmation. When a scheduled break truly cannot happen, the overlay hides an **Emergency
+override** behind a disclosure that buys 1 hour 30 minutes of focus, once every 7 days. Settings
 control timing, working hours, notifications, launch at login, and statistics.
 
 ## Commands
