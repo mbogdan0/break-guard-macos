@@ -12,7 +12,7 @@ struct GeneralSettingsView: View {
             } header: {
                 Text("Timing")
             } footer: {
-                Text("Durations are minutes:seconds — 2:30 is two and a half minutes. A plain number means minutes.")
+                Text("Durations are mm:ss. A plain number means minutes.")
                     .foregroundStyle(.secondary)
             }
 
@@ -37,8 +37,10 @@ struct GeneralSettingsView: View {
                     systemImage: "exclamationmark.shield",
                     status: emergencyOverrideStatusText
                 )
+            } header: {
+                Text("Skipping Breaks")
             } footer: {
-                Text("Allows only one focus extension per cycle. After the first postponement or extension, postponing again requires holding the button twice as long.\n\nThe emergency override is the way out regardless: it is hidden behind a disclosure at the bottom of a break you did not ask for, and trades that break for \(formatDurationPhrase(EmergencyOverride.focusGrant)) of focus. It can be spent once every 7 days and breaks your clean streak.")
+                Text("One extension per cycle, then a doubled hold to postpone. The override, at the foot of a break overlay, buys \(formatDurationPhrase(EmergencyOverride.focusGrant)) once every 7 days.")
                     .foregroundStyle(.secondary)
             }
 
@@ -71,7 +73,7 @@ struct GeneralSettingsView: View {
                 advancedHeader
             } footer: {
                 if advancedExpanded {
-                    Text("The warning appears this long before a break is due. Postponing an overdue break waits the first duration; postponing again waits the second. Tapering measures focus you actually put in, so breaks you take early do not inflate it, and a long enough pause starts the day over. Restore Defaults resets every setting on every tab.")
+                    Text("Restore Defaults resets every setting on every tab.")
                         .foregroundStyle(.secondary)
                 }
             }
@@ -110,18 +112,18 @@ struct GeneralSettingsView: View {
     @ViewBuilder private var taperingRows: some View {
         let isTapering = appState.settings.focusPace == .tapering
         if isTapering {
-            LabeledContent("Tapering right now") {
+            LabeledContent("Tapering now") {
                 Text(taperingStatusText)
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
             }
         }
-        LabeledContent("Tapering day resets after") {
+        LabeledContent("Tapering resets after") {
             HStack(spacing: 6) {
                 Text(hoursText(appState.settings.taperingResetGap))
                     .monospacedDigit()
                 Stepper(
-                    "Tapering day resets after",
+                    "Tapering resets after",
                     value: appState.hoursBinding(\.taperingResetGap, range: SettingsRange.taperingResetGapHours),
                     in: SettingsRange.taperingResetGapHours
                 )
@@ -142,8 +144,8 @@ struct GeneralSettingsView: View {
     private var taperingStatusText: String {
         let penalty = FocusPace.taperingPenalty(forFocus: appState.taperedFocusSeconds)
         let resetsAt = Date().addingTimeInterval(appState.settings.taperingResetGap)
-        let amount = penalty < 1 ? "No penalty yet" : "−\(formatDurationCompact(penalty))"
-        return "\(amount) · resets \(DateFormatter.breakGuardTime.string(from: resetsAt)) if you stop now"
+        let amount = penalty < 1 ? "None yet" : "−\(formatDurationCompact(penalty))"
+        return "\(amount) · resets \(DateFormatter.breakGuardTime.string(from: resetsAt)) if you stop"
     }
 
     private var emergencyOverrideStatusText: String {
@@ -152,13 +154,15 @@ struct GeneralSettingsView: View {
         return "Used · back on \(DateFormatter.breakGuardDateTime.string(from: availableAt))"
     }
 
+    // One line per pace. The Tapering knobs and its live penalty live in
+    // Advanced, so this only has to convey the shape of the rule.
     private var focusPaceFooter: String {
         let settings = appState.settings
         let effective = formatDurationPhrase(settings.effectiveWorkInterval)
         let pace: String
         switch settings.focusPace {
         case .normal:
-            pace = "Uses the work interval as set."
+            pace = "Work interval as set."
         case .moreBreaks:
             pace = "Work interval −20%: \(effective)."
         case .deepFocus:
@@ -167,13 +171,10 @@ struct GeneralSettingsView: View {
             let after8h = formatDurationPhrase(
                 settings.effectiveWorkInterval(taperedFocus: 8 * 3600)
             )
-            let gap = hoursText(settings.taperingResetGap)
-            pace = "Each focus gets a little shorter as the day goes on: every "
-                + "minute you actually focus takes a second off the next window, "
-                + "so \(effective) becomes about \(after8h) once you have focused "
-                + "8 hours. A \(gap)+ pause starts the day over."
+            pace = "Every focused minute trims a second off the next window — "
+                + "\(effective) becomes about \(after8h) after an 8-hour day."
         }
-        return pace + " Takes effect from the next cycle."
+        return pace + " Applies from the next cycle."
     }
 
     // The stepper nudges by a minute and leaves the seconds component alone;
