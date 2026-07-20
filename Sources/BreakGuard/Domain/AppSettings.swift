@@ -36,7 +36,7 @@ enum FocusPace: String, Codable, CaseIterable {
     // Non-configurable safety stop. The linear rule has no asymptote, so
     // without a bottom a long enough day — or a very short work interval —
     // would drive the window toward zero and fire breaks back to back.
-    static let taperingMinimumInterval: TimeInterval = 7 * 60
+    static let taperingMinimumInterval: TimeInterval = 10 * 60
 
     // Past this the penalty already exceeds the longest configurable window,
     // so further accumulation cannot change the outcome. Capping is not just
@@ -79,6 +79,12 @@ enum EmergencyOverride {
     static let holdDuration: TimeInterval = 1
 }
 
+enum PostponeHoldTier: Equatable {
+    case standard
+    case harder
+    case repeated
+}
+
 struct AppSettings: Codable, Equatable {
     var workInterval: TimeInterval = 30 * 60
     var focusPace: FocusPace = .normal
@@ -96,8 +102,8 @@ struct AppSettings: Codable, Equatable {
     // A gap this long without focus means the workday ended: tapering
     // starts over and sessions run at full length again.
     var taperingResetGap: TimeInterval = 6 * 60 * 60
-    // One extension per cycle, and after the first skip action (extend or
-    // postpone) every further postponement demands a doubled hold.
+    // Harder mode allows one normal skip action per cycle: either extending
+    // focus or postponing a break. The weekly override remains an exception.
     var harderToSkipBreaks: Bool = false
 
     static let defaults = AppSettings()

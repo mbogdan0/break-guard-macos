@@ -21,6 +21,7 @@ struct StateMachine {
             timerState: .working(deadline: deadline, warningDeadline: warning),
             cycleViolated: false,
             cyclePostponements: 0,
+            cycleRegularPostponements: 0,
             focusExtended: false,
             cycleStartDate: clock.now,
             preservedAt: nil,
@@ -45,17 +46,22 @@ struct StateMachine {
         statistics.pruneFocusHistory(now: clock.now)
     }
 
-    // Harder-to-skip mode grants one skip action per cycle at normal cost; an
-    // extend or a postpone spends it, and every postponement after that
-    // demands a doubled hold.
-    var postponePenalized: Bool {
-        settings.harderToSkipBreaks
-            && runtime.cyclePostponements + (runtime.focusExtended ? 1 : 0) >= 1
+    private var normalSkipUsed: Bool {
+        runtime.cyclePostponements > 0 || runtime.focusExtended
     }
 
-    // Harder-to-skip mode allows a single extension per cycle.
+    // Harder mode allows either one extension or one regular postponement.
     var canExtendFocus: Bool {
-        !(settings.harderToSkipBreaks && runtime.focusExtended)
+        !settings.harderToSkipBreaks || !normalSkipUsed
+    }
+
+    var canPostpone: Bool {
+        !settings.harderToSkipBreaks || !normalSkipUsed
+    }
+
+    var postponeHoldTier: PostponeHoldTier {
+        if settings.harderToSkipBreaks { return .harder }
+        return runtime.cycleRegularPostponements > 0 ? .repeated : .standard
     }
 
     // When the weekly emergency override can be spent again; nil while it has
@@ -181,6 +187,7 @@ struct StateMachine {
             ),
             cycleViolated: false,
             cyclePostponements: 0,
+            cycleRegularPostponements: 0,
             focusExtended: false,
             cycleStartDate: clock.now,
             preservedAt: nil,
@@ -217,19 +224,20 @@ struct StateMachine {
     }
 
     mutating func postpone(by delay: TimeInterval) {
-        let canPostpone: Bool
+        let canPostponeInCurrentState: Bool
         if case .breakDue = runtime.timerState {
-            canPostpone = true
+            canPostponeInCurrentState = true
         } else {
-            canPostpone = isBreakingOrCompleted(runtime.timerState)
+            canPostponeInCurrentState = isBreakingOrCompleted(runtime.timerState)
         }
-        guard canPostpone else { return }
+        guard canPostpone, canPostponeInCurrentState else { return }
         if !runtime.cycleViolated {
             runtime.cycleViolated = true
             statistics.currentCleanStreak = 0
             statistics.violatedCycles += 1
         }
         runtime.cyclePostponements += 1
+        runtime.cycleRegularPostponements += 1
         statistics.totalPostponements += 1
         // Postponing a manual break opts into the standard postpone contract;
         // the penalty-free exit is cancelManualBreak().

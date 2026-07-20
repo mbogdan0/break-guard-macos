@@ -55,15 +55,20 @@ struct HoldToConfirmButton: View {
 }
 
 // The shorter postponement is the lesser evil, so it needs the shorter hold;
-// the longer one demands more deliberation. Compared against the sibling
-// duration rather than the first/second position, because the user is free
-// to configure the "first" postponement to be the longer one. Once the
-// cycle's free skip is spent (see StateMachine.postponePenalized), the hold
-// doubles.
+// the longer one demands more deliberation. Compare against the sibling
+// duration rather than field order because either setting can be longer.
 func postponeHoldDuration(
     for duration: TimeInterval,
     comparedTo other: TimeInterval,
-    penalized: Bool = false
+    tier: PostponeHoldTier = .standard
 ) -> TimeInterval {
-    (duration <= other ? 1 : 3) * (penalized ? 2 : 1)
+    let isLonger = duration > other
+    switch tier {
+    case .standard:
+        return isLonger ? 3 : 1
+    case .harder:
+        return isLonger ? 6 : 3
+    case .repeated:
+        return isLonger ? 9 : 3
+    }
 }

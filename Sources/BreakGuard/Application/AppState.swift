@@ -67,10 +67,11 @@ final class AppState: ObservableObject {
     // True once the current focus window was extended; drives the yellow
     // menu bar pill until a new cycle starts.
     @Published var isFocusExtended = false
-    // Harder-to-skip mode: true once the cycle's free skip action is spent,
-    // doubling the hold on the overlay's postpone buttons.
-    @Published var isPostponePenalized = false
-    // False once harder-to-skip mode's single extension is used up.
+    // Whether a regular postponement is still allowed under the current
+    // cycle's skip policy, and which hold-time tier its buttons use.
+    @Published var canPostpone = true
+    @Published var postponeHoldTier: PostponeHoldTier = .standard
+    // False once harder mode's single normal skip action is used up.
     @Published var canExtendFocus = true
     // Focus accumulated since the last tapering reset; the settings pane
     // derives the penalty from it with FocusPace.taperingPenalty(forFocus:).
@@ -115,7 +116,8 @@ final class AppState: ObservableObject {
         self.statistics = machine.statistics
         self.timerState = machine.runtime.timerState
         self.isFocusExtended = machine.runtime.focusExtended
-        self.isPostponePenalized = machine.postponePenalized
+        self.canPostpone = machine.canPostpone
+        self.postponeHoldTier = machine.postponeHoldTier
         self.canExtendFocus = machine.canExtendFocus
         self.taperedFocusSeconds = machine.runtime.taperedFocusSeconds
         self.canUseEmergencyOverride = machine.canUseEmergencyOverride
@@ -283,9 +285,10 @@ final class AppState: ObservableObject {
         let launchAtLoginChanged = machine.settings.launchAtLogin != validated.launchAtLogin
         machine.settings = validated
         settings = validated
-        // Both depend on harderToSkipBreaks, so a toggle must not wait for
+        // These depend on harderToSkipBreaks, so a toggle must not wait for
         // the next tick to publish.
-        isPostponePenalized = machine.postponePenalized
+        canPostpone = machine.canPostpone
+        postponeHoldTier = machine.postponeHoldTier
         canExtendFocus = machine.canExtendFocus
         if launchAtLoginChanged {
             applyLaunchAtLoginPreference()
@@ -364,7 +367,8 @@ final class AppState: ObservableObject {
         timerState = machine.runtime.timerState
         isManualBreak = machine.runtime.manualBreakOrigin != nil
         isFocusExtended = machine.runtime.focusExtended
-        isPostponePenalized = machine.postponePenalized
+        canPostpone = machine.canPostpone
+        postponeHoldTier = machine.postponeHoldTier
         canExtendFocus = machine.canExtendFocus
         taperedFocusSeconds = machine.runtime.taperedFocusSeconds
         canUseEmergencyOverride = machine.canUseEmergencyOverride

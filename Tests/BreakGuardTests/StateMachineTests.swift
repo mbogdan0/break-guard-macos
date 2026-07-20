@@ -331,7 +331,7 @@ final class StateMachineTests: XCTestCase {
         XCTAssertFalse(machine.runtime.focusExtended)
     }
 
-    func testHarderModeAllowsOnlyOneExtensionPerCycle() {
+    func testHarderModeAllowsOnlyOneNormalSkipActionPerCycle() {
         let start = Date(timeIntervalSince1970: 6_600)
         var settings = AppSettings.defaults
         settings.workInterval = 30 * 60
@@ -340,8 +340,11 @@ final class StateMachineTests: XCTestCase {
         var machine = StateMachine(settings: settings, clock: clock)
 
         XCTAssertTrue(machine.canExtendFocus)
+        XCTAssertTrue(machine.canPostpone)
+        XCTAssertEqual(machine.postponeHoldTier, .harder)
         machine.extendFocus(by: 15 * 60)
         XCTAssertFalse(machine.canExtendFocus)
+        XCTAssertFalse(machine.canPostpone)
 
         // The second extension is a no-op: the deadline stays put.
         machine.extendFocus(by: 15 * 60)
@@ -353,6 +356,7 @@ final class StateMachineTests: XCTestCase {
         // A fresh cycle restores the allowance.
         machine.markBreakTaken()
         XCTAssertTrue(machine.canExtendFocus)
+        XCTAssertTrue(machine.canPostpone)
     }
 
     func testRepeatedExtensionsStillWorkWithHarderModeOff() {
@@ -371,41 +375,80 @@ final class StateMachineTests: XCTestCase {
         XCTAssertEqual(deadline, start.addingTimeInterval(60 * 60))
     }
 
-    func testPostponePenaltyStartsAfterTheFirstSkipAction() {
+    func testHarderModePostponementBlocksFurtherNormalSkipActions() {
         let start = Date(timeIntervalSince1970: 6_800)
         var settings = AppSettings.defaults
         settings.harderToSkipBreaks = true
-        let clock = FakeClock(now: start)
+        var clock = FakeClock(now: start)
+        var machine = StateMachine(settings: settings, clock: clock)
 
-        // An extension spends the free skip.
-        var extended = StateMachine(settings: settings, clock: clock)
-        XCTAssertFalse(extended.postponePenalized)
-        extended.extendFocus(by: 15 * 60)
-        XCTAssertTrue(extended.postponePenalized)
+        machine.takeBreakNow()
+        machine.startBreak()
+        XCTAssertTrue(machine.canPostpone)
+        machine.postpone(by: 5 * 60)
 
-        // So does a postponement.
-        var postponed = StateMachine(settings: settings, clock: clock)
-        postponed.takeBreakNow()
-        postponed.startBreak()
-        XCTAssertFalse(postponed.postponePenalized)
-        postponed.postpone(by: 5 * 60)
-        XCTAssertTrue(postponed.postponePenalized)
+        XCTAssertEqual(machine.runtime.cycleRegularPostponements, 1)
+        XCTAssertFalse(machine.canPostpone)
+        XCTAssertFalse(machine.canExtendFocus)
 
-        // A fresh cycle clears the penalty.
-        postponed.markBreakTaken()
-        XCTAssertFalse(postponed.postponePenalized)
+        // Direct domain calls cannot bypass the exhausted allowance.
+        clock.now = start.addingTimeInterval(5 * 60)
+        machine.clock = clock
+        XCTAssertEqual(machine.tick(), .breakDue)
+        machine.startBreak()
+        let stateBefore = machine.runtime.timerState
+        let statisticsBefore = machine.statistics
+        machine.postpone(by: 15 * 60)
+        machine.extendFocus(by: 15 * 60)
+        XCTAssertEqual(machine.runtime.timerState, stateBefore)
+        XCTAssertEqual(machine.statistics, statisticsBefore)
     }
 
-    func testPostponePenaltyNeverAppliesWithHarderModeOff() {
+    func testNormalModeEscalatesOnlyAfterARegularPostponement() {
         let start = Date(timeIntervalSince1970: 6_900)
         let clock = FakeClock(now: start)
         var machine = StateMachine(clock: clock)
 
+        XCTAssertEqual(machine.postponeHoldTier, .standard)
         machine.extendFocus(by: 15 * 60)
+        XCTAssertEqual(machine.postponeHoldTier, .standard)
         machine.takeBreakNow()
         machine.startBreak()
         machine.postpone(by: 5 * 60)
-        XCTAssertFalse(machine.postponePenalized)
+        XCTAssertTrue(machine.canPostpone)
+        XCTAssertEqual(machine.postponeHoldTier, .repeated)
+    }
+
+    func testHarderModeToggleImmediatelyReevaluatesTheCurrentCycle() {
+        let start = Date(timeIntervalSince1970: 6_950)
+        let clock = FakeClock(now: start)
+        var machine = StateMachine(clock: clock)
+
+        machine.extendFocus(by: 15 * 60)
+        XCTAssertTrue(machine.canPostpone)
+        XCTAssertEqual(machine.postponeHoldTier, .standard)
+
+        machine.settings.harderToSkipBreaks = true
+        XCTAssertFalse(machine.canPostpone)
+        XCTAssertFalse(machine.canExtendFocus)
+
+        machine.settings.harderToSkipBreaks = false
+        XCTAssertTrue(machine.canPostpone)
+        XCTAssertTrue(machine.canExtendFocus)
+        XCTAssertEqual(machine.postponeHoldTier, .standard)
+
+        var postponed = StateMachine(clock: clock)
+        postponed.takeBreakNow()
+        postponed.startBreak()
+        postponed.postpone(by: 5 * 60)
+        XCTAssertEqual(postponed.postponeHoldTier, .repeated)
+
+        postponed.settings.harderToSkipBreaks = true
+        XCTAssertFalse(postponed.canPostpone)
+        XCTAssertFalse(postponed.canExtendFocus)
+        postponed.settings.harderToSkipBreaks = false
+        XCTAssertTrue(postponed.canPostpone)
+        XCTAssertEqual(postponed.postponeHoldTier, .repeated)
     }
 
     func testExtendedCycleCreditsTheExtraFocusMinutes() {
@@ -455,6 +498,7 @@ final class StateMachineTests: XCTestCase {
         XCTAssertEqual(machine.statistics, statisticsBefore)
         XCTAssertFalse(machine.runtime.cycleViolated)
         XCTAssertEqual(machine.runtime.cyclePostponements, 0)
+        XCTAssertEqual(machine.runtime.cycleRegularPostponements, 0)
         XCTAssertEqual(machine.runtime.cycleStartDate, clock.now)
     }
 
@@ -533,6 +577,30 @@ final class StateMachineTests: XCTestCase {
         XCTAssertEqual(machine.statistics, .empty)
     }
 
+    func testShortPausePreservesRepeatedPostponementTier() {
+        let start = Date(timeIntervalSince1970: 7_050)
+        var clock = FakeClock(now: start)
+        var settings = AppSettings.defaults
+        settings.breakDuration = 2 * 60
+        var machine = StateMachine(settings: settings, clock: clock)
+
+        machine.takeBreakNow()
+        machine.startBreak()
+        machine.postpone(by: 5 * 60)
+        machine.preserveForSleep()
+
+        clock.now = clock.now.addingTimeInterval(60)
+        machine.clock = clock
+        machine.restoreAfterSleep()
+
+        XCTAssertEqual(machine.runtime.cycleRegularPostponements, 1)
+        XCTAssertEqual(machine.postponeHoldTier, .repeated)
+        XCTAssertEqual(
+            machine.runtime.timerState,
+            .postponed(deadline: start.addingTimeInterval(6 * 60))
+        )
+    }
+
     func testPauseAtLeastBreakDurationStartsFreshCycle() {
         let start = Date(timeIntervalSince1970: 7_100)
         var clock = FakeClock(now: start)
@@ -555,6 +623,7 @@ final class StateMachineTests: XCTestCase {
         XCTAssertEqual(deadline.timeIntervalSince(clock.now), 30 * 60, accuracy: 0.1)
         XCTAssertEqual(machine.runtime.cycleStartDate, clock.now)
         XCTAssertEqual(machine.runtime.cyclePostponements, 0)
+        XCTAssertEqual(machine.runtime.cycleRegularPostponements, 0)
         // The 5 minutes of focus before the downtime are credited to the day
         // they happened, but no break is counted for an arbitrary lock.
         let dayKey = FocusDay.key(for: start.addingTimeInterval(5 * 60))
@@ -1351,7 +1420,44 @@ final class StateMachineTests: XCTestCase {
         // cannot be stacked with an extension.
         XCTAssertTrue(machine.runtime.focusExtended)
         XCTAssertFalse(machine.canExtendFocus)
-        XCTAssertTrue(machine.postponePenalized)
+        XCTAssertFalse(machine.canPostpone)
+        XCTAssertEqual(machine.runtime.cycleRegularPostponements, 0)
+    }
+
+    func testEmergencyOverrideDoesNotEscalateNormalModePostponeHolds() {
+        let start = Date(timeIntervalSince1970: 8_050)
+        var clock = FakeClock(now: start)
+        var machine = makeMachineOnForcedBreak(at: start, clock: &clock)
+
+        machine.useEmergencyOverride()
+
+        XCTAssertTrue(machine.canPostpone)
+        XCTAssertTrue(machine.canExtendFocus)
+        XCTAssertEqual(machine.runtime.cycleRegularPostponements, 0)
+        XCTAssertEqual(machine.postponeHoldTier, .standard)
+    }
+
+    func testEmergencyOverrideRemainsAvailableAfterHarderModeAllowanceIsSpent() {
+        let start = Date(timeIntervalSince1970: 8_075)
+        var clock = FakeClock(now: start)
+        var machine = makeMachineOnForcedBreak(at: start, clock: &clock, harderToSkip: true)
+
+        machine.postpone(by: 2 * 60)
+        clock.now = clock.now.addingTimeInterval(2 * 60)
+        machine.clock = clock
+        XCTAssertEqual(machine.tick(), .breakDue)
+        machine.startBreak()
+
+        XCTAssertFalse(machine.canPostpone)
+        XCTAssertFalse(machine.canExtendFocus)
+        XCTAssertTrue(machine.canUseEmergencyOverride)
+
+        machine.useEmergencyOverride()
+        XCTAssertEqual(
+            machine.runtime.timerState,
+            .postponed(deadline: clock.now.addingTimeInterval(EmergencyOverride.focusGrant))
+        )
+        XCTAssertEqual(machine.runtime.cycleRegularPostponements, 1)
     }
 
     func testEmergencyOverrideIsUnavailableOnAManualBreak() {

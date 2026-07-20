@@ -166,7 +166,11 @@ struct BreakOverlayView: View {
                 .foregroundStyle(.white.opacity(0.7))
                 .multilineTextAlignment(.center)
                 .padding(.top, 16)
-            if breakOverlayActionSet(isManualBreak: appState.isManualBreak) == .cancel {
+            let actionSet = breakOverlayActionSet(
+                isManualBreak: appState.isManualBreak,
+                canPostpone: appState.canPostpone
+            )
+            if actionSet == .cancel {
                 // The user chose this break; postponing it makes no sense.
                 // The only exit besides finishing is cancelling it.
                 Button {
@@ -187,15 +191,23 @@ struct BreakOverlayView: View {
             } else {
                 let first = appState.settings.firstPostponeDuration
                 let second = appState.settings.secondPostponeDuration
-                HStack(spacing: 16) {
-                    postponeButton(first, comparedTo: second)
-                    postponeButton(second, comparedTo: first)
+                if actionSet == .postpone {
+                    HStack(spacing: 16) {
+                        postponeButton(first, comparedTo: second)
+                        postponeButton(second, comparedTo: first)
+                    }
+                    .padding(.top, 48)
+                    Text("Hold a button down to postpone.")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.white.opacity(0.5))
+                        .padding(.top, 8)
+                } else {
+                    Text("Postponement was already used this cycle. Complete this break to reset it.")
+                        .font(.system(size: 15))
+                        .foregroundStyle(.white.opacity(0.6))
+                        .multilineTextAlignment(.center)
+                        .padding(.top, 48)
                 }
-                .padding(.top, 48)
-                Text("Hold a button down to postpone.")
-                    .font(.system(size: 13))
-                    .foregroundStyle(.white.opacity(0.5))
-                    .padding(.top, 8)
                 emergencyOverrideSection
                     .padding(.top, 40)
             }
@@ -304,7 +316,7 @@ struct BreakOverlayView: View {
             holdDuration: postponeHoldDuration(
                 for: duration,
                 comparedTo: other,
-                penalized: appState.isPostponePenalized
+                tier: appState.postponeHoldTier
             )
         ) {
             appState.postpone(seconds: duration)
@@ -315,8 +327,13 @@ struct BreakOverlayView: View {
 enum BreakOverlayActionSet: Equatable {
     case cancel
     case postpone
+    case unavailable
 }
 
-func breakOverlayActionSet(isManualBreak: Bool) -> BreakOverlayActionSet {
-    isManualBreak ? .cancel : .postpone
+func breakOverlayActionSet(
+    isManualBreak: Bool,
+    canPostpone: Bool = true
+) -> BreakOverlayActionSet {
+    if isManualBreak { return .cancel }
+    return canPostpone ? .postpone : .unavailable
 }

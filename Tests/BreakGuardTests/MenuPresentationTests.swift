@@ -279,6 +279,15 @@ final class MenuPresentationTests: XCTestCase {
     func testBreakOverlayActionsDependOnBreakOrigin() {
         XCTAssertEqual(breakOverlayActionSet(isManualBreak: true), .cancel)
         XCTAssertEqual(breakOverlayActionSet(isManualBreak: false), .postpone)
+        XCTAssertEqual(
+            breakOverlayActionSet(isManualBreak: false, canPostpone: false),
+            .unavailable
+        )
+        // A user-started break always keeps its penalty-free Cancel action.
+        XCTAssertEqual(
+            breakOverlayActionSet(isManualBreak: true, canPostpone: false),
+            .cancel
+        )
     }
 
     func testPostponeHoldDurationScalesWithTheLongerPostponement() {
@@ -289,10 +298,16 @@ final class MenuPresentationTests: XCTestCase {
         XCTAssertEqual(postponeHoldDuration(for: 15 * 60, comparedTo: 15 * 60), 1)
     }
 
-    func testPostponeHoldDurationDoublesWhenPenalized() {
-        XCTAssertEqual(postponeHoldDuration(for: 2 * 60, comparedTo: 15 * 60, penalized: true), 2)
-        XCTAssertEqual(postponeHoldDuration(for: 15 * 60, comparedTo: 2 * 60, penalized: true), 6)
-        XCTAssertEqual(postponeHoldDuration(for: 15 * 60, comparedTo: 15 * 60, penalized: true), 2)
+    func testPostponeHoldDurationUsesHarderTier() {
+        XCTAssertEqual(postponeHoldDuration(for: 2 * 60, comparedTo: 15 * 60, tier: .harder), 3)
+        XCTAssertEqual(postponeHoldDuration(for: 15 * 60, comparedTo: 2 * 60, tier: .harder), 6)
+        XCTAssertEqual(postponeHoldDuration(for: 15 * 60, comparedTo: 15 * 60, tier: .harder), 3)
+    }
+
+    func testPostponeHoldDurationUsesRepeatedTier() {
+        XCTAssertEqual(postponeHoldDuration(for: 2 * 60, comparedTo: 15 * 60, tier: .repeated), 3)
+        XCTAssertEqual(postponeHoldDuration(for: 15 * 60, comparedTo: 2 * 60, tier: .repeated), 9)
+        XCTAssertEqual(postponeHoldDuration(for: 15 * 60, comparedTo: 15 * 60, tier: .repeated), 3)
     }
 
     func testBreakPromptCatalogContainsTenUniqueMessages() {

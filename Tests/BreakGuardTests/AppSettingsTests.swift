@@ -138,6 +138,7 @@ final class AppSettingsTests: XCTestCase {
         var settings = AppSettings.defaults
         settings.workInterval = 30 * 60
         settings.focusPace = .tapering
+        XCTAssertEqual(FocusPace.taperingMinimumInterval, 10 * 60)
 
         // 100 hours of focus would drive the raw formula far below zero.
         XCTAssertEqual(
@@ -161,7 +162,7 @@ final class AppSettingsTests: XCTestCase {
         // A lead longer than the window would start every cycle already
         // warning; it is capped at the back half instead.
         settings.warningLeadTime = 10 * 60
-        XCTAssertEqual(settings.effectiveWarningLeadTime(for: FocusPace.taperingMinimumInterval), 3.5 * 60)
+        XCTAssertEqual(settings.effectiveWarningLeadTime(for: FocusPace.taperingMinimumInterval), 5 * 60)
         XCTAssertEqual(settings.effectiveWarningLeadTime(for: 30 * 60), 10 * 60)
 
         settings.warningLeadTime = 0

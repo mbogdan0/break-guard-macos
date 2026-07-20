@@ -51,9 +51,9 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(loaded.statistics.focusMinutesByDay, ["2026-07-11": 75])
     }
 
-    // Fields added after schema 3 shipped (runtime.focusExtended, the working
-    // hours settings) are missing from older files; decoding must fall back to
-    // defaults instead of discarding the file.
+    // Fields added after schema 3 shipped (runtime focus/skip fields and the
+    // working-hours settings) are missing from older files; decoding must fall
+    // back instead of discarding the file.
     func testFileWithoutPostSchemaKeysDecodesToDefaults() throws {
         let location = temporaryStateURL()
         defer { try? FileManager.default.removeItem(at: location.deletingLastPathComponent()) }
@@ -63,6 +63,7 @@ final class PersistenceTests: XCTestCase {
         var object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
         var runtime = try XCTUnwrap(object["runtime"] as? [String: Any])
         runtime.removeValue(forKey: "focusExtended")
+        runtime.removeValue(forKey: "cycleRegularPostponements")
         runtime.removeValue(forKey: "taperedFocusSeconds")
         runtime.removeValue(forKey: "emergencyOverrideUsedAt")
         object["runtime"] = runtime
@@ -79,6 +80,7 @@ final class PersistenceTests: XCTestCase {
 
         let loaded = try XCTUnwrap(store.load())
         XCTAssertFalse(loaded.runtime.focusExtended)
+        XCTAssertEqual(loaded.runtime.cycleRegularPostponements, 0)
         XCTAssertEqual(loaded.runtime.taperedFocusSeconds, 0)
         XCTAssertNil(loaded.runtime.emergencyOverrideUsedAt)
         XCTAssertFalse(loaded.settings.workingHoursEnabled)
@@ -113,6 +115,63 @@ final class PersistenceTests: XCTestCase {
         XCTAssertTrue(loaded.settings.workingHoursEnabled)
         XCTAssertEqual(loaded.settings.weekdayWorkingHours.startMinutes, 11 * 60)
         XCTAssertEqual(loaded.settings.weekdayWorkingHours.endMinutes, 19 * 60)
+    }
+
+    func testRegularPostponementTierRoundTrips() throws {
+        let encodedClock = FakeClock(now: Date(timeIntervalSince1970: 9_200))
+        var machine = StateMachine(clock: encodedClock)
+        machine.takeBreakNow()
+        machine.startBreak()
+        machine.postpone(by: 5 * 60)
+
+        let encoded = try JSONEncoder.breakGuard.encode(machine.data)
+        let loaded = try JSONDecoder.breakGuard.decode(PersistedAppData.self, from: encoded)
+
+        XCTAssertEqual(loaded.runtime.cycleRegularPostponements, 1)
+        XCTAssertEqual(StateMachine(data: loaded, clock: encodedClock).postponeHoldTier, .repeated)
+    }
+
+    func testLegacyRegularPostponementCountIsInferredWithoutCountingOverride() throws {
+        let start = Date(timeIntervalSince1970: 9_300)
+        let clock = FakeClock(now: start)
+
+        var postponed = StateMachine(clock: clock)
+        postponed.takeBreakNow()
+        postponed.startBreak()
+        postponed.postpone(by: 5 * 60)
+
+        var postponedObject = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: JSONEncoder.breakGuard.encode(postponed.data))
+                as? [String: Any]
+        )
+        var postponedRuntime = try XCTUnwrap(postponedObject["runtime"] as? [String: Any])
+        postponedRuntime.removeValue(forKey: "cycleRegularPostponements")
+        postponedObject["runtime"] = postponedRuntime
+        let postponedLegacy = try JSONSerialization.data(withJSONObject: postponedObject)
+        let decodedPostponed = try JSONDecoder.breakGuard.decode(
+            PersistedAppData.self,
+            from: postponedLegacy
+        )
+        XCTAssertEqual(decodedPostponed.runtime.cycleRegularPostponements, 1)
+
+        var overridden = StateMachine(clock: clock)
+        overridden.runtime.timerState = .breakDue
+        overridden.startBreak()
+        overridden.useEmergencyOverride()
+
+        var overriddenObject = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: JSONEncoder.breakGuard.encode(overridden.data))
+                as? [String: Any]
+        )
+        var overriddenRuntime = try XCTUnwrap(overriddenObject["runtime"] as? [String: Any])
+        overriddenRuntime.removeValue(forKey: "cycleRegularPostponements")
+        overriddenObject["runtime"] = overriddenRuntime
+        let overriddenLegacy = try JSONSerialization.data(withJSONObject: overriddenObject)
+        let decodedOverride = try JSONDecoder.breakGuard.decode(
+            PersistedAppData.self,
+            from: overriddenLegacy
+        )
+        XCTAssertEqual(decodedOverride.runtime.cycleRegularPostponements, 0)
     }
 
     func testOlderSchemaIsRejected() throws {

@@ -40,7 +40,7 @@ struct GeneralSettingsView: View {
             } header: {
                 Text("Skipping Breaks")
             } footer: {
-                Text("One extension per cycle, then a doubled hold to postpone. The override, at the foot of a break overlay, buys \(formatDurationPhrase(EmergencyOverride.focusGrant)) once every 7 days.")
+                Text("Harder mode allows one Extend Focus or postponement per cycle. The override, at the foot of a break overlay, buys \(formatDurationPhrase(EmergencyOverride.focusGrant)) once every 7 days.")
                     .foregroundStyle(.secondary)
             }
 

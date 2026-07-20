@@ -37,7 +37,7 @@ final class MenuBarController: NSObject, NSMenuDelegate, NSMenuItemValidation {
     }
 
     // The menus autoenable their items, so this is where the extend options
-    // grey out once harder-to-skip mode's single extension is spent.
+    // grey out once harder mode's single normal skip action is spent.
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         if extendOptionItems.contains(where: { $0.item === menuItem }) {
             return appState.canExtendFocus
