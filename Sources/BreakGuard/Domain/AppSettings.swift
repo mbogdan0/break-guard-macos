@@ -74,8 +74,9 @@ enum SettingsRange {
 enum EmergencyOverride {
     static let focusGrant: TimeInterval = 90 * 60
     static let cooldown: TimeInterval = 7 * 24 * 60 * 60
-    // Longer than any postpone hold — this skips the break outright.
-    static let holdDuration: TimeInterval = 5
+    // Short on purpose. The weekly quota is what makes this hard to abuse, so
+    // the hold only has to be deliberate enough to not fire on a stray click.
+    static let holdDuration: TimeInterval = 1
 }
 
 struct AppSettings: Codable, Equatable {
