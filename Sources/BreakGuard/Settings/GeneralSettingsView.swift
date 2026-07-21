@@ -3,6 +3,7 @@ import SwiftUI
 struct GeneralSettingsView: View {
     @ObservedObject var appState: AppState
     @State private var advancedExpanded = false
+    @State private var showRestoreConfirmation = false
 
     var body: some View {
         Form {
@@ -64,8 +65,10 @@ struct GeneralSettingsView: View {
                     taperingRows
                     HStack {
                         Spacer()
-                        Button("Restore Defaults") {
-                            appState.restoreDefaultSettings()
+                        // Reaches further than Reset Statistics on the other
+                        // tab, so it asks the same way that one does.
+                        Button("Restore Defaults…", role: .destructive) {
+                            showRestoreConfirmation = true
                         }
                     }
                 }
@@ -86,6 +89,14 @@ struct GeneralSettingsView: View {
             DispatchQueue.main.async {
                 NSApp.keyWindow?.makeFirstResponder(nil)
             }
+        }
+        .confirmationDialog("Restore default settings?", isPresented: $showRestoreConfirmation) {
+            Button("Restore Defaults", role: .destructive) {
+                appState.restoreDefaultSettings()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This resets every setting on every tab: timing, focus pace, skip policy, working hours, notifications, and menu bar options. Statistics and the emergency override quota are not affected.")
         }
     }
 
