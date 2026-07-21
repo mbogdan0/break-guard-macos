@@ -18,6 +18,9 @@ final class MenuBarController: NSObject, NSMenuDelegate, NSMenuItemValidation {
     private let pauseItem = NSMenuItem(title: "Pause Until 9 AM", action: #selector(pauseUntilMorning), keyEquivalent: "")
     private let resumeItem = NSMenuItem(title: "Resume Now", action: #selector(resumeNow), keyEquivalent: "")
     private var cancellables = Set<AnyCancellable>()
+    // What the menu bar currently shows. Nil means "unknown, apply the next
+    // one unconditionally" — the state after init and after a break.
+    private var lastPresentation: MenuPresentation?
     private let appState: AppState
 
     init(appState: AppState) {
@@ -26,14 +29,22 @@ final class MenuBarController: NSObject, NSMenuDelegate, NSMenuItemValidation {
         configureStatusItem()
         configureMenu()
 
+        // The emitted values are used rather than re-read from appState:
+        // @Published fires from willSet, so inside the sink the stored property
+        // still holds the *previous* value. Reading it there left the menu bar
+        // one tick behind on every state transition.
         Publishers.CombineLatest(appState.$timerState, appState.$settings)
-            .sink { [weak self] _, _ in self?.updatePresentation() }
+            .sink { [weak self] state, settings in
+                self?.updatePresentation(state: state, settings: settings)
+            }
             .store(in: &cancellables)
         updatePresentation()
     }
 
     func menuWillOpen(_ menu: NSMenu) {
-        updatePresentation()
+        // Forced: the menu is about to be visible even if the overlay is up,
+        // and the status line must never be stale when someone is reading it.
+        updatePresentation(force: true)
     }
 
     // The menus autoenable their items, so this is where the extend options
@@ -126,15 +137,44 @@ final class MenuBarController: NSObject, NSMenuDelegate, NSMenuItemValidation {
         return item
     }
 
-    private func updatePresentation() {
+    // Runs on every one-second tick, and twice per tick because CombineLatest
+    // emits once per upstream. Everything below writes to AppKit and forces a
+    // menu bar relayout — and in the caution/urgent states it rasterises a new
+    // NSImage — so it has to bail out early whenever the result cannot differ
+    // or cannot be seen. Both matter to the break overlay: the menu bar is
+    // hidden behind it, but this work still competes with its animations.
+    private func updatePresentation(
+        state: TimerState? = nil,
+        settings: AppSettings? = nil,
+        force: Bool = false
+    ) {
+        let state = state ?? appState.timerState
+        let settings = settings ?? appState.settings
+
+        // The overlay covers the menu bar on every screen, so nothing rendered
+        // here is visible during a break. Dropping the cache means the first
+        // update afterwards always applies, however the break ended.
+        if !force {
+            switch state {
+            case .breaking, .breakCompleted:
+                lastPresentation = nil
+                return
+            default:
+                break
+            }
+        }
+
         let presentation = makeMenuPresentation(
-            for: appState.timerState,
-            showSeconds: appState.settings.showSecondsInMenuBar,
-            coarseSeconds: appState.settings.coarseSecondsInMenuBar,
-            warningLeadTime: appState.settings.warningLeadTime,
+            for: state,
+            showSeconds: settings.showSecondsInMenuBar,
+            coarseSeconds: settings.coarseSecondsInMenuBar,
+            warningLeadTime: settings.warningLeadTime,
             focusExtended: appState.isFocusExtended,
-            outsideWorkingHours: appState.settings.isOutsideWorkingHours(at: Date())
+            outsideWorkingHours: settings.isOutsideWorkingHours(at: Date())
         )
+        guard force || presentation != lastPresentation else { return }
+        lastPresentation = presentation
+
         if let button = statusItem.button {
             switch presentation.emphasis {
             case .none:

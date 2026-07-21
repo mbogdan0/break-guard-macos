@@ -199,14 +199,21 @@ Every disallowed source state is a **silent no-op**, not an error.
 | `.suspended` | hide all | cancel |
 
 Because this runs on every tick, the break row re-enters the overlay path once a second
-for the whole break. Each step there is therefore conditional (`Overlay/OverlayScreenManager.swift`):
+for the whole break. Every step there is therefore conditional (`Overlay/OverlayScreenManager.swift`):
 the frame is re-set only when the screen actually moved, a window is ordered front only
 when it is not visible, exactly one window is re-keyed and only when none of them holds
-key status, and the app is re-activated only when it is not already active. Only
-`orderFrontRegardless()` in `bringToFront()` stays unconditional — it is what keeps the
-overlay above anything else at `.screenSaver` level, and it triggers no redraw.
-Dropping any of those guards costs frames in the hold-to-confirm fill animation, which is
-the one thing on the overlay animating between ticks.
+key status, and the app is re-activated only when it is not already active.
+`bringToFront()` reorders only a window that was actually displaced — level no longer
+`.screenSaver`, or not visible — plus one unconditional re-assert every
+`reassertInterval` ticks (10 s) to reclaim the front from anything else that parks itself
+at `.screenSaver` without hiding us. It does not call `activateIfNeeded()`: its only
+caller reaches it through `showOnAllScreens()`, which just did.
+
+`orderFrontRegardless()` triggers no redraw, but it is a synchronous WindowServer round
+trip on the main thread, to the same process compositing the full-screen surface — once
+per window per second before this guard existed. Dropping any of these guards costs frames
+in the hold-to-confirm fill, which is the one thing on the overlay animating between ticks
+and can sweep for up to 9 s (`.repeated` tier).
 
 `emergencyDisclosureExpanded` is force-collapsed on any non-break state
 (`AppState.swift:378-383`). Notification permission is re-polled on every tick **only** while
@@ -296,9 +303,28 @@ Only the **15-minute** extension skips confirmation (`:271-285`). All alerts put
 confirm button first and **Cancel** second, so the safe choice is the default
 (`:249-258`).
 
-Each extend option's title is rebuilt on every presentation update with the resulting end
-time appended in grey: `deadline + minutes × 60` (`:332-351`). Falls back to a plain title
-when the state has no deadline (`:353-360`).
+Each extend option's title is rebuilt on every **applied** presentation update with the
+resulting end time appended in grey: `deadline + minutes × 60` (`:332-351`). Falls back to
+a plain title when the state has no deadline (`:353-360`).
+
+`updatePresentation()` is driven by `CombineLatest($timerState, $settings)` and so runs
+**twice per tick** — `publish()` reassigns both unconditionally. Three guards keep that from
+reaching AppKit:
+
+- It uses the **emitted** values, not `appState.timerState`. `@Published` fires from
+  `willSet`, so re-reading the property inside the sink returned the *previous* value and
+  left the menu bar one tick behind on every transition.
+- It returns early in `.breaking` / `.breakCompleted` unless `force` — the overlay covers
+  the menu bar on every screen, so nothing rendered there is visible. `lastPresentation` is
+  cleared on the way out so the first update after the break always applies.
+- It compares against `lastPresentation` (`MenuPresentation` is `Equatable`) and returns
+  early when nothing changed. With `coarseSecondsInMenuBar` on, the title only changes every
+  10 s, so this drops most updates outside a break too.
+
+`menuWillOpen` passes `force: true`: the menu is about to be read, so it must never show a
+stale status line. Without these guards the `.caution` / `.urgent` path rasterised a fresh
+`NSImage` — `NSBezierPath` fill, SF Symbol composite, `NSAttributedString.draw` — twice a
+second behind the overlay, competing with the hold-to-confirm fill.
 
 ### 5.2 Break overlay
 

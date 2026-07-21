@@ -12,6 +12,13 @@ final class OverlayScreenManager {
     // per-tick redraw this guard exists to prevent would quietly come back.
     private var appliedFrames: [String: NSRect] = [:]
     private var currentBreakPrompt: String?
+    // Ticks until `bringToFront` re-asserts window order even though nothing
+    // looks displaced. Starts at zero so the first call of every break always
+    // reorders; `hideAll` resets it for the next one.
+    private var reassertCountdown = 0
+    // In ticks, and the tick is one second. Long enough that the cost is noise,
+    // short enough that a window that stole the front is not there for long.
+    private static let reassertInterval = 10
     private let logger = Logger(subsystem: "local.bohdan.BreakGuard", category: "Overlay")
 
     init(appState: AppState) {
@@ -62,17 +69,31 @@ final class OverlayScreenManager {
         showOnAllScreens()
     }
 
+    // Also re-entered every second during a break. `orderFrontRegardless` draws
+    // nothing, but it is a synchronous WindowServer round trip — on the main
+    // thread, to the same process that is compositing this full-screen surface,
+    // once per window per second. Invisible on a static overlay; it is what the
+    // hold-to-confirm fill stutters against. So reorder only when the overlay
+    // was actually displaced, and re-assert on a slow cadence to stay above
+    // anything else that parks itself at `.screenSaver` without hiding us.
     func bringToFront() {
+        reassertCountdown -= 1
+        let reassert = reassertCountdown <= 0
+        if reassert {
+            reassertCountdown = Self.reassertInterval
+        }
         for window in windows.values {
+            var displaced = false
             if window.level != .screenSaver {
                 window.level = .screenSaver
+                displaced = true
             }
-            // Kept unconditional: it is what holds the overlay above anything
-            // else parked at `.screenSaver`, and unlike re-framing it triggers
-            // no redraw.
-            window.orderFrontRegardless()
+            if displaced || !window.isVisible || reassert {
+                window.orderFrontRegardless()
+            }
         }
-        activateIfNeeded()
+        // `activateIfNeeded` is deliberately not called here: every caller
+        // reaches this through `showOnAllScreens`, which already did it.
     }
 
     func hideAll() {
@@ -85,6 +106,7 @@ final class OverlayScreenManager {
         windows.removeAll()
         appliedFrames.removeAll()
         currentBreakPrompt = nil
+        reassertCountdown = 0
     }
 
     // Keyboard input needs exactly one key window, and with several monitors
