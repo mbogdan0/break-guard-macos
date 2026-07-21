@@ -297,9 +297,10 @@ struct StateMachine {
         runtime.breakStartedAt = nil
         switch origin.previous {
         case .working, .warning:
+            let lead = currentWarningLeadTime
             let deadline = clock.now.addingTimeInterval(origin.remaining)
-            let warning = deadline.addingTimeInterval(-settings.warningLeadTime)
-            runtime.timerState = clock.now >= warning && settings.warningLeadTime > 0
+            let warning = deadline.addingTimeInterval(-lead)
+            runtime.timerState = clock.now >= warning && lead > 0
                 ? .warning(deadline: deadline)
                 : .working(deadline: deadline, warningDeadline: warning)
         case .postponed:
@@ -323,7 +324,7 @@ struct StateMachine {
             let newDeadline = deadline.addingTimeInterval(delta)
             runtime.timerState = .working(
                 deadline: newDeadline,
-                warningDeadline: newDeadline.addingTimeInterval(-settings.warningLeadTime)
+                warningDeadline: newDeadline.addingTimeInterval(-currentWarningLeadTime)
             )
         case let .postponed(deadline):
             runtime.timerState = .postponed(deadline: deadline.addingTimeInterval(delta))
@@ -381,9 +382,10 @@ struct StateMachine {
         }
         switch previous {
         case .working, .warning:
+            let lead = currentWarningLeadTime
             let deadline = clock.now.addingTimeInterval(remaining)
-            let warning = deadline.addingTimeInterval(-settings.warningLeadTime)
-            runtime.timerState = clock.now >= warning && settings.warningLeadTime > 0
+            let warning = deadline.addingTimeInterval(-lead)
+            runtime.timerState = clock.now >= warning && lead > 0
                 ? .warning(deadline: deadline)
                 : .working(deadline: deadline, warningDeadline: warning)
         case .postponed:
@@ -499,6 +501,20 @@ struct StateMachine {
         statistics.focusMinutesByDay[FocusDay.key(for: date), default: 0] += minutes
         statistics.totalFocusMinutes += minutes
         statistics.pruneFocusHistory(now: clock.now)
+    }
+
+    // The warning lead of the cycle in progress. Cycle construction caps the
+    // lead at half the window, but the interval a cycle actually runs is not
+    // stored, so the paths that re-anchor a deadline mid-cycle reconstruct it
+    // from the pace and the tapering total captured at cycle start — the same
+    // basis creditedFocusMinutes() falls back to. Reading warningLeadTime raw
+    // here would re-arm a warning the cycle's own rule forbids: with a lead
+    // past half the window, resuming, cancelling a manual break, or extending
+    // during the warning would land back in .warning early or immediately.
+    private var currentWarningLeadTime: TimeInterval {
+        settings.effectiveWarningLeadTime(
+            for: settings.effectiveWorkInterval(taperedFocus: runtime.taperedFocusSeconds)
+        )
     }
 
     // Deliberately not closedCycleFocus(): the nominal interval is the safer

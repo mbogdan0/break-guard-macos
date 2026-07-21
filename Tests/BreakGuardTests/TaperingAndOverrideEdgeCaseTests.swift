@@ -307,4 +307,87 @@ final class TaperingAndOverrideEdgeCaseTests: XCTestCase {
         XCTAssertEqual(settings.effectiveWarningLeadTime(for: 60), 30)
         XCTAssertEqual(settings.effectiveWarningLeadTime(for: 120 * 60), 30 * 60)
     }
+
+    // A lead longer than half the window is capped when the cycle is built.
+    // The paths that re-anchor a deadline mid-cycle have to honour the same
+    // cap, or they re-arm a warning the cycle's own rule forbids. All three
+    // use a 30-minute window with a 30-minute lead, capped to 15 minutes.
+    private func wideLeadMachine(clock: FakeClock) -> StateMachine {
+        var settings = AppSettings.defaults
+        settings.workInterval = 30 * 60
+        settings.warningLeadTime = 30 * 60
+        settings.breakDuration = 2 * 60
+        return StateMachine(settings: settings, clock: clock)
+    }
+
+    func testResumingAShortPauseDoesNotArmTheWarningEarly() {
+        let start = Date(timeIntervalSince1970: 500_000)
+        var clock = FakeClock(now: start)
+        var machine = wideLeadMachine(clock: clock)
+
+        // Pause five minutes in, resume a minute later: 25 minutes remain,
+        // well outside the capped 15-minute lead.
+        clock.now = start.addingTimeInterval(5 * 60)
+        machine.clock = clock
+        machine.suspend(until: nil)
+
+        clock.now = clock.now.addingTimeInterval(60)
+        machine.clock = clock
+        machine.resume()
+
+        guard case let .working(deadline, warningDeadline) = machine.runtime.timerState else {
+            return XCTFail("Expected working, got \(machine.runtime.timerState)")
+        }
+        XCTAssertEqual(deadline.timeIntervalSince(clock.now), 25 * 60, accuracy: 0.001)
+        // Capped to half the window, not the raw 30-minute setting.
+        XCTAssertEqual(deadline.timeIntervalSince(warningDeadline), 15 * 60, accuracy: 0.001)
+        XCTAssertEqual(machine.tick(), machine.runtime.timerState)
+    }
+
+    func testCancellingAManualBreakDoesNotArmTheWarningEarly() {
+        let start = Date(timeIntervalSince1970: 510_000)
+        var clock = FakeClock(now: start)
+        var machine = wideLeadMachine(clock: clock)
+
+        clock.now = start.addingTimeInterval(5 * 60)
+        machine.clock = clock
+        machine.takeBreakNow()
+        machine.startBreak()
+
+        clock.now = clock.now.addingTimeInterval(60)
+        machine.clock = clock
+        machine.cancelManualBreak()
+
+        guard case let .working(deadline, warningDeadline) = machine.runtime.timerState else {
+            return XCTFail("Expected working, got \(machine.runtime.timerState)")
+        }
+        XCTAssertEqual(deadline.timeIntervalSince(warningDeadline), 15 * 60, accuracy: 0.001)
+        XCTAssertEqual(machine.tick(), machine.runtime.timerState)
+    }
+
+    // Extending during the warning must actually leave it. With the raw lead
+    // the new warning deadline landed at or before the current moment, so the
+    // next tick dropped straight back into .warning and the extension read as
+    // a no-op. The extension has to be no longer than the excess lead for the
+    // old behaviour to show, which the 15-minute menu option satisfies here.
+    func testExtendingDuringTheWarningLeavesTheWarningState() {
+        let start = Date(timeIntervalSince1970: 520_000)
+        var clock = FakeClock(now: start)
+        var machine = wideLeadMachine(clock: clock)
+
+        // Fifteen minutes in, the capped lead opens the warning.
+        clock.now = start.addingTimeInterval(15 * 60)
+        machine.clock = clock
+        XCTAssertEqual(machine.tick(), .warning(deadline: start.addingTimeInterval(30 * 60)))
+
+        machine.extendFocus(by: 15 * 60)
+
+        guard case let .working(deadline, warningDeadline) = machine.runtime.timerState else {
+            return XCTFail("Expected working, got \(machine.runtime.timerState)")
+        }
+        XCTAssertEqual(deadline.timeIntervalSince(clock.now), 30 * 60, accuracy: 0.001)
+        XCTAssertEqual(deadline.timeIntervalSince(warningDeadline), 15 * 60, accuracy: 0.001)
+        // The extension survives the next tick instead of snapping back.
+        XCTAssertEqual(machine.tick(), machine.runtime.timerState)
+    }
 }
