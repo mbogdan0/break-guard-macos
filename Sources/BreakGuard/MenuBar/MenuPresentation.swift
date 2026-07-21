@@ -49,6 +49,21 @@ extension DateFormatter {
         return formatter
     }()
 
+    // Wall clock for the break overlay, which hides the menu bar. Cached for the
+    // same reason as the others: the overlay body re-evaluates once per second.
+    // Autoupdating locale/timezone because a machine can sleep in one timezone
+    // and wake in another, and a static-let formatter would otherwise keep
+    // formatting in the old one.
+    static let breakGuardWallClock: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .none
+        // .medium is what adds seconds; .short omits them.
+        formatter.timeStyle = .medium
+        formatter.locale = .autoupdatingCurrent
+        formatter.timeZone = .autoupdatingCurrent
+        return formatter
+    }()
+
     // For dates far enough out that the day matters, such as when the weekly
     // emergency override comes back.
     static let breakGuardDateTime: DateFormatter = {

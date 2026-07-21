@@ -193,7 +193,24 @@ struct BreakOverlayView: View {
             .foregroundStyle(.white)
             .frame(width: OverlayStyle.contentWidth)
             .padding(64)
+            wallClock
         }
+    }
+
+    // The overlay hides the menu bar, so this is the only clock the user has.
+    // A ZStack sibling rather than part of either content stack: it shows on
+    // both the break and completion screens without disturbing their layout.
+    // Monospaced so the digits do not jitter the label's width every second.
+    // Refreshes on the existing 1-second tick, like the countdown above it.
+    private var wallClock: some View {
+        VStack {
+            Spacer()
+            Text(DateFormatter.breakGuardWallClock.string(from: Date()))
+                .font(.system(size: 13, design: .monospaced))
+                .foregroundStyle(.white.opacity(0.35))
+                .padding(.bottom, 28)
+        }
+        .ignoresSafeArea()
     }
 
     private var breakContent: some View {
