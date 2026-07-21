@@ -6,6 +6,11 @@ import os
 final class OverlayScreenManager {
     private weak var appState: AppState?
     private var windows: [String: BreakOverlayWindow] = [:]
+    // The frame last handed to `setFrame`, per screen. Compared against instead
+    // of the live `window.frame` because AppKit may hand back an adjusted rect;
+    // if it ever does, comparing the live frame would never match and the
+    // per-tick redraw this guard exists to prevent would quietly come back.
+    private var appliedFrames: [String: NSRect] = [:]
     private var currentBreakPrompt: String?
     private let logger = Logger(subsystem: "local.bohdan.BreakGuard", category: "Overlay")
 
@@ -19,6 +24,11 @@ final class OverlayScreenManager {
         )
     }
 
+    // Re-entered on every 1-second tick for as long as a break is on screen, so
+    // each step here has to cost nothing when nothing changed. Re-framing with
+    // `display: true` forces a synchronous redraw of a full-screen window, and
+    // re-activating churns key-window state; once a second that is invisible on
+    // a static overlay, but it drops frames under the hold-to-confirm fill.
     func showOnAllScreens() {
         guard let appState else { return }
         let prompt = currentBreakPrompt ?? BreakPromptCatalog.random()
@@ -33,11 +43,18 @@ final class OverlayScreenManager {
                 windows[key] = window
                 logger.info("Overlay window created")
             }
-            windows[key]?.setFrame(screen.frame, display: true)
-            windows[key]?.makeKeyAndOrderFront(nil)
+            guard let window = windows[key] else { continue }
+            if appliedFrames[key] != screen.frame {
+                window.setFrame(screen.frame, display: true)
+                appliedFrames[key] = screen.frame
+            }
+            if !window.isVisible {
+                window.orderFrontRegardless()
+            }
         }
         removeWindowsForDisconnectedScreens()
-        NSApp.activate(ignoringOtherApps: true)
+        makeOverlayKeyIfNeeded()
+        activateIfNeeded()
     }
 
     @objc func updateForScreenChanges() {
@@ -47,10 +64,15 @@ final class OverlayScreenManager {
 
     func bringToFront() {
         for window in windows.values {
-            window.level = .screenSaver
+            if window.level != .screenSaver {
+                window.level = .screenSaver
+            }
+            // Kept unconditional: it is what holds the overlay above anything
+            // else parked at `.screenSaver`, and unlike re-framing it triggers
+            // no redraw.
             window.orderFrontRegardless()
         }
-        NSApp.activate(ignoringOtherApps: true)
+        activateIfNeeded()
     }
 
     func hideAll() {
@@ -61,7 +83,26 @@ final class OverlayScreenManager {
             window.orderOut(nil)
         }
         windows.removeAll()
+        appliedFrames.removeAll()
         currentBreakPrompt = nil
+    }
+
+    // Keyboard input needs exactly one key window, and with several monitors
+    // only one overlay can hold it — so keying every window on every tick spent
+    // N-1 window-server round trips on windows that immediately lost it again.
+    // Re-key only when none of them holds it, e.g. after the app was deactivated.
+    private func makeOverlayKeyIfNeeded() {
+        guard !windows.values.contains(where: { $0.isKeyWindow }) else { return }
+        let preferred = NSScreen.main.map(screenKey).flatMap { windows[$0] }
+        guard let window = preferred ?? windows.keys.sorted().first.flatMap({ windows[$0] }) else {
+            return
+        }
+        window.makeKeyAndOrderFront(nil)
+    }
+
+    private func activateIfNeeded() {
+        guard !NSApp.isActive else { return }
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     private func removeWindowsForDisconnectedScreens() {
@@ -69,6 +110,7 @@ final class OverlayScreenManager {
         for (key, window) in windows where !liveKeys.contains(key) {
             window.close()
             windows.removeValue(forKey: key)
+            appliedFrames.removeValue(forKey: key)
         }
     }
 

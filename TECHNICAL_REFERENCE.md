@@ -198,6 +198,16 @@ Every disallowed source state is a **silent no-op**, not an error.
 | `.postponed` | hide all | cancel |
 | `.suspended` | hide all | cancel |
 
+Because this runs on every tick, the break row re-enters the overlay path once a second
+for the whole break. Each step there is therefore conditional (`Overlay/OverlayScreenManager.swift`):
+the frame is re-set only when the screen actually moved, a window is ordered front only
+when it is not visible, exactly one window is re-keyed and only when none of them holds
+key status, and the app is re-activated only when it is not already active. Only
+`orderFrontRegardless()` in `bringToFront()` stays unconditional — it is what keeps the
+overlay above anything else at `.screenSaver` level, and it triggers no redraw.
+Dropping any of those guards costs frames in the hold-to-confirm fill animation, which is
+the one thing on the overlay animating between ticks.
+
 `emergencyDisclosureExpanded` is force-collapsed on any non-break state
 (`AppState.swift:378-383`). Notification permission is re-polled on every tick **only** while
 the settings window is visible — it is an XPC round-trip (`AppState.swift:409-411`).

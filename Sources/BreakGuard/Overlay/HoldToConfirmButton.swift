@@ -21,16 +21,18 @@ struct HoldToConfirmButton: View {
             .font(.system(size: 18, weight: .medium))
             .frame(maxWidth: .infinity, minHeight: 40)
             .background(
-                GeometryReader { geometry in
-                    ZStack(alignment: .leading) {
-                        shape
-                            .fill(.white.opacity(isPressing ? 0.12 : 0.08))
-                        Rectangle()
-                            .fill(.white.opacity(0.28))
-                            .frame(width: geometry.size.width * progress)
-                    }
-                    .clipShape(shape)
+                // Both layers fill the button, so the fill's leading anchor —
+                // not stack alignment — is what makes it sweep left to right.
+                ZStack {
+                    shape
+                        .fill(.white.opacity(isPressing ? 0.12 : 0.08))
+                    // Scaled rather than resized: a width animation re-runs
+                    // layout on every frame of the hold, a transform does not.
+                    Rectangle()
+                        .fill(.white.opacity(0.28))
+                        .scaleEffect(x: progress, anchor: .leading)
                 }
+                .clipShape(shape)
             )
             .overlay(shape.strokeBorder(.white.opacity(0.25)))
             .contentShape(shape)
