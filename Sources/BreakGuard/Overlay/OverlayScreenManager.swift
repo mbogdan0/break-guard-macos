@@ -206,7 +206,7 @@ struct BreakOverlayView: View {
         VStack {
             Spacer()
             Text(DateFormatter.breakGuardWallClock.string(from: Date()))
-                .font(.system(size: 13, design: .monospaced))
+                .font(.system(size: 15, design: .monospaced))
                 .foregroundStyle(.white.opacity(0.35))
                 .padding(.bottom, 28)
         }
