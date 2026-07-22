@@ -231,9 +231,9 @@ struct BreakOverlayView: View {
             TimelineView(.periodic(from: .now, by: 1)) { context in
                 Text(DateFormatter.breakGuardWallClock.string(from: context.date))
             }
-            .font(.system(size: 15, design: .monospaced))
-            .foregroundStyle(.white.opacity(0.35))
-            .padding(.bottom, 28)
+            .font(.system(size: 17, design: .monospaced))
+            .foregroundStyle(.white.opacity(0.33))
+            .padding(.bottom, 30)
         }
         .ignoresSafeArea()
     }
