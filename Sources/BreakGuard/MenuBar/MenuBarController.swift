@@ -38,6 +38,16 @@ final class MenuBarController: NSObject, NSMenuDelegate, NSMenuItemValidation {
                 self?.updatePresentation(state: state, settings: settings)
             }
             .store(in: &cancellables)
+        // @Published now stays silent on ticks where nothing changed, but the
+        // status line is time-derived ("12m left") and must still advance.
+        // uiTick fires after publish() completes, so unlike inside the sink
+        // above the stored properties already hold the current values here.
+        appState.uiTick
+            .sink { [weak self] in
+                guard let self else { return }
+                self.updatePresentation(state: self.appState.timerState, settings: self.appState.settings)
+            }
+            .store(in: &cancellables)
         updatePresentation()
     }
 

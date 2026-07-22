@@ -223,14 +223,17 @@ struct BreakOverlayView: View {
     // A ZStack sibling rather than part of either content stack: it shows on
     // both the break and completion screens without disturbing their layout.
     // Monospaced so the digits do not jitter the label's width every second.
-    // Refreshes on the existing 1-second tick, like the countdown above it.
+    // TimelineView so only this Text re-evaluates each second: AppState no
+    // longer republishes unchanged values, so the body cannot ride the tick.
     private var wallClock: some View {
         VStack {
             Spacer()
-            Text(DateFormatter.breakGuardWallClock.string(from: Date()))
-                .font(.system(size: 15, design: .monospaced))
-                .foregroundStyle(.white.opacity(0.35))
-                .padding(.bottom, 28)
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                Text(DateFormatter.breakGuardWallClock.string(from: context.date))
+            }
+            .font(.system(size: 15, design: .monospaced))
+            .foregroundStyle(.white.opacity(0.35))
+            .padding(.bottom, 28)
         }
         .ignoresSafeArea()
     }
@@ -239,9 +242,11 @@ struct BreakOverlayView: View {
         VStack(spacing: 0) {
             Text("Time for a break")
                 .font(.system(size: 44, weight: .semibold))
-            Text(formatClock(appState.breakRemaining()))
-                .font(.system(size: 112, weight: .bold, design: .monospaced))
-                .padding(.top, 12)
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                Text(formatClock(appState.breakRemaining(at: context.date)))
+            }
+            .font(.system(size: 112, weight: .bold, design: .monospaced))
+            .padding(.top, 12)
             Text(breakPrompt)
                 .font(.system(size: 22))
                 .foregroundStyle(.white.opacity(0.7))
@@ -358,10 +363,12 @@ struct BreakOverlayView: View {
 
             // The break obligation is over; from here the clock counts UP.
             // Smaller and green so it reads as accrued rest, not a demand.
-            Text(formatClock(appState.totalRestTime()))
-                .font(.system(size: 48, weight: .semibold, design: .monospaced))
-                .foregroundStyle(Color(nsColor: .systemGreen))
-                .padding(.top, 10)
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                Text(formatClock(appState.totalRestTime(at: context.date)))
+            }
+            .font(.system(size: 48, weight: .semibold, design: .monospaced))
+            .foregroundStyle(Color(nsColor: .systemGreen))
+            .padding(.top, 10)
             Text("Total rest time")
                 .font(.system(size: 15))
                 .foregroundStyle(.white.opacity(0.6))

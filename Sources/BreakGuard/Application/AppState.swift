@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 import UserNotifications
 import os
@@ -88,6 +89,12 @@ final class AppState: ObservableObject {
     @Published var loginStatusDescription = "Unknown"
     @Published var notificationTestMessage: String?
 
+    // Fires once per UI-timer second, after publish(), for observers whose
+    // display is time-derived (menu bar countdown) rather than state-derived.
+    // publish() only fires objectWillChange on real changes, so those
+    // observers cannot ride the @Published stream for their refresh.
+    let uiTick = PassthroughSubject<Void, Never>()
+
     private let logger = Logger(subsystem: "local.bohdan.BreakGuard", category: "AppState")
     private let persistence: PersistenceStore
     private let notifications: NotificationManager
@@ -147,9 +154,9 @@ final class AppState: ObservableObject {
         save()
     }
 
-    func breakRemaining() -> TimeInterval {
+    func breakRemaining(at now: Date = Date()) -> TimeInterval {
         if case let .breaking(deadline, _, _) = timerState {
-            return max(0, deadline.timeIntervalSince(Date()))
+            return max(0, deadline.timeIntervalSince(now))
         }
         return 0
     }
@@ -172,9 +179,9 @@ final class AppState: ObservableObject {
     // Total rest so far on the completion screen (now − break start). Refreshes
     // through the 1-second tick(), which publishes even when values are equal;
     // if publishing is ever equality-gated, this count-up stalls.
-    func totalRestTime() -> TimeInterval {
+    func totalRestTime(at now: Date = Date()) -> TimeInterval {
         guard timerState == .breakCompleted, let start = machine.runtime.breakStartedAt else { return 0 }
-        return max(0, Date().timeIntervalSince(start))
+        return max(0, now.timeIntervalSince(start))
     }
 
     func startBreakIfDue() {
@@ -353,6 +360,7 @@ final class AppState: ObservableObject {
         publish()
         reconcileStateEffects()
         save()
+        uiTick.send()
     }
 
     private func publishAndReconcile() {
@@ -362,24 +370,37 @@ final class AppState: ObservableObject {
     }
 
     private func publish() {
-        settings = machine.settings
-        statistics = machine.statistics
-        timerState = machine.runtime.timerState
-        isManualBreak = machine.runtime.manualBreakOrigin != nil
-        isFocusExtended = machine.runtime.focusExtended
-        canPostpone = machine.canPostpone
-        postponeHoldTier = machine.postponeHoldTier
-        canExtendFocus = machine.canExtendFocus
-        taperedFocusSeconds = machine.runtime.taperedFocusSeconds
-        canUseEmergencyOverride = machine.canUseEmergencyOverride
-        emergencyOverrideAvailableAt = machine.emergencyOverrideAvailableAt
+        setIfChanged(\.settings, machine.settings)
+        setIfChanged(\.statistics, machine.statistics)
+        setIfChanged(\.timerState, machine.runtime.timerState)
+        setIfChanged(\.isManualBreak, machine.runtime.manualBreakOrigin != nil)
+        setIfChanged(\.isFocusExtended, machine.runtime.focusExtended)
+        setIfChanged(\.canPostpone, machine.canPostpone)
+        setIfChanged(\.postponeHoldTier, machine.postponeHoldTier)
+        setIfChanged(\.canExtendFocus, machine.canExtendFocus)
+        setIfChanged(\.taperedFocusSeconds, machine.runtime.taperedFocusSeconds)
+        setIfChanged(\.canUseEmergencyOverride, machine.canUseEmergencyOverride)
+        setIfChanged(\.emergencyOverrideAvailableAt, machine.emergencyOverrideAvailableAt)
         // The disclosure belongs to one break: collapse it once that break is
         // over so the next overlay opens closed on every screen.
         switch timerState {
         case .breakDue, .breaking, .breakCompleted:
             break
         default:
-            emergencyDisclosureExpanded = false
+            setIfChanged(\.emergencyDisclosureExpanded, false)
+        }
+    }
+
+    // publish() runs every second, but @Published fires objectWillChange on
+    // every assignment. Skipping the no-op assignments keeps steady-state
+    // ticks from re-evaluating every observing view (most visibly the break
+    // overlay, whose hold-to-confirm fill competes for main-thread frames).
+    private func setIfChanged<T: Equatable>(
+        _ keyPath: ReferenceWritableKeyPath<AppState, T>,
+        _ value: T
+    ) {
+        if self[keyPath: keyPath] != value {
+            self[keyPath: keyPath] = value
         }
     }
 
