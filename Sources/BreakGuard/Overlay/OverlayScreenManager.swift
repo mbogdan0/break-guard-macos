@@ -283,10 +283,6 @@ struct BreakOverlayView: View {
                         postponeButton(second, comparedTo: first)
                     }
                     .padding(.top, 48)
-                    Text("Hold a button down to postpone.")
-                        .font(.system(size: 13))
-                        .foregroundStyle(.white.opacity(0.5))
-                        .padding(.top, 8)
                 } else {
                     Text("Postponement was already used this cycle. Complete this break to reset it.")
                         .font(.system(size: 15))

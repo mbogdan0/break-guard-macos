@@ -6,7 +6,7 @@ import SwiftUI
 // fill drains back. Assistive technology activates it as a plain button.
 struct HoldToConfirmButton: View {
     let title: String
-    // Static caption under the title — the hold length, so it can be read
+    // Static caption at the trailing edge — the hold length, so it can be read
     // rather than discovered by holding. Never animated: it must not join the
     // fill's redraw path.
     var subtitle: String? = nil
@@ -21,18 +21,23 @@ struct HoldToConfirmButton: View {
     }
 
     var body: some View {
-        // The padding sits inside the 40pt minimum, so a title-only button
-        // keeps exactly the geometry it had before the caption existed.
-        VStack(spacing: 2) {
+        // Overlaid rather than stacked in an HStack: the title keeps the whole
+        // button's center, and the caption rides the trailing edge instead of
+        // pushing it off-center. Single row, so the geometry is exactly what
+        // it was before the caption existed.
+        ZStack {
             Text(title)
                 .font(.system(size: 18, weight: .medium))
             if let subtitle {
-                Text(subtitle)
-                    .font(.system(size: 12))
-                    .foregroundStyle(.white.opacity(0.55))
+                HStack {
+                    Spacer(minLength: 8)
+                    Text(subtitle)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.white.opacity(0.4))
+                }
+                .padding(.trailing, 12)
             }
         }
-            .padding(.vertical, 6)
             .frame(maxWidth: .infinity, minHeight: 40)
             .background(
                 // Both layers fill the button, so the fill's leading anchor —
