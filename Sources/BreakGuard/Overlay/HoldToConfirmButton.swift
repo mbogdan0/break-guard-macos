@@ -21,21 +21,24 @@ struct HoldToConfirmButton: View {
     }
 
     var body: some View {
-        // Overlaid rather than stacked in an HStack: the title keeps the whole
-        // button's center, and the caption rides the trailing edge instead of
-        // pushing it off-center. Single row, so the geometry is exactly what
-        // it was before the caption existed.
-        ZStack {
-            Text(title)
-                .font(.system(size: 18, weight: .medium))
+        // With a caption the button reads as a row — label left, hold length
+        // right — because a centered title with something pinned beside it
+        // looks off-center rather than deliberate. Without one the title keeps
+        // the center, and the geometry is what it was before captions existed.
+        Group {
             if let subtitle {
-                HStack {
+                HStack(spacing: 10) {
+                    Text(title)
+                        .font(.system(size: 18, weight: .medium))
                     Spacer(minLength: 8)
                     Text(subtitle)
                         .font(.system(size: 12))
                         .foregroundStyle(.white.opacity(0.4))
                 }
-                .padding(.trailing, 12)
+                .padding(.horizontal, 14)
+            } else {
+                Text(title)
+                    .font(.system(size: 18, weight: .medium))
             }
         }
             .frame(maxWidth: .infinity, minHeight: 40)
