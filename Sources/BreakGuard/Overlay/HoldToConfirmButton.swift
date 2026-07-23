@@ -33,7 +33,7 @@ struct HoldToConfirmButton: View {
                     Spacer(minLength: 8)
                     Text(subtitle)
                         .font(.system(size: 12))
-                        .foregroundStyle(.white.opacity(0.4))
+                        .foregroundStyle(.white.opacity(0.35))
                 }
                 .padding(.horizontal, 14)
             } else {
