@@ -29,9 +29,9 @@ enum FocusPace: String, Codable, CaseIterable {
     // Tapering shortens the focus window as fatigue accumulates. The measure
     // is time actually focused, not sessions completed: a session counter
     // rewards anyone who takes several short manual breaks in a row, since
-    // each one closes a cycle. One accumulated focus minute costs one second
-    // off the next window, so an 8-hour day trims a 30-minute window to ~22.
-    static let taperingSecondsPerFocusMinute = 1.0
+    // each one closes a cycle. One accumulated focus minute costs 1.1 seconds
+    // off the next window, so an 8-hour day trims a 30-minute window to ~21.
+    static let taperingSecondsPerFocusMinute = 1.1
 
     // Non-configurable safety stop. The linear rule has no asymptote, so
     // without a bottom a long enough day — or a very short work interval —
@@ -113,8 +113,8 @@ struct AppSettings: Codable, Equatable {
         workInterval * focusPace.workIntervalMultiplier
     }
 
-    // Fatigue-aware variant: in tapering mode the interval shrinks by one
-    // second for every focus minute accumulated since the last long rest.
+    // Fatigue-aware variant: in tapering mode the interval shrinks by 1.1
+    // seconds for every focus minute accumulated since the last long rest.
     // The inner min() matters — an interval already shorter than the safety
     // bottom must not be lengthened by it.
     func effectiveWorkInterval(taperedFocus: TimeInterval) -> TimeInterval {

@@ -113,11 +113,11 @@ final class TaperingAndOverrideEdgeCaseTests: XCTestCase {
         machine.clock = clock
         machine.markBreakTaken()
 
-        // 4h10m banked costs 250 seconds off the next window.
+        // 4h10m banked costs 275 seconds off the next window.
         guard case let .working(deadline, _) = machine.runtime.timerState else {
             return XCTFail("Expected working state")
         }
-        XCTAssertEqual(deadline.timeIntervalSince(clock.now), 30 * 60 - 250, accuracy: 0.001)
+        XCTAssertEqual(deadline.timeIntervalSince(clock.now), 30 * 60 - 275, accuracy: 0.001)
     }
 
     // Postponing ends the break it interrupted, so the capture startBreak()

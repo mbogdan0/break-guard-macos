@@ -399,13 +399,15 @@ struct BreakOverlayView: View {
     }
 
     private func postponeButton(_ duration: TimeInterval, comparedTo other: TimeInterval) -> some View {
-        HoldToConfirmButton(
+        let hold = postponeHoldDuration(
+            for: duration,
+            comparedTo: other,
+            tier: appState.postponeHoldTier
+        )
+        return HoldToConfirmButton(
             title: "Postpone for \(formatDurationCompact(duration))",
-            holdDuration: postponeHoldDuration(
-                for: duration,
-                comparedTo: other,
-                tier: appState.postponeHoldTier
-            )
+            subtitle: postponeHoldHint(hold),
+            holdDuration: hold
         ) {
             appState.postpone(seconds: duration)
         }

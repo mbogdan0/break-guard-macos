@@ -310,6 +310,12 @@ final class MenuPresentationTests: XCTestCase {
         XCTAssertEqual(postponeHoldDuration(for: 15 * 60, comparedTo: 15 * 60, tier: .repeated), 3)
     }
 
+    func testPostponeHoldHintReadsAsSeconds() {
+        XCTAssertEqual(postponeHoldHint(1), "Hold 1s")
+        XCTAssertEqual(postponeHoldHint(3), "Hold 3s")
+        XCTAssertEqual(postponeHoldHint(9), "Hold 9s")
+    }
+
     func testBreakPromptCatalogContainsTenUniqueMessages() {
         XCTAssertEqual(BreakPromptCatalog.all.count, 10)
         XCTAssertEqual(Set(BreakPromptCatalog.all).count, 10)

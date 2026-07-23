@@ -6,6 +6,10 @@ import SwiftUI
 // fill drains back. Assistive technology activates it as a plain button.
 struct HoldToConfirmButton: View {
     let title: String
+    // Static caption under the title — the hold length, so it can be read
+    // rather than discovered by holding. Never animated: it must not join the
+    // fill's redraw path.
+    var subtitle: String? = nil
     let holdDuration: TimeInterval
     let action: () -> Void
 
@@ -17,8 +21,18 @@ struct HoldToConfirmButton: View {
     }
 
     var body: some View {
-        Text(title)
-            .font(.system(size: 18, weight: .medium))
+        // The padding sits inside the 40pt minimum, so a title-only button
+        // keeps exactly the geometry it had before the caption existed.
+        VStack(spacing: 2) {
+            Text(title)
+                .font(.system(size: 18, weight: .medium))
+            if let subtitle {
+                Text(subtitle)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.white.opacity(0.55))
+            }
+        }
+            .padding(.vertical, 6)
             .frame(maxWidth: .infinity, minHeight: 40)
             .background(
                 // Both layers fill the button, so the fill's leading anchor —
@@ -51,7 +65,7 @@ struct HoldToConfirmButton: View {
                 }
             }
             .accessibilityRepresentation {
-                Button(title, action: action)
+                Button(subtitle.map { "\(title), \($0)" } ?? title, action: action)
             }
     }
 }
@@ -73,4 +87,10 @@ func postponeHoldDuration(
     case .repeated:
         return isLonger ? 9 : 3
     }
+}
+
+// The hold length as a caption for the button that demands it. A fixed number
+// for the life of the overlay — the fill already conveys the progress.
+func postponeHoldHint(_ hold: TimeInterval) -> String {
+    "Hold \(formatDurationCompact(hold))"
 }

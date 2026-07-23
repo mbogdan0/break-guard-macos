@@ -49,8 +49,8 @@ All 15 persisted settings. Defaults at `Domain/AppSettings.swift:89-107`, ranges
 | `focusPace` | enum | `.normal` | `moreBreaks` / `normal` / `deepFocus` / `tapering` | `AppSettings.swift:113,121` |
 | `breakDuration` | s | **120** (2 min) | 30 … 3600 s (30 s … 60 min) | `StateMachine.swift:139` |
 | `warningLeadTime` | s | **60** (1 min) | 0 … 1800 s (0 = off … 30 min) | `StateMachine.swift:117` |
-| `firstPostponeDuration` | s | **120** (2 min) | 30 … 7200 s (30 s … 2 h) | `OverlayScreenManager.swift:192` |
-| `secondPostponeDuration` | s | **900** (15 min) | 30 … 7200 s | `OverlayScreenManager.swift:193` |
+| `firstPostponeDuration` | s | **120** (2 min) | 30 … 7200 s (30 s … 2 h) | `OverlayScreenManager.swift:278` |
+| `secondPostponeDuration` | s | **900** (15 min) | 30 … 7200 s | `OverlayScreenManager.swift:279` |
 | `taperingResetGap` | s | **21600** (6 h) | 3600 … 86400 s (1 … 24 h) | `StateMachine.swift:170` |
 | `harderToSkipBreaks` | Bool | **false** | — | `StateMachine.swift:55,59,63` |
 | `notificationSound` | Bool | **true** | — | `NotificationManager.swift:229` |
@@ -105,8 +105,8 @@ emphasis is `.none`, so a red warning is never diluted to yellow
 | `1:005` | rejected — seconds component max 2 chars (`:91`) |
 | anything else | rejected (`:96`) |
 
-Steppers move by **60 s** (`GeneralSettingsView.swift:194`); the text field is for exact
-values. The tapering-reset stepper moves by **1 hour** (`GeneralSettingsView.swift:127`).
+Steppers move by **60 s** (`GeneralSettingsView.swift:213`); the text field is for exact
+values. The tapering-reset stepper moves by **1 hour** (`GeneralSettingsView.swift:141`).
 
 ---
 
@@ -241,13 +241,13 @@ effectiveWorkInterval = workInterval × paceMultiplier
 ### 4.2 Tapering penalty — `:120-125`, `:55-57`
 
 ```
-penalty  = clamp(taperedFocusSeconds, 0, 864000) / 60 × 1.0     seconds
+penalty  = clamp(taperedFocusSeconds, 0, 864000) / 60 × 1.1     seconds
 interval = max( min(base, 600), base − penalty )
 ```
 
-Worked, base 1800 s: after 2 h of accumulated focus (120 min) → penalty 120 s → 1680 s
-(28 min). After 8 h (480 min) → penalty 480 s → 1320 s (22 min). After 20 h (1200 min) →
-penalty 1200 s → 600 s, the floor.
+Worked, base 1800 s: after 2 h of accumulated focus (120 min) → penalty 132 s → 1668 s
+(27.8 min). After 8 h (480 min) → penalty 528 s → 1272 s (21.2 min). The 600 s floor is
+reached at ≈1091 min (≈18.2 h) of accumulated focus.
 
 ### 4.3 Warning lead — `:133-135`
 
@@ -336,8 +336,8 @@ The break prompt is drawn once from a 10-string catalog and cached so all screen
 
 | Control | Hold | Shown when |
 |---|---|---|
-| **Postpone for \<first\>** | see 5.3 | scheduled break **and** `canPostpone` |
-| **Postpone for \<second\>** | see 5.3 | same |
+| **Postpone for \<first\>** | see 5.3, stated on the button as "Hold \<n\>s" | scheduled break **and** `canPostpone` |
+| **Postpone for \<second\>** | see 5.3, stated on the button as "Hold \<n\>s" | same |
 | **Cancel Break** | **none — plain button, instant** | manual break only (`isManualBreak`) |
 | **Emergency override** disclosure row | none, `0.15 s` animation | any scheduled break (even during cooldown) |
 | **Skip This Break — +1h 30m** | **1 s** | `canUseEmergencyOverride` |
@@ -349,7 +349,7 @@ already used this cycle").
 
 ### 5.3 Hold-to-confirm matrix
 
-`Overlay/HoldToConfirmButton.swift:60-74`. "Shorter" / "longer" is decided by comparing the
+`Overlay/HoldToConfirmButton.swift:76-90`. "Shorter" / "longer" is decided by comparing the
 two configured postpone durations **against each other**, not by field order — either
 setting may be the longer one. A tie counts as shorter (the test is `duration > other`).
 
@@ -414,8 +414,8 @@ There are **no global hotkeys** — no `RegisterEventHotKey`, no `NSEvent` monit
 |---|---|---|
 | ⌘, | status menu only | Settings… (`MenuBarController.swift:103`) |
 | ⌘Q | status menu only | Quit, with confirmation (`:106`) |
-| Return | break completion overlay | Continue Working (`OverlayScreenManager.swift:308`) |
-| Escape | break overlay | **explicit no-op** (`OverlayScreenManager.swift:131-133`) |
+| Return | break completion overlay | Continue Working (`OverlayScreenManager.swift:387-396`) |
+| Escape | break overlay | **explicit no-op** (`OverlayScreenManager.swift:195-197`) |
 
 Because the app is `LSUIElement` with no main menu, ⌘, and ⌘Q are only live while the status
 menu is open.
@@ -428,7 +428,7 @@ System, Statistics, About.
 
 | Action | Scope | Confirmation |
 |---|---|---|
-| **Restore Defaults…** (General ▸ Advanced) | all 15 settings, all tabs | `.confirmationDialog`, destructive role (`GeneralSettingsView.swift:70`, `:93-99`) |
+| **Restore Defaults…** (General ▸ Advanced) | all 15 settings, all tabs | `.confirmationDialog`, destructive role (`GeneralSettingsView.swift:71`, `:94-100`) |
 | **Reset Statistics…** (Statistics) | statistics only | `.confirmationDialog`, destructive role (`StatisticsSettingsView.swift:47-54`) |
 | **Send Test Notification** (System) | one notification | none; disabled unless `canSendTest` (`SystemSettingsView.swift:26`) |
 
@@ -533,7 +533,7 @@ Effect (`:88-101`):
   90-minute grant cannot stack a further extension on top
 
 The row is shown during cooldown too, reading "Already used this week. Available again on
-\<date time\>." (`OverlayScreenManager.swift:265-271`) — deliberate, per the comment at
+\<date time\>." (`OverlayScreenManager.swift:351-357`) — deliberate, per the comment at
 `:218-219`.
 
 `emergencyOverrideUsedAt` lives in `RuntimeState`, **not** in `AppSettings` or `Statistics`,
@@ -609,9 +609,10 @@ Backward clock jumps cannot produce a negative charge (which would *lengthen* th
 `taperedFocusSeconds` returns to 0 when `now − closed.end >= taperingResetGap`
 (`StateMachine.swift:170-171`).
 
-The Advanced settings status line reads `−<penalty> · resets <h:mm a> if you stop`, computed
+The **Tapering now** row under the Focus Pace picker reads `−<penalty> · resets <h:mm a> if
+you stop`, computed
 as `now + taperingResetGap` — while focus is running there is no gap yet, so this is the
-honest always-computable answer (`GeneralSettingsView.swift:144-149`). Reads "None yet" while
+honest always-computable answer (`GeneralSettingsView.swift:160-165`). Reads "None yet" while
 the penalty is under 1 s.
 
 ---
@@ -844,7 +845,7 @@ Commit `8c47028` changed harder mode from "one extension, then costlier postpone
 
 ### 12.2 Assistive tech bypasses every hold-to-confirm timer
 
-`Overlay/HoldToConfirmButton.swift:51-53` exposes the control as a plain `Button` via
+`Overlay/HoldToConfirmButton.swift:67-69` exposes the control as a plain `Button` via
 `.accessibilityRepresentation`. VoiceOver and Switch Control therefore activate **postpone**
 and the **emergency override** with **zero hold time** — the 1/3/6/9 s friction values in
 §5.3 do not apply on that path. The weekly override quota still applies; the deliberation
@@ -857,7 +858,7 @@ delay does not.
 unguarded one.
 
 **Now:** `Restore Defaults…` carries a destructive role and a `.confirmationDialog`
-(`GeneralSettingsView.swift:70`, `:93-99`), matching the pattern already used by
+(`GeneralSettingsView.swift:71`, `:94-100`), matching the pattern already used by
 `StatisticsSettingsView`. The dialog names what is reset and what is not.
 
 ### 12.4 Warning re-arm used the raw lead, not the effective lead — **fixed**

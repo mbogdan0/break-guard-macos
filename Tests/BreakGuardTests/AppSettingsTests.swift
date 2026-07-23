@@ -94,10 +94,12 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(settings, AppSettings.defaults)
     }
 
-    func testTaperingPenaltyIsOneSecondPerFocusMinute() {
+    // The one place the actual rate is pinned to literals.
+    func testTaperingPenaltyScalesWithFocusMinutes() {
+        XCTAssertEqual(FocusPace.taperingSecondsPerFocusMinute, 1.1)
         XCTAssertEqual(FocusPace.taperingPenalty(forFocus: 0), 0)
-        XCTAssertEqual(FocusPace.taperingPenalty(forFocus: 30 * 60), 30, accuracy: 0.001)
-        XCTAssertEqual(FocusPace.taperingPenalty(forFocus: 8 * 3600), 480, accuracy: 0.001)
+        XCTAssertEqual(FocusPace.taperingPenalty(forFocus: 30 * 60), 33, accuracy: 0.001)
+        XCTAssertEqual(FocusPace.taperingPenalty(forFocus: 8 * 3600), 528, accuracy: 0.001)
         // Linear, so twice the focus is exactly twice the penalty.
         XCTAssertEqual(
             FocusPace.taperingPenalty(forFocus: 2 * 3600),
@@ -120,16 +122,16 @@ final class AppSettingsTests: XCTestCase {
 
         settings.focusPace = .tapering
         XCTAssertEqual(settings.effectiveWorkInterval(taperedFocus: 0), 30 * 60)
-        // One 30-minute window banked costs the next one 30 seconds.
+        // One 30-minute window banked costs the next one 33 seconds.
         XCTAssertEqual(
             settings.effectiveWorkInterval(taperedFocus: 30 * 60),
-            30 * 60 - 30,
+            30 * 60 - 33,
             accuracy: 0.001
         )
-        // An 8-hour day lands a 30-minute window at about 22 minutes.
+        // An 8-hour day lands a 30-minute window at about 21 minutes.
         XCTAssertEqual(
             settings.effectiveWorkInterval(taperedFocus: 8 * 3600),
-            22 * 60,
+            1272,
             accuracy: 0.001
         )
     }

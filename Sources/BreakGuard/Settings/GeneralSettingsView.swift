@@ -24,6 +24,7 @@ struct GeneralSettingsView: View {
                     }
                 }
                 .pickerStyle(.segmented)
+                taperingStatusRow
             } header: {
                 Text("Focus Pace")
             } footer: {
@@ -62,7 +63,7 @@ struct GeneralSettingsView: View {
                         keyPath: \.secondPostponeDuration,
                         range: SettingsRange.postponeDuration
                     )
-                    taperingRows
+                    taperingResetRow
                     HStack {
                         Spacer()
                         // Reaches further than Reset Statistics on the other
@@ -117,18 +118,22 @@ struct GeneralSettingsView: View {
         .buttonStyle(.plain)
     }
 
-    // Only meaningful for the Tapering pace. The knob stays visible but dimmed
-    // so it is discoverable; the live status has nothing to say when the pace
-    // is off, so it is hidden outright.
-    @ViewBuilder private var taperingRows: some View {
-        let isTapering = appState.settings.focusPace == .tapering
-        if isTapering {
+    // Sits with the pace picker rather than in Advanced: it is the number you
+    // glance at, not a knob. Nothing to say when the pace is off, so it is
+    // hidden outright rather than dimmed.
+    @ViewBuilder private var taperingStatusRow: some View {
+        if appState.settings.focusPace == .tapering {
             LabeledContent("Tapering now") {
                 Text(taperingStatusText)
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
             }
         }
+    }
+
+    // Only meaningful for the Tapering pace, but the knob stays visible and
+    // dimmed so it is discoverable.
+    private var taperingResetRow: some View {
         LabeledContent("Tapering resets after") {
             HStack(spacing: 6) {
                 Text(hoursText(appState.settings.taperingResetGap))
@@ -141,7 +146,7 @@ struct GeneralSettingsView: View {
                 .labelsHidden()
             }
         }
-        .disabled(!isTapering)
+        .disabled(appState.settings.focusPace != .tapering)
     }
 
     private func hoursText(_ interval: TimeInterval) -> String {
@@ -165,8 +170,9 @@ struct GeneralSettingsView: View {
         return "Used · back on \(DateFormatter.breakGuardDateTime.string(from: availableAt))"
     }
 
-    // One line per pace. The Tapering knobs and its live penalty live in
-    // Advanced, so this only has to convey the shape of the rule.
+    // One line per pace. Tapering's live penalty is the row right above and
+    // its reset knob lives in Advanced, so this only has to convey the shape
+    // of the rule.
     private var focusPaceFooter: String {
         let settings = appState.settings
         let effective = formatDurationPhrase(settings.effectiveWorkInterval)
@@ -179,10 +185,12 @@ struct GeneralSettingsView: View {
         case .deepFocus:
             pace = "Work interval +20%: \(effective)."
         case .tapering:
-            let after8h = formatDurationPhrase(
-                settings.effectiveWorkInterval(taperedFocus: 8 * 3600)
-            )
-            pace = "Every focused minute trims a second off the next window — "
+            // Rounded to the minute: the sentence says "about", and the exact
+            // figure is one row up in "Tapering now".
+            let tapered = settings.effectiveWorkInterval(taperedFocus: 8 * 3600)
+            let after8h = formatDurationPhrase((tapered / 60).rounded() * 60)
+            pace = "Every focused minute trims "
+                + "\(FocusPace.taperingSecondsPerFocusMinute) seconds off the next window — "
                 + "\(effective) becomes about \(after8h) after an 8-hour day."
         }
         return pace + " Applies from the next cycle."
