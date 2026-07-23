@@ -2,7 +2,7 @@
 
 Behavioral reference for auditing. Every value here is transcribed from source, not from
 `README.md`, `ARCHITECTURE.md`, or `docs/USER_GUIDE.md` — those were cross-checked while
-writing this and four of their statements are stale (see [§12](#12-findings)).
+writing this and three of their statements are stale (see [§12](#12-findings)).
 
 Scope: what happens, when, with what delay, under what condition. Layout cosmetics (fonts,
 colors, paddings) are omitted except where they gate behavior. Line references are to the
@@ -356,14 +356,15 @@ setting may be the longer one. A tie counts as shorter (the test is `duration > 
 | Tier | Shorter postponement | Longer postponement | Active when |
 |---|---|---|---|
 | `.standard` | **1 s** | **3 s** | normal mode, `cycleRegularPostponements == 0` |
-| `.harder` | **3 s** | **6 s** | `harderToSkipBreaks == true` |
+| `.harder` | **3 s** | **9 s** | `harderToSkipBreaks == true` |
 | `.repeated` | **3 s** | **9 s** | normal mode, `cycleRegularPostponements > 0` |
 
 Tier selection: `StateMachine.swift:62-65`.
 
 Note that `.harder` is only reachable for a cycle's **first** postponement — harder mode
-blocks `canPostpone` afterwards. So 6 s is the practical maximum in harder mode, while
-normal mode reaches 9 s via `.repeated`.
+blocks `canPostpone` afterwards. `.harder` and `.repeated` price identically (both mean the
+cycle's cheap skip is gone), so 9 s is the maximum either way; harder mode simply charges it
+on the first postponement instead of the second.
 
 **Gesture mechanics** (`:37-49`):
 
@@ -831,15 +832,14 @@ Items where behavior and documentation, or behavior and apparent intent, do not 
 is stated with what the code actually does. **§12.3 and §12.4 have been fixed** and are kept
 here as a record; the rest are open.
 
-### 12.1 Four stale statements in the existing docs
+### 12.1 Three stale statements in the existing docs
 
 Commit `8c47028` changed harder mode from "one extension, then costlier postponements" to
-"one skip action, then blocked". Three statements still describe the old policy:
+"one skip action, then blocked". Two statements still describe the old policy:
 
 | Location | Claim | Actual |
 |---|---|---|
 | `ARCHITECTURE.md:17` | "reports `postponePenalized`, which doubles the hold the overlay's postpone buttons require" | `postponePenalized` **no longer exists**. It was replaced by `canPostpone` + `postponeHoldTier`; harder mode now **blocks** the second skip rather than making it costlier. |
-| `docs/USER_GUIDE.md:39` | "after it is spent, every further postponement demands a doubled hold" | Further postponements are **blocked outright** in harder mode. Also, `.harder` is 3 s / 6 s against `.standard` 1 s / 3 s — doubled for the longer button, **tripled** for the shorter. |
 | `docs/USER_GUIDE.md:35` | "only one extension is allowed per cycle" | One extension **or** one postponement, whichever comes first — the two share a single allowance. |
 | `docs/USER_GUIDE.md:47` | "Settings contains four tabs" | There are **five**: General, Schedule, System, Statistics, About (`Settings/SettingsView.swift`). |
 

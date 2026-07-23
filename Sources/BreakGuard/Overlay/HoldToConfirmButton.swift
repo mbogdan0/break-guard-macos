@@ -90,9 +90,10 @@ func postponeHoldDuration(
     switch tier {
     case .standard:
         return isLonger ? 3 : 1
-    case .harder:
-        return isLonger ? 6 : 3
-    case .repeated:
+    // Harder mode and a repeat postponement price the same: in both the
+    // cycle's cheap skip is already gone. The tiers stay distinct in the enum
+    // because the reasons are distinct and may not always cost the same.
+    case .harder, .repeated:
         return isLonger ? 9 : 3
     }
 }

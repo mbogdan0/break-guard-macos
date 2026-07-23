@@ -300,7 +300,7 @@ final class MenuPresentationTests: XCTestCase {
 
     func testPostponeHoldDurationUsesHarderTier() {
         XCTAssertEqual(postponeHoldDuration(for: 2 * 60, comparedTo: 15 * 60, tier: .harder), 3)
-        XCTAssertEqual(postponeHoldDuration(for: 15 * 60, comparedTo: 2 * 60, tier: .harder), 6)
+        XCTAssertEqual(postponeHoldDuration(for: 15 * 60, comparedTo: 2 * 60, tier: .harder), 9)
         XCTAssertEqual(postponeHoldDuration(for: 15 * 60, comparedTo: 15 * 60, tier: .harder), 3)
     }
 
