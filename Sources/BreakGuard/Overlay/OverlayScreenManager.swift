@@ -245,7 +245,12 @@ struct BreakOverlayView: View {
             TimelineView(.periodic(from: .now, by: 1)) { context in
                 Text(formatClock(appState.breakRemaining(at: context.date)))
             }
-            .font(.system(size: 112, weight: .bold, design: .monospaced))
+            // 8 monospaced digits do not fit the content width at this size,
+            // and a break of a full hour opens on hh:mm:ss. Scale that one
+            // case down rather than letting it truncate.
+            .font(.system(size: 140, weight: .bold, design: .monospaced))
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
             .padding(.top, 12)
             Text(breakPrompt)
                 .font(.system(size: 22))
