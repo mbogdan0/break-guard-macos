@@ -180,7 +180,8 @@ final class MenuBarController: NSObject, NSMenuDelegate, NSMenuItemValidation {
             coarseSeconds: settings.coarseSecondsInMenuBar,
             warningLeadTime: settings.warningLeadTime,
             focusExtended: appState.isFocusExtended,
-            outsideWorkingHours: settings.isOutsideWorkingHours(at: Date())
+            outsideWorkingHours: settings.isOutsideWorkingHours(at: Date()),
+            cameraHold: appState.isCameraHoldActive
         )
         guard force || presentation != lastPresentation else { return }
         lastPresentation = presentation

@@ -37,6 +37,11 @@ struct RuntimeState: Codable, Equatable {
     // than in AppSettings or Statistics because "Restore Defaults" and "Reset
     // Statistics" replace those wholesale, which would refill the quota.
     var emergencyOverrideUsedAt: Date?
+    // Last time the app was observed alive, minute-coarse so persisting it
+    // costs at most one extra disk write per minute. After a crash or a sleep
+    // that produced no willSleep signal, this is the best available end of
+    // the last monitored focus.
+    var lastTickAt: Date?
 }
 
 // Fields are added after schema 3 shipped without bumping the version. Older
@@ -49,7 +54,7 @@ extension RuntimeState {
              cycleRegularPostponements, focusExtended,
              cycleStartDate, preservedAt, preservedRemaining,
              cycleFocusDuration, breakStartedAt, manualBreakOrigin,
-             taperedFocusSeconds, emergencyOverrideUsedAt
+             taperedFocusSeconds, emergencyOverrideUsedAt, lastTickAt
     }
 
     init(from decoder: Decoder) throws {
@@ -69,6 +74,7 @@ extension RuntimeState {
         taperedFocusSeconds = try container.decodeIfPresent(TimeInterval.self, forKey: .taperedFocusSeconds) ?? 0
         let decodedOverrideUsedAt = try container.decodeIfPresent(Date.self, forKey: .emergencyOverrideUsedAt)
         emergencyOverrideUsedAt = decodedOverrideUsedAt
+        lastTickAt = try container.decodeIfPresent(Date.self, forKey: .lastTickAt)
 
         // Older builds counted an emergency override in cyclePostponements.
         // Infer the regular count once for an in-progress legacy cycle; after

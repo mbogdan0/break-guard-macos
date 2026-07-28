@@ -88,6 +88,9 @@ final class AppState: ObservableObject {
     @Published var notificationAccessStatus: NotificationAccessStatus = .checking
     @Published var loginStatusDescription = "Unknown"
     @Published var notificationTestMessage: String?
+    // True while the camera hold is what keeps the countdown from advancing
+    // into the warning window; drives the menu bar's on-call indication.
+    @Published var isCameraHoldActive = false
 
     // Fires once per UI-timer second, after publish(), for observers whose
     // display is time-derived (menu bar countdown) rather than state-derived.
@@ -103,6 +106,19 @@ final class AppState: ObservableObject {
     private var uiTimer: Timer?
     private var overlayManager: OverlayScreenManager?
     private var settingsWindow: NSWindow?
+    // Camera-in-use flag from CameraUsageMonitor.
+    private var cameraActive = false
+    // Engagement from the previous tick, to catch the transitions: engaging
+    // cancels the pending warning notification, releasing re-arms it.
+    private var cameraHoldWasEngaged = false
+    // True while the countdown is bracketed because input went silent.
+    private var idleSuspensionActive = false
+    // Second-precise liveness for tick-gap detection. The persisted heartbeat
+    // in RuntimeState is minute-coarse; this one lives only in memory.
+    private var lastTickAt: Date?
+    // Well past any plausible timer slippage on a live machine; anything
+    // longer means the process lost time no sleep notification accounted for.
+    private static let tickGapThreshold: TimeInterval = 90
 
     init(
         persistence: PersistenceStore,
@@ -176,9 +192,9 @@ final class AppState: ObservableObject {
         publishAndReconcile()
     }
 
-    // Total rest so far on the completion screen (now − break start). Refreshes
-    // through the 1-second tick(), which publishes even when values are equal;
-    // if publishing is ever equality-gated, this count-up stalls.
+    // Total rest so far on the completion screen (now − break start).
+    // publish() is equality-gated, so this count-up refreshes through the
+    // uiTick subject, which fires every second regardless.
     func totalRestTime(at now: Date = Date()) -> TimeInterval {
         guard timerState == .breakCompleted, let start = machine.runtime.breakStartedAt else { return 0 }
         return max(0, now.timeIntervalSince(start))
@@ -337,6 +353,11 @@ final class AppState: ObservableObject {
     func handleWakeOrActive() {
         logger.info("Wake or active session")
         machine.restoreAfterSleep()
+        // The wake just accounted for the downtime: reset the in-memory
+        // heartbeat so the next tick does not bracket the same gap again, and
+        // drop any idle bracket — the sleep path owned the state from here.
+        lastTickAt = machine.clock.now
+        idleSuspensionActive = false
         publishAndReconcile()
     }
 
@@ -349,18 +370,104 @@ final class AppState: ObservableObject {
     }
 
     private func tick() {
-        let previous = machine.runtime.timerState
-        if case let .suspended(_, _, until) = previous, let until, Date() >= until {
-            machine.resume()
+        let now = machine.clock.now
+        // A tick gap without a sleep signal is downtime no notification
+        // bracketed — a wake nobody asked for, a missed willSleep. Bracket it
+        // after the fact from the last observed tick, so the gap can never
+        // count as focus.
+        if let lastTick = lastTickAt, now.timeIntervalSince(lastTick) >= Self.tickGapThreshold {
+            logger.info("Tick gap of \(Int(now.timeIntervalSince(lastTick)), privacy: .public)s — bracketing as downtime")
+            machine.preserveForSleep(at: lastTick)
+            machine.restoreAfterSleep()
+            idleSuspensionActive = false
         }
+        lastTickAt = now
+
+        updateIdleSuspension(now: now)
+        machine.cameraHoldActive = cameraActive && machine.settings.holdBreaksWhileOnCamera
+
+        let previous = machine.runtime.timerState
         let current = machine.tick()
         if current != previous {
             logger.info("State transition")
         }
+        reconcileCameraHoldWarning()
         publish()
         reconcileStateEffects()
         save()
         uiTick.send()
+    }
+
+    // The hold pins the deadline by advancing it every tick, so the pending
+    // warning notification must be handled on the engagement edges: cancelled
+    // when the hold engages (it would fire mid-call), re-armed when the hold
+    // releases. A pinned .working re-arms through reconcileStateEffects(); a
+    // pinned .warning has no scheduling path there, so it re-arms here.
+    private func reconcileCameraHoldWarning() {
+        let engaged = machine.isCameraHoldEngaged
+        defer { cameraHoldWasEngaged = engaged }
+        if engaged, !cameraHoldWasEngaged {
+            notifications.cancelWarning()
+        }
+        if !engaged, cameraHoldWasEngaged, case .warning = machine.runtime.timerState {
+            // The runway starts now; tell the user the break is coming.
+            notifications.scheduleWarning(
+                at: machine.clock.now.addingTimeInterval(1),
+                settings: machine.settings
+            )
+        }
+    }
+
+    // Sleep and lock notifications cannot see a machine that stays awake with
+    // nobody at it, so input silence is the backstop. The bracket is
+    // back-dated to the last input, so the silent span never counts as focus.
+    private func updateIdleSuspension(now: Date) {
+        // A call is presence without input; never treat it as absence.
+        if cameraActive {
+            if idleSuspensionActive {
+                machine.restoreAfterSleep()
+                idleSuspensionActive = false
+            }
+            return
+        }
+        let idle = Self.systemIdleSeconds()
+        if idleSuspensionActive {
+            if idle < IdleAway.threshold {
+                logger.info("Input returned — restoring from idle suspension")
+                machine.restoreAfterSleep()
+                idleSuspensionActive = false
+            }
+        } else if idle >= IdleAway.threshold {
+            // A user-requested pause (or a sleep bracket) already owns the
+            // state; idle must not re-stamp its timestamps.
+            if case .suspended = machine.runtime.timerState { return }
+            logger.info("Idle for \(Int(idle), privacy: .public)s — suspending countdown")
+            machine.preserveForSleep(at: now.addingTimeInterval(-idle))
+            idleSuspensionActive = true
+        }
+    }
+
+    // Seconds since the last user input, taken as the freshest across the
+    // event types real input produces. kCGAnyInputEventType is not exposed to
+    // Swift, and a per-type minimum is just as cheap at once per second.
+    private static let idleEventTypes: [CGEventType] = [
+        .leftMouseDown, .rightMouseDown, .otherMouseDown,
+        .mouseMoved, .leftMouseDragged, .rightMouseDragged,
+        .scrollWheel, .keyDown, .flagsChanged
+    ]
+
+    private static func systemIdleSeconds() -> TimeInterval {
+        idleEventTypes
+            .map { CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: $0) }
+            .min() ?? 0
+    }
+
+    // Called by CameraUsageMonitor; the hold itself is applied on the next
+    // tick, at most a second away.
+    func setCameraActive(_ active: Bool) {
+        guard cameraActive != active else { return }
+        cameraActive = active
+        logger.info("Camera \(active ? "in use" : "released", privacy: .public)")
     }
 
     private func publishAndReconcile() {
@@ -381,6 +488,7 @@ final class AppState: ObservableObject {
         setIfChanged(\.taperedFocusSeconds, machine.runtime.taperedFocusSeconds)
         setIfChanged(\.canUseEmergencyOverride, machine.canUseEmergencyOverride)
         setIfChanged(\.emergencyOverrideAvailableAt, machine.emergencyOverrideAvailableAt)
+        setIfChanged(\.isCameraHoldActive, machine.isCameraHoldEngaged)
         // The disclosure belongs to one break: collapse it once that break is
         // over so the next overlay opens closed on every screen.
         switch timerState {
@@ -408,7 +516,12 @@ final class AppState: ObservableObject {
         switch timerState {
         case let .working(_, warningDeadline):
             overlayManager?.hideAll()
-            notifications.scheduleWarning(at: warningDeadline, settings: settings)
+            // While the camera hold pins the countdown, the warning deadline
+            // advances every tick; rescheduling against it would fire a
+            // notification every second into the call.
+            if !isCameraHoldActive {
+                notifications.scheduleWarning(at: warningDeadline, settings: settings)
+            }
         case .warning:
             overlayManager?.hideAll()
         case .breakDue:

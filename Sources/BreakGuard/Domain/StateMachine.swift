@@ -5,6 +5,10 @@ struct StateMachine {
     var statistics: Statistics
     var runtime: RuntimeState
     var clock: TimeProvider
+    // True while a camera is in use and the hold setting is on. Deliberately
+    // transient — set by the owner before each tick(), never persisted: a
+    // stale flag restored from disk could hold breaks with no call running.
+    var cameraHoldActive = false
 
     init(settings: AppSettings = .defaults, statistics: Statistics = .empty, clock: TimeProvider = SystemClock()) {
         var validated = settings
@@ -30,7 +34,8 @@ struct StateMachine {
             breakStartedAt: nil,
             manualBreakOrigin: nil,
             taperedFocusSeconds: 0,
-            emergencyOverrideUsedAt: nil
+            emergencyOverrideUsedAt: nil,
+            lastTickAt: nil
         )
     }
 
@@ -110,6 +115,10 @@ struct StateMachine {
     }
 
     mutating func tick() -> TimerState {
+        stampHeartbeat()
+        if cameraHoldActive {
+            applyCameraHold()
+        }
         switch runtime.timerState {
         case let .working(deadline, warningDeadline):
             if clock.now >= deadline {
@@ -129,10 +138,75 @@ struct StateMachine {
             if clock.now >= deadline {
                 runtime.timerState = .breakCompleted
             }
-        case .breakDue, .breakCompleted, .suspended:
+        case let .suspended(_, _, until):
+            // Both ways a timed pause can end — this tick and the wake path in
+            // restoreAfterSleep() — resolve through resume(), which routes an
+            // elapsed end date to finishCycleAfterVerifiedRest(). One
+            // resolution, so which handler notices first cannot matter.
+            if let until, clock.now >= until {
+                resume()
+            }
+        case .breakDue, .breakCompleted:
             break
         }
         return runtime.timerState
+    }
+
+    // Minute-coarse liveness stamp. Coarse because the runtime is persisted
+    // after every tick and the store skips byte-identical payloads — a
+    // second-precise stamp would defeat that and write the file every second.
+    private mutating func stampHeartbeat() {
+        let coarse = Date(
+            timeIntervalSinceReferenceDate:
+                (clock.now.timeIntervalSinceReferenceDate / 60).rounded(.down) * 60
+        )
+        if runtime.lastTickAt != coarse {
+            runtime.lastTickAt = coarse
+        }
+    }
+
+    // The remaining time the hold pins the countdown at: never less than the
+    // warning lead and never less than the fixed runway, so ending a call
+    // always leaves that much between the user and the break.
+    var cameraHoldRunway: TimeInterval {
+        max(currentWarningLeadTime, CameraHold.minimumRunway)
+    }
+
+    // True when the hold is what is currently keeping the countdown still —
+    // drives the menu bar's on-call indication and the warning-notification
+    // suppression. The margin is two ticks so the owner can cancel a pending
+    // warning before the pinned remaining time reaches its fire date.
+    var isCameraHoldEngaged: Bool {
+        guard cameraHoldActive else { return false }
+        switch runtime.timerState {
+        case let .working(deadline, _), let .warning(deadline), let .postponed(deadline):
+            return deadline.timeIntervalSince(clock.now) <= cameraHoldRunway + 2
+        case .breakDue, .breaking, .breakCompleted, .suspended:
+            return false
+        }
+    }
+
+    // While a camera runs, no countdown may fall below the runway: the
+    // deadline is pushed ahead of now each tick, freezing the remaining time
+    // there. cycleStartDate is deliberately untouched, so the whole call keeps
+    // counting as focus. A warning state stays a warning — only its deadline
+    // is pinned. States at or past .breakDue are left alone — turning a
+    // camera on must not dismiss a break already imposed.
+    private mutating func applyCameraHold() {
+        let floor = clock.now.addingTimeInterval(cameraHoldRunway)
+        switch runtime.timerState {
+        case let .working(deadline, _) where deadline < floor:
+            runtime.timerState = .working(
+                deadline: floor,
+                warningDeadline: floor.addingTimeInterval(-currentWarningLeadTime)
+            )
+        case let .warning(deadline) where deadline < floor:
+            runtime.timerState = .warning(deadline: floor)
+        case let .postponed(deadline) where deadline < floor:
+            runtime.timerState = .postponed(deadline: floor)
+        case .working, .warning, .postponed, .breakDue, .breaking, .breakCompleted, .suspended:
+            break
+        }
     }
 
     mutating func startBreak() {
@@ -197,7 +271,9 @@ struct StateMachine {
             manualBreakOrigin: nil,
             taperedFocusSeconds: tapered,
             // The weekly quota outlives the cycle that spent it.
-            emergencyOverrideUsedAt: runtime.emergencyOverrideUsedAt
+            emergencyOverrideUsedAt: runtime.emergencyOverrideUsedAt,
+            // Liveness is orthogonal to cycles.
+            lastTickAt: runtime.lastTickAt
         )
     }
 
@@ -346,28 +422,44 @@ struct StateMachine {
     }
 
     mutating func suspend(until: Date?) {
+        suspend(until: until, at: clock.now)
+    }
+
+    // `timestamp` is when the user actually left, which can predate the call:
+    // idle detection only fires after the threshold of input silence, so it
+    // back-dates the bracket to the last input and the silent span itself
+    // never counts as focus.
+    mutating func suspend(until: Date?, at timestamp: Date) {
+        let at = min(timestamp, clock.now)
         let previous: SuspendedState
         let remaining: TimeInterval
         switch runtime.timerState {
         case let .working(deadline, _):
             previous = .working
-            remaining = deadline.timeIntervalSince(clock.now)
+            remaining = deadline.timeIntervalSince(at)
         case let .warning(deadline):
             previous = .warning
-            remaining = deadline.timeIntervalSince(clock.now)
+            remaining = deadline.timeIntervalSince(at)
         case let .postponed(deadline):
             previous = .postponed
-            remaining = deadline.timeIntervalSince(clock.now)
+            remaining = deadline.timeIntervalSince(at)
         default:
             return
         }
         runtime.timerState = .suspended(previous: previous, remaining: max(1, remaining), until: until)
-        runtime.preservedAt = clock.now
+        runtime.preservedAt = at
         runtime.preservedRemaining = max(1, remaining)
     }
 
     mutating func resume() {
-        guard case let .suspended(previous, remaining, _) = runtime.timerState else { return }
+        guard case let .suspended(previous, remaining, until) = runtime.timerState else { return }
+        // An elapsed timed pause always counted as verified rest — the same
+        // resolution restoreAfterSleep() applies — so the tick path and the
+        // wake path cannot disagree about what an expired pause means.
+        if let until, clock.now >= until {
+            finishCycleAfterVerifiedRest()
+            return
+        }
         // A pause at least as long as a break means the user rested away from
         // the screen: start a fresh cycle instead of restoring the countdown.
         if let preservedAt = runtime.preservedAt,
@@ -396,18 +488,26 @@ struct StateMachine {
     }
 
     mutating func preserveForSleep() {
+        preserveForSleep(at: clock.now)
+    }
+
+    // Back-dated variant for downtime noticed after the fact: idle detection
+    // and the tick-gap heartbeat both learn about an absence only once it is
+    // already underway, so they bracket it from when it actually began.
+    mutating func preserveForSleep(at timestamp: Date) {
+        let at = min(timestamp, clock.now)
         switch runtime.timerState {
         case .working, .warning, .postponed:
-            suspend(until: nil)
+            suspend(until: nil, at: at)
         case let .breaking(deadline, startedAt, duration):
-            let remaining = max(1, deadline.timeIntervalSince(clock.now))
-            runtime.timerState = .breaking(deadline: clock.now.addingTimeInterval(remaining), startedAt: startedAt, duration: duration)
-            runtime.preservedAt = clock.now
+            let remaining = max(1, deadline.timeIntervalSince(at))
+            runtime.timerState = .breaking(deadline: at.addingTimeInterval(remaining), startedAt: startedAt, duration: duration)
+            runtime.preservedAt = at
             runtime.preservedRemaining = remaining
         case .breakDue, .breakCompleted:
             // State stays as-is, but the timestamp lets restoreAfterSleep()
             // detect a pause long enough to count as a taken break.
-            runtime.preservedAt = clock.now
+            runtime.preservedAt = at
         case .suspended:
             break
         }
@@ -442,21 +542,38 @@ struct StateMachine {
                 )
                 runtime.preservedAt = nil
                 runtime.preservedRemaining = nil
+            } else if hasHeartbeatGap {
+                // The app died mid-break without a sleep bracket. The stale
+                // absolute deadline would complete the break instantly on
+                // relaunch without any rest happening, so it restarts in
+                // full. Gated on the heartbeat: a stray wake-side event with
+                // the app alive must not reset a running break.
+                runtime.timerState = .breaking(
+                    deadline: clock.now.addingTimeInterval(duration),
+                    startedAt: startedAt,
+                    duration: duration
+                )
             }
         case .suspended:
             resume()
         case let .working(deadline, _), let .warning(deadline), let .postponed(deadline):
             // Crash recovery: the app was killed without preserveForSleep(),
-            // leaving an absolute deadline behind. If it is stale by at least
-            // a break's worth of time, the downtime counts as a taken break.
+            // leaving an absolute deadline behind. The heartbeat is the best
+            // available end of the last monitored focus; a gap since it of at
+            // least a break's worth counts as a taken break. This catches
+            // gaps shorter than the remaining interval, which the stale-
+            // deadline test below cannot see.
             if runtime.preservedAt == nil,
-               clock.now.timeIntervalSince(deadline) >= settings.breakDuration {
-                // Without a preserved timestamp the stale deadline is the best
-                // available end of the last focus; recording it lets
-                // startWorkCycle() reset tapering after a long-dead deadline.
-                // It also charges tapering the whole nominal interval even if
-                // the machine died seconds into the cycle — an over-estimate
-                // the reset gap clears, and cheaper than tracking liveness.
+               let lastTick = runtime.lastTickAt,
+               clock.now.timeIntervalSince(lastTick) >= settings.breakDuration {
+                runtime.preservedAt = min(lastTick, deadline)
+                startWorkCycle()
+            } else if runtime.preservedAt == nil,
+                      clock.now.timeIntervalSince(deadline) >= settings.breakDuration {
+                // Pre-heartbeat files: the stale deadline is all there is. It
+                // charges tapering the whole nominal interval even if the
+                // machine died seconds into the cycle — an over-estimate the
+                // reset gap clears.
                 runtime.preservedAt = deadline
                 startWorkCycle()
             }
@@ -465,6 +582,15 @@ struct StateMachine {
             runtime.preservedAt = nil
             runtime.preservedRemaining = nil
         }
+    }
+
+    // True when the process demonstrably lost time: no tick has stamped the
+    // heartbeat for well over its minute-coarse granularity. A missing stamp
+    // (pre-heartbeat file) also counts — the only way to observe that is a
+    // relaunch, which is itself a gap.
+    private var hasHeartbeatGap: Bool {
+        guard let lastTick = runtime.lastTickAt else { return true }
+        return clock.now.timeIntervalSince(lastTick) >= 150
     }
 
     // Downtime verified by the system (lock, sleep, screen saver, or an
@@ -490,7 +616,10 @@ struct StateMachine {
         case .suspended, .working, .warning, .postponed:
             break
         }
-        let minutes = max(0, Int((closed.duration / 60).rounded()))
+        // The cap is defense in depth: no cycle legitimately runs that long,
+        // so an excess is a monitoring gap that slipped past every bracket.
+        let duration = min(closed.duration, StatisticsIntegrity.maxCreditablePerCycle)
+        let minutes = max(0, Int((duration / 60).rounded()))
         if minutes > 0 {
             creditFocus(minutes: minutes, on: closed.end)
         }
@@ -524,7 +653,8 @@ struct StateMachine {
     private func creditedFocusMinutes() -> Int {
         let duration = runtime.cycleFocusDuration
             ?? settings.effectiveWorkInterval(taperedFocus: runtime.taperedFocusSeconds)
-        return max(0, Int((duration / 60).rounded()))
+        let capped = min(duration, StatisticsIntegrity.maxCreditablePerCycle)
+        return max(0, Int((capped / 60).rounded()))
     }
 
     private func isBreakingOrCompleted(_ state: TimerState) -> Bool {

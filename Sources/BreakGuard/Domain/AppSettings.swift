@@ -79,6 +79,34 @@ enum EmergencyOverride {
     static let holdDuration: TimeInterval = 1
 }
 
+// Absence inferred from input silence. Sleep and lock notifications cannot
+// see a machine that stays awake with nobody at it (insomnia with the lid
+// closed, a wake nobody asked for), so input idle is the backstop that keeps
+// unattended hours out of the focus statistics.
+enum IdleAway {
+    // Long enough that reading or watching something rarely trips it, short
+    // enough that an unattended machine cannot fabricate much focus. The
+    // known cost: fully passive viewing with zero input for this long
+    // suspends the countdown.
+    static let threshold: TimeInterval = 10 * 60
+}
+
+// While a camera is in use the countdown never crosses into the warning
+// window, so a break cannot interrupt a call — and when the call ends the
+// full warning lead still stands between the user and the break.
+enum CameraHold {
+    // Floor for the guaranteed post-call runway when the warning lead is
+    // configured shorter (or zero).
+    static let minimumRunway: TimeInterval = 2 * 60
+}
+
+// Defense in depth for the statistics: no single cycle can legitimately run
+// anywhere near this long, so anything above it is a monitoring gap that
+// slipped through, not focus.
+enum StatisticsIntegrity {
+    static let maxCreditablePerCycle: TimeInterval = 4 * 60 * 60
+}
+
 enum PostponeHoldTier: Equatable {
     case standard
     case harder
@@ -105,6 +133,10 @@ struct AppSettings: Codable, Equatable {
     // Harder mode allows one normal skip action per cycle: either extending
     // focus or postponing a break. The weekly override remains an exception.
     var harderToSkipBreaks: Bool = false
+    // Freeze the countdown just above the warning window while any camera is
+    // in use, so a break never lands mid-call. The held time still counts as
+    // focus.
+    var holdBreaksWhileOnCamera: Bool = true
 
     static let defaults = AppSettings()
 
@@ -159,7 +191,7 @@ extension AppSettings {
              firstPostponeDuration, secondPostponeDuration, notificationSound,
              launchAtLogin, showSecondsInMenuBar, coarseSecondsInMenuBar,
              workingHoursEnabled, weekdayWorkingHours, weekendWorkingHours,
-             taperingResetGap, harderToSkipBreaks
+             taperingResetGap, harderToSkipBreaks, holdBreaksWhileOnCamera
     }
 
     init(from decoder: Decoder) throws {
@@ -180,6 +212,7 @@ extension AppSettings {
         weekendWorkingHours = try container.decodeIfPresent(WorkingHoursRange.self, forKey: .weekendWorkingHours) ?? defaults.weekendWorkingHours
         taperingResetGap = try container.decodeIfPresent(TimeInterval.self, forKey: .taperingResetGap) ?? defaults.taperingResetGap
         harderToSkipBreaks = try container.decodeIfPresent(Bool.self, forKey: .harderToSkipBreaks) ?? defaults.harderToSkipBreaks
+        holdBreaksWhileOnCamera = try container.decodeIfPresent(Bool.self, forKey: .holdBreaksWhileOnCamera) ?? defaults.holdBreaksWhileOnCamera
     }
 }
 

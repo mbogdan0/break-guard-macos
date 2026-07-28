@@ -29,12 +29,14 @@ state of the tree at the time of writing and drift with edits.
 **Timing authority.** The state machine stores **absolute `Date` deadlines** and never
 decrements a counter. Everything else re-reads the clock. There is exactly one timer in the
 app: a 1 s repeating `Timer` on `RunLoop.main` in `.common` mode
-(`Application/AppState.swift:338-341`). Each tick runs, in order: expired-timed-pause check →
-`machine.tick()` → `publish()` → `reconcileStateEffects()` → `save()`
-(`Application/AppState.swift:344-356`).
+(`Application/AppState.swift`). Each tick runs, in order: tick-gap heartbeat check →
+idle-suspension update → camera-hold flag → `machine.tick()` (which stamps the persisted
+minute-coarse heartbeat, applies the camera-hold clamp, and resolves an expired timed pause) →
+`publish()` → `reconcileStateEffects()` → `save()` → `uiTick.send()`.
 
-`publish()` is deliberately **not** equality-gated — the break-completion count-up depends on
-it firing every second even when nothing changed (`Application/AppState.swift:172-178`).
+`publish()` **is** equality-gated per property via `setIfChanged`; time-derived displays
+(menu bar countdown, break-completion count-up) refresh through the `uiTick` subject, which
+fires every second regardless.
 
 ---
 
@@ -620,10 +622,19 @@ the penalty is under 1 s.
 
 ## 8. Sleep, wake, pause, crash
 
-### 8.1 There is no idle detection
+### 8.1 Idle detection and downtime backstops
 
-No HID-level idle detection exists — no `IOHIDGetParameter`, no `CGEventSource`, no idle
-timers. "Idle" is inferred **entirely** from system notifications.
+System notifications are the primary absence signal, with two backstops in `AppState.tick()`
+for what they cannot see. **Input idle** (`CGEventSource.secondsSinceLastEventType`, minimum
+across real input event types): after `IdleAway.threshold` (10 min) of silence the countdown
+suspends via `preserveForSleep(at:)` back-dated to the last input — an awake-but-unattended
+machine cannot fabricate focus. **Tick gap**: consecutive timer fires more than 90 s apart
+mean the process lost time with no sleep signal (dark wake, missed `willSleep`); the gap is
+bracketed from the last observed tick. `StateMachine.tick()` also stamps a minute-coarse
+persisted heartbeat (`RuntimeState.lastTickAt`) that crash recovery prefers over the
+stale-deadline heuristic. A camera in use suppresses idle bracketing (a call is presence
+without input), and `StatisticsIntegrity.maxCreditablePerCycle` (4 h) caps any one cycle's
+statistics credit as defense in depth.
 
 `Services/SleepWakeManager.swift:9-27` — eight observers routed to two handlers:
 

@@ -81,6 +81,7 @@ func makeMenuPresentation(
     warningLeadTime: TimeInterval = 0,
     focusExtended: Bool = false,
     outsideWorkingHours: Bool = false,
+    cameraHold: Bool = false,
     now: Date = Date(),
     timeFormatter: DateFormatter = .breakGuardTime
 ) -> MenuPresentation {
@@ -151,6 +152,19 @@ func makeMenuPresentation(
             statusTitle = "Paused with \(countdown(remaining)) remaining"
         }
         base = MenuPresentation(menuBarTitle: "PAUSED", statusTitle: statusTitle, primaryAction: .resume)
+    }
+
+    // While the camera hold pins the countdown, say so — a frozen number with
+    // no explanation reads as a bug. Always the caution color, even for a
+    // pinned warning state: the break is deliberately held, and a red pill
+    // for the length of a call would cry wolf.
+    if cameraHold, base.primaryAction == .takeBreak {
+        return MenuPresentation(
+            menuBarTitle: "◉ \(base.menuBarTitle)",
+            statusTitle: "On a call — break held · \(base.statusTitle)",
+            primaryAction: base.primaryAction,
+            emphasis: .caution
+        )
     }
 
     // Outside working hours everything shows in the caution pill, but a state

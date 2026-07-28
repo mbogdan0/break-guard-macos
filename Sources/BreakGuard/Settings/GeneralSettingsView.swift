@@ -47,6 +47,15 @@ struct GeneralSettingsView: View {
             }
 
             Section {
+                Toggle("Hold breaks during camera calls", isOn: appState.settingBinding(\.holdBreaksWhileOnCamera))
+            } header: {
+                Text("Calls")
+            } footer: {
+                Text("While any app uses the camera, the countdown freezes just above the warning window so a break never interrupts a call. The held time still counts as focus, and the full warning lead runs after the call ends.")
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
                 if advancedExpanded {
                     durationRow(
                         "Warning lead time",
