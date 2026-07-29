@@ -575,7 +575,7 @@ infinity/NaN, and `PersistenceStore.save()` only **logs** that throw
 `StateMachine.startWorkCycle()` `:164-180`:
 
 ```swift
-if now − closedCycleFocus().end >= taperingResetGap {
+if now − (lastFocusAt ?? closedCycleFocus().end) >= taperingResetGap {
     tapered = 0
 } else {
     tapered = sanitize( sanitize(banked) + sanitize(earned) )
@@ -609,8 +609,12 @@ Backward clock jumps cannot produce a negative charge (which would *lengthen* th
 
 ### 7.4 Reset
 
-`taperedFocusSeconds` returns to 0 when `now − closed.end >= taperingResetGap`
-(`StateMachine.swift:170-171`).
+`taperedFocusSeconds` returns to 0 when `now − lastFocus >= taperingResetGap`, where
+`lastFocus` is `runtime.lastFocusAt` — the minute-coarse stamp of the last tick spent in a
+countdown state — falling back to `closed.end` only for files that predate the stamp. The
+closed cycle's end is *not* the anchor: administrative restarts overnight (wake recovery,
+expired timed pauses) move it forward without any focus happening, and each one would re-arm
+the gap and carry tapering into the next morning.
 
 The **Tapering now** row under the Focus Pace picker reads `−<penalty> · resets <h:mm a> if
 you stop`, computed

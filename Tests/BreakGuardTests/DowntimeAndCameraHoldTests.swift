@@ -208,6 +208,50 @@ final class DowntimeAndCameraHoldTests: XCTestCase {
         XCTAssertEqual(deadline, relaunch.addingTimeInterval(duration))
     }
 
+    // MARK: - Tapering reset survives overnight administrative restarts
+
+    // Regression: the reset gap used to be measured against the closed
+    // cycle's end, and every unattended overnight restart (wake recovery, an
+    // expired pause) moved that end forward — so a night away never looked
+    // like 8 hours without focus, and tapering carried into the morning.
+    func testTaperingResetsAfterUnattendedNightDespiteOvernightRestarts() {
+        let start = Date(timeIntervalSince1970: 2_000_000)
+        var machine = makeMachine(at: start) {
+            $0.focusPace = .tapering
+            $0.taperingResetGap = 8 * 60 * 60
+        }
+
+        // Bank a full cycle of tapering, then one attended tick.
+        machine.clock = FakeClock(now: start.addingTimeInterval(30 * 60))
+        _ = machine.tick()
+        machine.startBreak()
+        machine.clock = FakeClock(now: start.addingTimeInterval(32 * 60))
+        _ = machine.tick()
+        machine.completeBreak()
+        XCTAssertGreaterThan(machine.runtime.taperedFocusSeconds, 0)
+
+        let lastFocus = start.addingTimeInterval(42 * 60)
+        machine.clock = FakeClock(now: lastFocus)
+        _ = machine.tick()
+
+        // Evening restart 5 hours after the last focus: inside the gap, so
+        // tapering rightly carries.
+        machine.clock = FakeClock(now: lastFocus.addingTimeInterval(5 * 60 * 60))
+        machine.preserveForSleep()
+        machine.clock = FakeClock(now: lastFocus.addingTimeInterval(5 * 60 * 60 + 5 * 60))
+        machine.restoreAfterSleep()
+        XCTAssertGreaterThan(machine.runtime.taperedFocusSeconds, 0)
+
+        // Morning restart 12 hours after the last focus. The intermediate
+        // restart moved the closed cycle's end to only 7 hours ago — the old
+        // reference — but no focus ran since, so tapering must reset.
+        machine.clock = FakeClock(now: lastFocus.addingTimeInterval(12 * 60 * 60))
+        machine.preserveForSleep()
+        machine.clock = FakeClock(now: lastFocus.addingTimeInterval(12 * 60 * 60 + 5 * 60))
+        machine.restoreAfterSleep()
+        XCTAssertEqual(machine.runtime.taperedFocusSeconds, 0)
+    }
+
     // MARK: - Statistics cap
 
     func testVerifiedRestCreditIsCappedPerCycle() {

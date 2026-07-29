@@ -35,7 +35,8 @@ struct StateMachine {
             manualBreakOrigin: nil,
             taperedFocusSeconds: 0,
             emergencyOverrideUsedAt: nil,
-            lastTickAt: nil
+            lastTickAt: nil,
+            lastFocusAt: nil
         )
     }
 
@@ -152,9 +153,12 @@ struct StateMachine {
         return runtime.timerState
     }
 
-    // Minute-coarse liveness stamp. Coarse because the runtime is persisted
+    // Minute-coarse liveness stamps. Coarse because the runtime is persisted
     // after every tick and the store skips byte-identical payloads — a
     // second-precise stamp would defeat that and write the file every second.
+    // lastFocusAt only moves while a countdown is running: the owner suspends
+    // an unattended countdown before ticking, so by contract a countdown tick
+    // is a monitored second of focus.
     private mutating func stampHeartbeat() {
         let coarse = Date(
             timeIntervalSinceReferenceDate:
@@ -162,6 +166,14 @@ struct StateMachine {
         )
         if runtime.lastTickAt != coarse {
             runtime.lastTickAt = coarse
+        }
+        switch runtime.timerState {
+        case .working, .warning, .postponed:
+            if runtime.lastFocusAt != coarse {
+                runtime.lastFocusAt = coarse
+            }
+        case .breakDue, .breaking, .breakCompleted, .suspended:
+            break
         }
     }
 
@@ -238,10 +250,17 @@ struct StateMachine {
     mutating func startWorkCycle() {
         settings.clamp()
         // The focus of the cycle being closed adds to the tapering total,
-        // unless it ended long enough ago that the workday started over.
+        // unless the last monitored focus is long enough ago that the workday
+        // started over. The gap is measured against lastFocusAt, not the
+        // closed cycle's end: administrative restarts overnight (wake
+        // recovery, an expired timed pause) move the cycle's end forward
+        // without any focus happening, and each one would re-arm the gap —
+        // carrying tapering into the next morning. The closed end is only the
+        // legacy fallback for files that predate the stamp.
         let closed = closedCycleFocus()
+        let lastFocus = runtime.lastFocusAt ?? closed.end
         let tapered: TimeInterval
-        if clock.now.timeIntervalSince(closed.end) >= settings.taperingResetGap {
+        if clock.now.timeIntervalSince(lastFocus) >= settings.taperingResetGap {
             tapered = 0
         } else {
             // Both terms are sanitized before the sum so a poisoned stored
@@ -273,7 +292,8 @@ struct StateMachine {
             // The weekly quota outlives the cycle that spent it.
             emergencyOverrideUsedAt: runtime.emergencyOverrideUsedAt,
             // Liveness is orthogonal to cycles.
-            lastTickAt: runtime.lastTickAt
+            lastTickAt: runtime.lastTickAt,
+            lastFocusAt: runtime.lastFocusAt
         )
     }
 

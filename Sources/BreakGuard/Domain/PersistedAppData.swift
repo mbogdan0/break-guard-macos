@@ -42,6 +42,13 @@ struct RuntimeState: Codable, Equatable {
     // that produced no willSleep signal, this is the best available end of
     // the last monitored focus.
     var lastTickAt: Date?
+    // Last time a countdown actually ran a monitored second, minute-coarse.
+    // This — not the end of the last cycle — anchors the tapering reset:
+    // administrative cycle restarts (wake recovery, expired pauses) move the
+    // cycle's end forward without any focus happening, and measuring the
+    // reset gap against them lets an unattended night carry tapering into
+    // the next morning.
+    var lastFocusAt: Date?
 }
 
 // Fields are added after schema 3 shipped without bumping the version. Older
@@ -54,7 +61,7 @@ extension RuntimeState {
              cycleRegularPostponements, focusExtended,
              cycleStartDate, preservedAt, preservedRemaining,
              cycleFocusDuration, breakStartedAt, manualBreakOrigin,
-             taperedFocusSeconds, emergencyOverrideUsedAt, lastTickAt
+             taperedFocusSeconds, emergencyOverrideUsedAt, lastTickAt, lastFocusAt
     }
 
     init(from decoder: Decoder) throws {
@@ -75,6 +82,7 @@ extension RuntimeState {
         let decodedOverrideUsedAt = try container.decodeIfPresent(Date.self, forKey: .emergencyOverrideUsedAt)
         emergencyOverrideUsedAt = decodedOverrideUsedAt
         lastTickAt = try container.decodeIfPresent(Date.self, forKey: .lastTickAt)
+        lastFocusAt = try container.decodeIfPresent(Date.self, forKey: .lastFocusAt)
 
         // Older builds counted an emergency override in cyclePostponements.
         // Infer the regular count once for an in-progress legacy cycle; after
