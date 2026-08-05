@@ -257,10 +257,15 @@ struct StateMachine {
         // without any focus happening, and each one would re-arm the gap —
         // carrying tapering into the next morning. The closed end is only the
         // legacy fallback for files that predate the stamp.
+        //
+        // This runs on every one of those restarts, and a machine that
+        // dark-wakes on a timer runs it dozens of times a night, so the answer
+        // has to depend only on the anchor and the clock — never on how many
+        // times it was asked.
         let closed = closedCycleFocus()
         let lastFocus = runtime.lastFocusAt ?? closed.end
         let tapered: TimeInterval
-        if clock.now.timeIntervalSince(lastFocus) >= settings.taperingResetGap {
+        if taperingDayStartedOver(since: lastFocus) {
             tapered = 0
         } else {
             // Both terms are sanitized before the sum so a poisoned stored
@@ -295,6 +300,21 @@ struct StateMachine {
             lastTickAt: runtime.lastTickAt,
             lastFocusAt: runtime.lastFocusAt
         )
+    }
+
+    // Whether enough has passed since the last monitored focus that tapering
+    // belongs to a new day. Two rules, because one number cannot serve both
+    // jobs: the configurable gap covers a long break inside a single day, and
+    // a shorter fixed gap covers a night, which is identified by the local
+    // calendar day changing rather than by its length. Requiring a real gap on
+    // the day-boundary rule is what keeps midnight from handing a full window
+    // back to someone still working — startWorkCycle() runs from
+    // completeBreak() with only a break's worth of gap.
+    private func taperingDayStartedOver(since lastFocus: Date) -> Bool {
+        let gap = clock.now.timeIntervalSince(lastFocus)
+        if gap >= settings.taperingResetGap { return true }
+        let crossedIntoNewDay = FocusDay.key(for: clock.now) != FocusDay.key(for: lastFocus)
+        return crossedIntoNewDay && gap >= FocusPace.taperingOvernightGap
     }
 
     // Where the focus of the cycle being closed ended, and how long it ran.
@@ -516,6 +536,20 @@ struct StateMachine {
     // already underway, so they bracket it from when it actually began.
     mutating func preserveForSleep(at timestamp: Date) {
         let at = min(timestamp, clock.now)
+        // The bracket knows when focus actually stopped; the heartbeat went on
+        // stamping until the absence was noticed, up to IdleAway.threshold
+        // later, and a countdown that fell due in the meantime froze the stamp
+        // at that moment rather than at the last input. The tapering reset
+        // measures from this stamp, so it retreats with the bracket — left
+        // ahead, a night shorter than the reset gap plus the overshoot carries
+        // the whole previous day into the morning.
+        //
+        // Ahead of the switch, so it also covers the states that only record a
+        // timestamp, and unconditional because moving the anchor earlier is
+        // always the conservative direction.
+        if let stamped = runtime.lastFocusAt, stamped > at {
+            runtime.lastFocusAt = at
+        }
         switch runtime.timerState {
         case .working, .warning, .postponed:
             suspend(until: nil, at: at)

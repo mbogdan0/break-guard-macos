@@ -54,6 +54,7 @@ All 15 persisted settings. Defaults at `Domain/AppSettings.swift:89-107`, ranges
 | `firstPostponeDuration` | s | **120** (2 min) | 30 … 7200 s (30 s … 2 h) | `OverlayScreenManager.swift:278` |
 | `secondPostponeDuration` | s | **900** (15 min) | 30 … 7200 s | `OverlayScreenManager.swift:279` |
 | `taperingResetGap` | s | **21600** (6 h) | 3600 … 86400 s (1 … 24 h) | `StateMachine.swift:170` |
+| — | — | *(not a setting)* `FocusPace.taperingOvernightGap` = **10800** (3 h), the gap the day-boundary reset rule requires — see 7.4 | | `AppSettings.swift` |
 | `harderToSkipBreaks` | Bool | **false** | — | `StateMachine.swift:55,59,63` |
 | `notificationSound` | Bool | **true** | — | `NotificationManager.swift:229` |
 | `launchAtLogin` | Bool | **true** | — | `AppState.swift:427` |
@@ -336,6 +337,16 @@ One `NSPanel` per connected screen (`Overlay/OverlayScreenManager.swift:26-38`),
 The break prompt is drawn once from a 10-string catalog and cached so all screens match
 (`:24-25`, `:81-98`).
 
+While any window is up, `DisplaySleepAssertion` (`Services/DisplaySleepAssertion.swift`) holds
+an IOKit `kIOPMAssertionTypePreventUserIdleDisplaySleep` assertion — acquired at the top of
+`showOnAllScreens()`, released at the top of `hideAll()` (unconditional, ahead of the
+empty-window early-out, so a clean quit releases it too). The `.screenSaver` window *level*
+only wins the stacking order; without the assertion the saver still starts and
+`com.apple.screensaver.didstart` freezes the break (see 8.1). Timeout is
+`breakDuration + 5 min` with `kIOPMAssertionTimeoutActionRelease`, insurance behind
+`hideAll()` and IOKit's cleanup on process exit. Display-idle only — lid close, manual lock,
+and system sleep are untouched.
+
 | Control | Hold | Shown when |
 |---|---|---|
 | **Postpone for \<first\>** | see 5.3, stated on the button as "Hold \<n\>s" | scheduled break **and** `canPostpone` |
@@ -575,7 +586,7 @@ infinity/NaN, and `PersistenceStore.save()` only **logs** that throw
 `StateMachine.startWorkCycle()` `:164-180`:
 
 ```swift
-if now − (lastFocusAt ?? closedCycleFocus().end) >= taperingResetGap {
+if taperingDayStartedOver(since: lastFocusAt ?? closedCycleFocus().end) {
     tapered = 0
 } else {
     tapered = sanitize( sanitize(banked) + sanitize(earned) )
@@ -609,12 +620,34 @@ Backward clock jumps cannot produce a negative charge (which would *lengthen* th
 
 ### 7.4 Reset
 
-`taperedFocusSeconds` returns to 0 when `now − lastFocus >= taperingResetGap`, where
-`lastFocus` is `runtime.lastFocusAt` — the minute-coarse stamp of the last tick spent in a
+`taperedFocusSeconds` returns to 0 when `taperingDayStartedOver(since:)` says so, where the
+anchor is `runtime.lastFocusAt` — the minute-coarse stamp of the last tick spent in a
 countdown state — falling back to `closed.end` only for files that predate the stamp. The
 closed cycle's end is *not* the anchor: administrative restarts overnight (wake recovery,
 expired timed pauses) move it forward without any focus happening, and each one would re-arm
-the gap and carry tapering into the next morning.
+the gap and carry tapering into the next morning. This matters more than it sounds: a Mac
+that dark-wakes on a timer posts a full wake every ~15 minutes all night, and each one runs
+the rule, so the answer must depend only on the anchor and the clock.
+
+Two rules, because one number cannot serve both jobs:
+
+| Rule | Condition | Covers |
+|---|---|---|
+| Configurable gap | `now − lastFocus >= taperingResetGap` | a long break inside one day |
+| Day boundary | local calendar day changed **and** `now − lastFocus >= FocusPace.taperingOvernightGap` (3 h, fixed) | a night, however short |
+
+The day-boundary rule exists because the gap knob otherwise has to be tuned under the length
+of a night: with it at 8 h, a 7 h 40 m night carried the whole previous day into the morning.
+Requiring a real gap alongside the day change is what stops midnight from handing a full
+window back to someone still working — `startWorkCycle()` runs from `completeBreak()` with
+only a break's worth of gap. Known residual: a session that ends *after* midnight (say 02:00)
+and resumes the same calendar day is governed by the gap knob alone.
+
+The anchor is also retreated by `preserveForSleep(at:)`, ahead of its switch and for every
+state. The bracket knows when focus actually stopped; the heartbeat went on stamping until
+the absence was noticed — up to `IdleAway.threshold` later — and a countdown that fell due in
+the meantime froze the stamp at that moment rather than at the last input. Left ahead, that
+overshoot alone can put an otherwise-sufficient night under the gap.
 
 The **Tapering now** row under the Focus Pace picker reads `−<penalty> · resets <h:mm a> if
 you stop`, computed
@@ -656,7 +689,12 @@ statistics credit as defense in depth.
 
 Screen lock does not imply system sleep, hence its own observers. The screen saver may run
 before the lock engages, or without any lock; `preserveForSleep()` / `restoreAfterSleep()`
-are idempotent, so the double fire is harmless (`:20-25`).
+are idempotent, so the double fire is harmless (`:20-25`). The saver route is why the break
+overlay holds a display-sleep assertion (see 5.2): reaching `screensaver.didstart` during a
+`.breaking` state pins the remaining time, and the break never finishes on its own.
+
+`CameraUsageMonitor` also observes `didWakeNotification`, to re-enumerate CoreMediaIO devices
+whose IDs did not survive the sleep.
 
 `AppState.stop()` also calls `preserveForSleep()` on clean quit (`AppState.swift:143`).
 

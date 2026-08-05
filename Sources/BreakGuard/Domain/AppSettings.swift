@@ -38,6 +38,14 @@ enum FocusPace: String, Codable, CaseIterable {
     // would drive the window toward zero and fire breaks back to back.
     static let taperingMinimumInterval: TimeInterval = 10 * 60
 
+    // A gap that crosses into a new local day ends the tapering day well before
+    // the configurable gap does. Without it the reset gap has to be tuned under
+    // the length of a night, and any night shorter than the setting carries the
+    // whole previous day over. Deliberately longer than any break or meal and
+    // shorter than any night, so working straight through midnight is never
+    // mistaken for a new day.
+    static let taperingOvernightGap: TimeInterval = 3 * 60 * 60
+
     // Past this the penalty already exceeds the longest configurable window,
     // so further accumulation cannot change the outcome. Capping is not just
     // tidiness: the total is persisted as a JSON number, JSONEncoder throws on

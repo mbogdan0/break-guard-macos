@@ -19,6 +19,12 @@ final class OverlayScreenManager {
     // In ticks, and the tick is one second. Long enough that the cost is noise,
     // short enough that a window that stole the front is not there for long.
     private static let reassertInterval = 10
+    // Slack over the break itself, so the completion screen stays lit long
+    // enough to be read and a break that gets postponed at the overlay does not
+    // drop the assertion out from under itself. Only a ceiling — the release in
+    // `hideAll` is what normally ends it.
+    private static let assertionSlack: TimeInterval = 5 * 60
+    private let displaySleep = DisplaySleepAssertion()
     private let logger = Logger(subsystem: "local.bohdan.BreakGuard", category: "Overlay")
 
     init(appState: AppState) {
@@ -38,6 +44,7 @@ final class OverlayScreenManager {
     // a static overlay, but it drops frames under the hold-to-confirm fill.
     func showOnAllScreens() {
         guard let appState else { return }
+        displaySleep.acquire(timeout: appState.settings.breakDuration + Self.assertionSlack)
         let prompt = currentBreakPrompt ?? BreakPromptCatalog.random()
         currentBreakPrompt = prompt
         for screen in NSScreen.screens {
@@ -97,6 +104,9 @@ final class OverlayScreenManager {
     }
 
     func hideAll() {
+        // Unconditional, and before the early-out on an empty window list: this
+        // is the one path that ends the assertion, and it also runs on quit.
+        displaySleep.release()
         if !windows.isEmpty {
             logger.info("Overlay dismissed")
         }

@@ -252,6 +252,142 @@ final class DowntimeAndCameraHoldTests: XCTestCase {
         XCTAssertEqual(machine.runtime.taperedFocusSeconds, 0)
     }
 
+    // MARK: - Tapering reset against a real night
+
+    // Local-calendar anchored, because the day-boundary half of the reset rule
+    // is evaluated in the user's own time zone.
+    private func localDate(_ year: Int, _ month: Int, _ day: Int, _ hour: Int, _ minute: Int = 0) -> Date {
+        Calendar.current.date(
+            from: DateComponents(year: year, month: month, day: day, hour: hour, minute: minute)
+        )!
+    }
+
+    // Banks tapering and leaves the machine in a countdown, so the reset rule
+    // has something to clear.
+    private func machineWithBankedTapering(
+        from start: Date,
+        resetGap: TimeInterval = 8 * 60 * 60
+    ) -> StateMachine {
+        var machine = makeMachine(at: start) {
+            $0.focusPace = .tapering
+            $0.taperingResetGap = resetGap
+        }
+        machine.clock = FakeClock(now: start.addingTimeInterval(30 * 60))
+        _ = machine.tick()
+        machine.startBreak()
+        machine.clock = FakeClock(now: start.addingTimeInterval(32 * 60))
+        _ = machine.tick()
+        machine.completeBreak()
+        return machine
+    }
+
+    // Regression for the reported bug, end to end. A Mac that dark-wakes on a
+    // timer posts a full wake every ~15 minutes all night, and each one runs
+    // the reset rule. The night is 7h40m — under the configured 8-hour gap —
+    // so before the day-boundary rule the morning inherited the whole previous
+    // day's tapering.
+    func testTaperingResetsAfterANightShorterThanTheConfiguredGap() {
+        let start = localDate(2026, 8, 4, 12)
+        var machine = machineWithBankedTapering(from: start)
+        XCTAssertGreaterThan(machine.runtime.taperedFocusSeconds, 0)
+
+        // Last real input at 23:20. The countdown keeps stamping until the idle
+        // threshold notices, so the anchor lands 10 minutes late.
+        let lastInput = localDate(2026, 8, 4, 23, 20)
+        machine.clock = FakeClock(now: lastInput.addingTimeInterval(IdleAway.threshold))
+        _ = machine.tick()
+
+        // The idle bracket fires, back-dated to the last input.
+        machine.preserveForSleep(at: lastInput)
+
+        // The wake storm: sleep, wake, re-bracket, tick — every 15 minutes.
+        var wake = lastInput.addingTimeInterval(15 * 60)
+        let morning = localDate(2026, 8, 5, 7)
+        while wake < morning {
+            machine.clock = FakeClock(now: wake)
+            machine.restoreAfterSleep()
+            machine.preserveForSleep(at: lastInput)
+            _ = machine.tick()
+            wake = wake.addingTimeInterval(15 * 60)
+        }
+
+        machine.clock = FakeClock(now: morning)
+        machine.restoreAfterSleep()
+
+        XCTAssertEqual(machine.runtime.taperedFocusSeconds, 0)
+        // Nothing about the night may be credited as focus either.
+        XCTAssertNil(machine.statistics.focusMinutesByDay[FocusDay.key(for: morning)])
+    }
+
+    // The anchor half of the fix, isolated inside a single calendar day so the
+    // day-boundary rule cannot be what passes it. The bracket knows focus
+    // stopped at 06:00; the heartbeat had already stamped 06:10, and measuring
+    // from that stamp left the gap 5 minutes short of the 8-hour reset.
+    func testIdleBracketRetreatsTheTaperingAnchorToTheLastInput() {
+        let start = localDate(2026, 8, 4, 4)
+        var machine = machineWithBankedTapering(from: start)
+
+        let lastInput = localDate(2026, 8, 4, 6)
+        machine.clock = FakeClock(now: lastInput.addingTimeInterval(IdleAway.threshold))
+        _ = machine.tick()
+        XCTAssertEqual(machine.runtime.lastFocusAt, lastInput.addingTimeInterval(IdleAway.threshold))
+
+        machine.preserveForSleep(at: lastInput)
+        XCTAssertEqual(machine.runtime.lastFocusAt, lastInput)
+
+        // 8h05m after the last input, same calendar day.
+        machine.clock = FakeClock(now: localDate(2026, 8, 4, 14, 5))
+        machine.restoreAfterSleep()
+
+        XCTAssertEqual(machine.runtime.taperedFocusSeconds, 0)
+    }
+
+    // A gap well under the configured knob still ends the tapering day when it
+    // crosses midnight.
+    func testGapCrossingMidnightResetsTaperingBelowTheConfiguredGap() {
+        let start = localDate(2026, 8, 4, 20)
+        var machine = machineWithBankedTapering(from: start)
+
+        let lastInput = localDate(2026, 8, 4, 23, 30)
+        machine.preserveForSleep(at: lastInput)
+        machine.clock = FakeClock(now: localDate(2026, 8, 5, 4))
+        machine.restoreAfterSleep()
+
+        XCTAssertEqual(machine.runtime.taperedFocusSeconds, 0)
+    }
+
+    // The same gap inside one day is just a long lunch, and tapering carries.
+    func testSameDayGapUnderTheConfiguredGapDoesNotResetTapering() {
+        let start = localDate(2026, 8, 4, 7)
+        var machine = machineWithBankedTapering(from: start)
+        let banked = machine.runtime.taperedFocusSeconds
+
+        let lastInput = localDate(2026, 8, 4, 9)
+        machine.preserveForSleep(at: lastInput)
+        machine.clock = FakeClock(now: localDate(2026, 8, 4, 13))
+        machine.restoreAfterSleep()
+
+        XCTAssertEqual(machine.runtime.taperedFocusSeconds, banked, accuracy: 0.001)
+    }
+
+    // Midnight alone must not hand a full window back to someone still at the
+    // keyboard: the day-boundary rule needs a real gap behind it, and closing a
+    // cycle at a break has only the break's worth.
+    func testWorkingThroughMidnightDoesNotResetTapering() {
+        let start = localDate(2026, 8, 4, 22)
+        var machine = machineWithBankedTapering(from: start)
+        let banked = machine.runtime.taperedFocusSeconds
+
+        machine.clock = FakeClock(now: localDate(2026, 8, 4, 23, 58))
+        _ = machine.tick()
+        machine.startBreak()
+        machine.clock = FakeClock(now: localDate(2026, 8, 5, 0, 1))
+        _ = machine.tick()
+        machine.completeBreak()
+
+        XCTAssertGreaterThan(machine.runtime.taperedFocusSeconds, banked)
+    }
+
     // MARK: - Statistics cap
 
     func testVerifiedRestCreditIsCappedPerCycle() {
