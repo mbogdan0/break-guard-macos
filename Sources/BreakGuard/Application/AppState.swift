@@ -163,7 +163,10 @@ final class AppState: ObservableObject {
     func stop() {
         logger.info("Application stopping")
         uiTimer?.invalidate()
-        machine.preserveForSleep()
+        // Deliberately nothing about breaks here. Quitting is not the screen
+        // going away, and the heartbeat already records where watching stopped
+        // — relaunch reads that gap and decides, so a quit-and-relaunch inside
+        // a couple of minutes simply carries on.
         publish()
         notifications.cancelWarning()
         overlayManager?.hideAll()
@@ -342,9 +345,12 @@ final class AppState: ObservableObject {
         }
     }
 
+    // Sleep, lock, and the screen saver all mean the same thing: the screen
+    // went away, so the break starts now. Length is not judged — a saver that
+    // blinks for ten seconds is still the user leaving.
     func handleSleepOrInactive() {
         logger.info("Sleep or inactive session")
-        machine.preserveForSleep()
+        machine.beginDowntimeBreak()
         notifications.cancelWarning()
         publish()
         save()
@@ -377,7 +383,7 @@ final class AppState: ObservableObject {
         // count as focus.
         if let lastTick = lastTickAt, now.timeIntervalSince(lastTick) >= Self.tickGapThreshold {
             logger.info("Tick gap of \(Int(now.timeIntervalSince(lastTick)), privacy: .public)s — bracketing as downtime")
-            machine.preserveForSleep(at: lastTick)
+            machine.beginDowntimeBreak(at: lastTick)
             machine.restoreAfterSleep()
             idleSuspensionActive = false
         }
@@ -442,7 +448,7 @@ final class AppState: ObservableObject {
             // state; idle must not re-stamp its timestamps.
             if case .suspended = machine.runtime.timerState { return }
             logger.info("Idle for \(Int(idle), privacy: .public)s — suspending countdown")
-            machine.preserveForSleep(at: now.addingTimeInterval(-idle))
+            machine.suspendForIdle(at: now.addingTimeInterval(-idle))
             idleSuspensionActive = true
         }
     }

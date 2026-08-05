@@ -77,7 +77,7 @@ final class DowntimeAndCameraHoldTests: XCTestCase {
         // which predates the unattended cycle entirely.
         let noticed = until.addingTimeInterval(IdleAway.threshold)
         machine.clock = FakeClock(now: noticed)
-        machine.preserveForSleep(at: pauseStart)
+        machine.suspendForIdle(at: pauseStart)
 
         // The user returns 40 minutes after the pause expired.
         let returned = until.addingTimeInterval(40 * 60)
@@ -94,7 +94,7 @@ final class DowntimeAndCameraHoldTests: XCTestCase {
 
     // MARK: - Back-dated idle bracket
 
-    func testBackdatedIdleBracketCreditsFocusOnlyUpToLastInput() {
+    func testBackdatedIdleBracketExcludesTheSilentSpanFromFocus() {
         let start = Date(timeIntervalSince1970: 300_000)
         var machine = makeMachine(at: start)
 
@@ -102,18 +102,26 @@ final class DowntimeAndCameraHoldTests: XCTestCase {
         let lastInput = start.addingTimeInterval(15 * 60)
         let noticed = lastInput.addingTimeInterval(IdleAway.threshold)
         machine.clock = FakeClock(now: noticed)
-        machine.preserveForSleep(at: lastInput)
+        machine.suspendForIdle(at: lastInput)
 
         XCTAssertEqual(machine.runtime.preservedAt, lastInput)
 
-        // Input returns two hours later: verified rest, credit stops at the
-        // last input and lands on its day.
+        // Input returns two hours later. Silence is not rest, so nothing is
+        // credited and no break is invented — the cycle simply carries on with
+        // its start pushed forward by exactly the span nobody was watching.
         let returned = start.addingTimeInterval(2 * 60 * 60)
         machine.clock = FakeClock(now: returned)
         machine.restoreAfterSleep()
 
-        XCTAssertEqual(machine.statistics.focusMinutesByDay[FocusDay.key(for: lastInput)], 15)
-        XCTAssertEqual(machine.runtime.cycleStartDate, returned)
+        guard case .working = machine.runtime.timerState else {
+            return XCTFail("Expected the countdown to resume, got \(machine.runtime.timerState)")
+        }
+        XCTAssertTrue(machine.statistics.focusMinutesByDay.isEmpty)
+        XCTAssertEqual(machine.statistics.completedBreaks, 0)
+        XCTAssertEqual(
+            machine.runtime.cycleStartDate,
+            start.addingTimeInterval(returned.timeIntervalSince(lastInput))
+        )
     }
 
     func testShortIdleBracketRestoresCountdownAndShiftsCycleStart() {
@@ -123,7 +131,7 @@ final class DowntimeAndCameraHoldTests: XCTestCase {
         let lastInput = start.addingTimeInterval(10 * 60)
         let noticed = lastInput.addingTimeInterval(IdleAway.threshold)
         machine.clock = FakeClock(now: noticed)
-        machine.preserveForSleep(at: lastInput)
+        machine.suspendForIdle(at: lastInput)
 
         // Back 5 minutes after the bracket opened — shorter than a break.
         let returned = noticed.addingTimeInterval(5 * 60)
@@ -139,6 +147,69 @@ final class DowntimeAndCameraHoldTests: XCTestCase {
             machine.runtime.cycleStartDate,
             start.addingTimeInterval(away)
         )
+        XCTAssertTrue(machine.statistics.focusMinutesByDay.isEmpty)
+    }
+
+    // MARK: - Input silence is not rest
+
+    // The reported bug, stated directly. Reading on screen counts as idle, and
+    // the idle bracket back-dates to the last keystroke — which is *before* the
+    // break began. Measuring rest from there let a single mouse move finish a
+    // break the user had not taken a second of.
+    func testIdleBeforeABreakDoesNotFinishIt() {
+        let start = Date(timeIntervalSince1970: 900_000)
+        var machine = makeMachine(at: start)
+
+        // Last keystroke at 20 minutes; the user reads from there on.
+        let lastInput = start.addingTimeInterval(20 * 60)
+        machine.clock = FakeClock(now: lastInput)
+        _ = machine.tick()
+
+        // The break falls due at 30 minutes and starts.
+        let due = start.addingTimeInterval(30 * 60)
+        machine.clock = FakeClock(now: due)
+        XCTAssertEqual(machine.tick(), .breakDue)
+        machine.startBreak()
+
+        // Idle detection notices the silence and brackets back to the keystroke.
+        machine.suspendForIdle(at: lastInput)
+
+        // Thirty seconds later the user jiggles the mouse.
+        machine.clock = FakeClock(now: due.addingTimeInterval(30))
+        machine.restoreAfterSleep()
+
+        // The break is still running, with its own start and deadline intact.
+        guard case let .breaking(deadline, startedAt, _) = machine.runtime.timerState else {
+            return XCTFail("Expected the break to still be running, got \(machine.runtime.timerState)")
+        }
+        XCTAssertEqual(startedAt, due)
+        XCTAssertEqual(deadline, due.addingTimeInterval(machine.settings.breakDuration))
+        XCTAssertEqual(machine.statistics.completedBreaks, 0)
+        XCTAssertEqual(machine.statistics.currentCleanStreak, 0)
+    }
+
+    // The same silence during a countdown stops it — that part is about keeping
+    // unattended minutes out of the statistics — but it may not restart the
+    // cycle or credit anything.
+    func testIdleDuringACountdownOnlyStopsTheClock() {
+        let start = Date(timeIntervalSince1970: 910_000)
+        var machine = makeMachine(at: start)
+
+        let lastInput = start.addingTimeInterval(10 * 60)
+        machine.clock = FakeClock(now: lastInput.addingTimeInterval(IdleAway.threshold))
+        machine.suspendForIdle(at: lastInput)
+        guard case .suspended = machine.runtime.timerState else {
+            return XCTFail("Expected the countdown to stop, got \(machine.runtime.timerState)")
+        }
+
+        // Back well inside the reset gap: the same cycle carries on.
+        machine.clock = FakeClock(now: lastInput.addingTimeInterval(25 * 60))
+        machine.restoreAfterSleep()
+
+        guard case .working = machine.runtime.timerState else {
+            return XCTFail("Expected the countdown to resume, got \(machine.runtime.timerState)")
+        }
+        XCTAssertEqual(machine.statistics.completedBreaks, 0)
         XCTAssertTrue(machine.statistics.focusMinutesByDay.isEmpty)
     }
 
@@ -159,8 +230,24 @@ final class DowntimeAndCameraHoldTests: XCTestCase {
         machine.clock = FakeClock(now: wake)
         machine.restoreAfterSleep()
 
+        // Time the app could not see is downtime, and downtime starts a break —
+        // from where watching stopped, so the break already elapsed while the
+        // process was gone. It does not hand back a fresh cycle on its own.
+        guard case let .breaking(_, startedAt, _) = machine.runtime.timerState else {
+            return XCTFail("Expected a break, got \(machine.runtime.timerState)")
+        }
+        // The heartbeat is minute-coarse, so the break starts at the last
+        // minute the app can prove it was watching.
+        XCTAssertEqual(startedAt, machine.runtime.lastTickAt)
+        XCTAssertLessThanOrEqual(startedAt, lastAlive)
+        XCTAssertEqual(machine.tick(), .breakCompleted)
+        // Recovery is conservative: nothing credited until the user confirms.
+        XCTAssertTrue(machine.statistics.focusMinutesByDay.isEmpty)
+        XCTAssertEqual(machine.statistics.completedBreaks, 0)
+
+        machine.completeBreak()
         guard case let .working(deadline, _) = machine.runtime.timerState else {
-            return XCTFail("Expected a fresh working cycle")
+            return XCTFail("Expected a fresh cycle after Continue")
         }
         XCTAssertEqual(machine.runtime.cycleStartDate, wake)
         XCTAssertEqual(
@@ -168,8 +255,8 @@ final class DowntimeAndCameraHoldTests: XCTestCase {
             machine.settings.effectiveWorkInterval,
             accuracy: 1
         )
-        // Recovery is conservative: no statistics credit without a verified bracket.
-        XCTAssertTrue(machine.statistics.focusMinutesByDay.isEmpty)
+        // Five minutes of watched focus preceded the gap; the gap itself none.
+        XCTAssertEqual(machine.statistics.focusMinutesByDay[FocusDay.key(for: lastAlive)], 5)
     }
 
     func testRestoreWithFreshHeartbeatLeavesRunningCycleAlone() {
@@ -187,7 +274,10 @@ final class DowntimeAndCameraHoldTests: XCTestCase {
         XCTAssertEqual(machine.runtime, before)
     }
 
-    func testCrashMidBreakRestartsTheBreakInsteadOfCompletingIt() {
+    // A break runs on wall clock, so dying inside one does not restart it: the
+    // ten minutes the process was gone were ten minutes away from the screen,
+    // which is what a break asks for. What survives is the confirmation.
+    func testCrashMidBreakLeavesItElapsedAwaitingConfirmation() {
         let start = Date(timeIntervalSince1970: 700_000)
         var machine = makeMachine(at: start)
 
@@ -202,10 +292,13 @@ final class DowntimeAndCameraHoldTests: XCTestCase {
         machine.clock = FakeClock(now: relaunch)
         machine.restoreAfterSleep()
 
-        guard case let .breaking(deadline, _, duration) = machine.runtime.timerState else {
-            return XCTFail("Expected the break to restart, got \(machine.runtime.timerState)")
+        guard case let .breaking(deadline, startedAt, _) = machine.runtime.timerState else {
+            return XCTFail("Expected the original break, got \(machine.runtime.timerState)")
         }
-        XCTAssertEqual(deadline, relaunch.addingTimeInterval(duration))
+        XCTAssertEqual(startedAt, due)
+        XCTAssertEqual(deadline, due.addingTimeInterval(machine.settings.breakDuration))
+        XCTAssertEqual(machine.tick(), .breakCompleted)
+        XCTAssertEqual(machine.statistics.completedBreaks, 0)
     }
 
     // MARK: - Tapering reset survives overnight administrative restarts
@@ -237,7 +330,7 @@ final class DowntimeAndCameraHoldTests: XCTestCase {
         // Evening restart 5 hours after the last focus: inside the gap, so
         // tapering rightly carries.
         machine.clock = FakeClock(now: lastFocus.addingTimeInterval(5 * 60 * 60))
-        machine.preserveForSleep()
+        machine.beginDowntimeBreak()
         machine.clock = FakeClock(now: lastFocus.addingTimeInterval(5 * 60 * 60 + 5 * 60))
         machine.restoreAfterSleep()
         XCTAssertGreaterThan(machine.runtime.taperedFocusSeconds, 0)
@@ -246,7 +339,7 @@ final class DowntimeAndCameraHoldTests: XCTestCase {
         // restart moved the closed cycle's end to only 7 hours ago — the old
         // reference — but no focus ran since, so tapering must reset.
         machine.clock = FakeClock(now: lastFocus.addingTimeInterval(12 * 60 * 60))
-        machine.preserveForSleep()
+        machine.beginDowntimeBreak()
         machine.clock = FakeClock(now: lastFocus.addingTimeInterval(12 * 60 * 60 + 5 * 60))
         machine.restoreAfterSleep()
         XCTAssertEqual(machine.runtime.taperedFocusSeconds, 0)
@@ -298,7 +391,7 @@ final class DowntimeAndCameraHoldTests: XCTestCase {
         _ = machine.tick()
 
         // The idle bracket fires, back-dated to the last input.
-        machine.preserveForSleep(at: lastInput)
+        machine.beginDowntimeBreak(at: lastInput)
 
         // The wake storm: sleep, wake, re-bracket, tick — every 15 minutes.
         var wake = lastInput.addingTimeInterval(15 * 60)
@@ -306,7 +399,7 @@ final class DowntimeAndCameraHoldTests: XCTestCase {
         while wake < morning {
             machine.clock = FakeClock(now: wake)
             machine.restoreAfterSleep()
-            machine.preserveForSleep(at: lastInput)
+            machine.beginDowntimeBreak(at: lastInput)
             _ = machine.tick()
             wake = wake.addingTimeInterval(15 * 60)
         }
@@ -332,7 +425,7 @@ final class DowntimeAndCameraHoldTests: XCTestCase {
         _ = machine.tick()
         XCTAssertEqual(machine.runtime.lastFocusAt, lastInput.addingTimeInterval(IdleAway.threshold))
 
-        machine.preserveForSleep(at: lastInput)
+        machine.suspendForIdle(at: lastInput)
         XCTAssertEqual(machine.runtime.lastFocusAt, lastInput)
 
         // 8h05m after the last input, same calendar day.
@@ -349,7 +442,7 @@ final class DowntimeAndCameraHoldTests: XCTestCase {
         var machine = machineWithBankedTapering(from: start)
 
         let lastInput = localDate(2026, 8, 4, 23, 30)
-        machine.preserveForSleep(at: lastInput)
+        machine.beginDowntimeBreak(at: lastInput)
         machine.clock = FakeClock(now: localDate(2026, 8, 5, 4))
         machine.restoreAfterSleep()
 
@@ -363,7 +456,7 @@ final class DowntimeAndCameraHoldTests: XCTestCase {
         let banked = machine.runtime.taperedFocusSeconds
 
         let lastInput = localDate(2026, 8, 4, 9)
-        machine.preserveForSleep(at: lastInput)
+        machine.beginDowntimeBreak(at: lastInput)
         machine.clock = FakeClock(now: localDate(2026, 8, 4, 13))
         machine.restoreAfterSleep()
 
@@ -397,10 +490,12 @@ final class DowntimeAndCameraHoldTests: XCTestCase {
         // A six-hour span that somehow slipped past every bracket.
         let bracket = start.addingTimeInterval(6 * 60 * 60)
         machine.clock = FakeClock(now: bracket)
-        machine.preserveForSleep()
+        machine.beginDowntimeBreak()
 
         machine.clock = FakeClock(now: bracket.addingTimeInterval(60 * 60))
         machine.restoreAfterSleep()
+        _ = machine.tick()
+        machine.completeBreak()
 
         XCTAssertEqual(
             machine.statistics.totalFocusMinutes,

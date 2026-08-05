@@ -54,6 +54,20 @@ While any overlay window is up, `DisplaySleepAssertion` holds an IOKit `PreventU
 
 The overlay is a best-effort blocking interface. macOS still allows Force Quit, process termination, and system-level navigation.
 
+## What May Start and End a Break
+
+The app never infers that a break happened. Five rules, and everything in `StateMachine` that touches downtime exists to keep them:
+
+1. **Input silence alone means nothing.** `suspendForIdle(at:)` stops the countdown so unattended minutes stay out of the focus statistics, and does nothing else — no break starts, none is credited, no cycle restarts. Silence is not rest: reading a long page produces it too.
+2. **The screen going away starts a break.** Sleep, lock, screen saver, or a tick gap that proves the process lost time all route to `beginDowntimeBreak(at:)`, which starts the break at that moment. Length is not judged — a saver that blinks for ten seconds is still the user leaving.
+3. **A break runs on wall clock from its own start.** The deadline is absolute and nothing moves it again, so time asleep inside a break counts toward it. Dying mid-break does not restart it.
+4. **Only `completeBreak()` — the Continue click — credits a break and starts the next cycle.** The completion screen never dismisses itself.
+5. **Except when the work session ended.** `restoreAfterSleep()` starts a fresh cycle without a confirmation when `taperingDayStartedOver(since:)` holds, deliberately the same predicate that resets tapering, measured from `lastFocusAt` rather than from the current absence so that chained absences cannot re-arm the gap. A night gives both a clean cycle and a clean accumulator; a two-hour lunch gives neither.
+
+The one other explicit exception is the `Pause Until 9 AM` menu item: a timed pause that runs out to its own end date starts a fresh cycle, because the user asked for it. Cutting it short with `Resume Now` does not — the cycle carries on with its remaining time.
+
+This replaced a rule that measured rest as "time since the last input", back-dated to before the break began. Ten minutes of reading followed by one mouse move completed a break the user had not taken a second of.
+
 ## Sleep and Wake Handling
 
 `SleepWakeManager` listens for workspace sleep/wake and session active/inactive notifications. Before sleep or inactivity, BreakGuard preserves remaining time and cancels warnings. After wake or reactivation, it resumes from the preserved duration so sleep time is not counted as work or break time.

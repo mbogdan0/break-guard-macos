@@ -59,11 +59,14 @@ final class TaperingAndOverrideEdgeCaseTests: XCTestCase {
 
         clock.now = start.addingTimeInterval(10 * 60)
         machine.clock = clock
-        machine.preserveForSleep()
+        machine.beginDowntimeBreak()
 
         clock.now = clock.now.addingTimeInterval(3 * 3600)
         machine.clock = clock
         machine.restoreAfterSleep()
+        // The nap started a break; confirming it books the cycle.
+        _ = machine.tick()
+        machine.completeBreak()
 
         // Ten minutes of focus preceded the nap; the nap itself adds nothing.
         XCTAssertEqual(machine.runtime.taperedFocusSeconds, 10 * 60, accuracy: 0.001)
@@ -141,10 +144,12 @@ final class TaperingAndOverrideEdgeCaseTests: XCTestCase {
         machine.clock = clock
         XCTAssertEqual(machine.tick(), .breakDue)
 
-        machine.preserveForSleep()
+        machine.beginDowntimeBreak()
         clock.now = clock.now.addingTimeInterval(3600)
         machine.clock = clock
         machine.restoreAfterSleep()
+        _ = machine.tick()
+        machine.completeBreak()
 
         // 30 minutes before the break plus 15 on the postponed window.
         XCTAssertEqual(machine.statistics.totalFocusMinutes, 45)
@@ -218,7 +223,7 @@ final class TaperingAndOverrideEdgeCaseTests: XCTestCase {
         machine.useEmergencyOverride()
         let usedAt = clock.now
 
-        machine.preserveForSleep()
+        machine.beginDowntimeBreak()
         clock.now = clock.now.addingTimeInterval(2 * 3600)
         machine.clock = clock
         machine.restoreAfterSleep()

@@ -706,10 +706,37 @@ whose IDs did not survive the sleep.
 
 `AppState.stop()` also calls `preserveForSleep()` on clean quit (`AppState.swift:143`).
 
-### 8.2 The one threshold
+### 8.2 What may start and end a break
 
-**`>= settings.breakDuration`** (default **120 s**). Downtime at least this long counts as a
-break actually taken. Applied at three sites:
+The app never infers that a break happened. `preserveForSleep(at:)` is gone, split into two
+entry points with deliberately different power:
+
+| Signal | Entry point | Effect |
+|---|---|---|
+| Input silence, machine awake | `suspendForIdle(at:)` | stops the countdown only — no break, no credit, no cycle restart |
+| Sleep / lock / screen saver / tick gap | `beginDowntimeBreak(at:)` | **starts a break** at that moment, any duration |
+| Continue click | `completeBreak()` | the only thing that credits a break and starts the next cycle |
+
+A break runs on wall clock from its own `startedAt`: the deadline is absolute and nothing
+moves it again, so sleeping through a break spends it, and crashing mid-break does not
+restart it. The completion screen never dismisses itself.
+
+The single exception is in `restoreAfterSleep()`: when `taperingDayStartedOver(since:)` holds
+it starts a fresh cycle with no confirmation. That is the same predicate as the tapering reset
+(see 7.4), measured from `lastFocusAt` rather than from the current absence — chained
+absences (an evening lock, then a morning wake) would otherwise re-arm the gap on every
+restart. `preservedAt` is set to the downtime start first, so the absence is not measured as
+focus. The `Pause Until 9 AM` item keeps its own behaviour: expiring starts a fresh cycle,
+`Resume Now` carries the cycle on.
+
+This replaced a rule that measured rest as time since the last input, back-dated to *before*
+the break began — so ten minutes of reading plus one mouse move completed a break the user
+never took.
+
+### 8.3 The legacy threshold
+
+**`>= settings.breakDuration`** (default **120 s**). No longer decides whether downtime counts
+as a break. Still applied at:
 
 | Site | Condition | Line |
 |---|---|---|

@@ -550,9 +550,12 @@ final class StateMachineTests: XCTestCase {
         XCTAssertEqual(machine.statistics, .empty)
     }
 
-    // MARK: - Long-pause reset
+    // MARK: - Downtime starts a break; only Continue ends one
 
-    func testShortPauseResumesWithPreservedRemaining() {
+    // The screen going away is the break starting, however briefly it was gone.
+    // Length is not judged here: a saver that blinks for a minute is still the
+    // user leaving, and deciding otherwise would be the app inferring rest.
+    func testShortDowntimeStartsABreakRatherThanResuming() {
         let start = Date(timeIntervalSince1970: 7_000)
         var clock = FakeClock(now: start)
         var settings = AppSettings.defaults
@@ -560,20 +563,23 @@ final class StateMachineTests: XCTestCase {
         settings.breakDuration = 2 * 60
         var machine = StateMachine(settings: settings, clock: clock)
 
-        clock.now = start.addingTimeInterval(5 * 60)
+        let away = start.addingTimeInterval(5 * 60)
+        clock.now = away
         machine.clock = clock
-        machine.preserveForSleep()
+        machine.beginDowntimeBreak()
 
-        // Pause shorter than the break duration: resume where we left off.
         clock.now = clock.now.addingTimeInterval(60)
         machine.clock = clock
         machine.restoreAfterSleep()
 
-        guard case let .working(deadline, _) = machine.runtime.timerState else {
-            return XCTFail("Expected working state")
+        // The break began when the screen went away and runs on wall clock, so
+        // a minute of it is already spent.
+        guard case let .breaking(deadline, startedAt, _) = machine.runtime.timerState else {
+            return XCTFail("Expected a break, got \(machine.runtime.timerState)")
         }
-        XCTAssertEqual(deadline.timeIntervalSince(clock.now), 25 * 60, accuracy: 0.1)
-        // A short pause resumes in place and credits nothing.
+        XCTAssertEqual(startedAt, away)
+        XCTAssertEqual(deadline, away.addingTimeInterval(2 * 60))
+        // Nothing is credited until the user clicks Continue.
         XCTAssertEqual(machine.statistics, .empty)
     }
 
@@ -587,7 +593,7 @@ final class StateMachineTests: XCTestCase {
         machine.takeBreakNow()
         machine.startBreak()
         machine.postpone(by: 5 * 60)
-        machine.preserveForSleep()
+        machine.beginDowntimeBreak()
 
         clock.now = clock.now.addingTimeInterval(60)
         machine.clock = clock
@@ -595,13 +601,17 @@ final class StateMachineTests: XCTestCase {
 
         XCTAssertEqual(machine.runtime.cycleRegularPostponements, 1)
         XCTAssertEqual(machine.postponeHoldTier, .repeated)
-        XCTAssertEqual(
-            machine.runtime.timerState,
-            .postponed(deadline: start.addingTimeInterval(6 * 60))
-        )
+        // Downtime during a postponement starts the break the postponement was
+        // deferring; the tier it earned survives into it.
+        guard case let .breaking(_, startedAt, _) = machine.runtime.timerState else {
+            return XCTFail("Expected a break, got \(machine.runtime.timerState)")
+        }
+        XCTAssertEqual(startedAt, start)
     }
 
-    func testPauseAtLeastBreakDurationStartsFreshCycle() {
+    // Downtime as long as a break used to hand back a fresh cycle on its own.
+    // It no longer does: the break elapsed, and the completion screen waits.
+    func testDowntimeAsLongAsABreakStillWaitsForContinue() {
         let start = Date(timeIntervalSince1970: 7_100)
         var clock = FakeClock(now: start)
         var settings = AppSettings.defaults
@@ -609,57 +619,69 @@ final class StateMachineTests: XCTestCase {
         settings.breakDuration = 2 * 60
         var machine = StateMachine(settings: settings, clock: clock)
 
-        clock.now = start.addingTimeInterval(5 * 60)
+        let away = start.addingTimeInterval(5 * 60)
+        clock.now = away
         machine.clock = clock
-        machine.preserveForSleep()
+        machine.beginDowntimeBreak()
 
         clock.now = clock.now.addingTimeInterval(2 * 60)
         machine.clock = clock
         machine.restoreAfterSleep()
+        XCTAssertEqual(machine.tick(), .breakCompleted)
 
+        // Still nothing credited — the user has not confirmed.
+        XCTAssertEqual(machine.statistics, .empty)
+
+        machine.completeBreak()
         guard case let .working(deadline, _) = machine.runtime.timerState else {
-            return XCTFail("Expected working state")
+            return XCTFail("Expected working state after Continue")
         }
         XCTAssertEqual(deadline.timeIntervalSince(clock.now), 30 * 60, accuracy: 0.1)
         XCTAssertEqual(machine.runtime.cycleStartDate, clock.now)
         XCTAssertEqual(machine.runtime.cyclePostponements, 0)
-        XCTAssertEqual(machine.runtime.cycleRegularPostponements, 0)
-        // The 5 minutes of focus before the downtime are credited to the day
-        // they happened, but no break is counted for an arbitrary lock.
-        let dayKey = FocusDay.key(for: start.addingTimeInterval(5 * 60))
+        // The 5 minutes before the downtime land on the day they happened, and
+        // the break the user sat out is counted once they confirm it.
+        let dayKey = FocusDay.key(for: away)
         XCTAssertEqual(machine.statistics.focusMinutesByDay, [dayKey: 5])
-        XCTAssertEqual(machine.statistics.completedBreaks, 0)
-        XCTAssertEqual(machine.statistics.currentCleanStreak, 0)
+        XCTAssertEqual(machine.statistics.completedBreaks, 1)
+        XCTAssertEqual(machine.statistics.currentCleanStreak, 1)
     }
 
-    func testLongSleepDuringBreakStartsFreshCycle() {
+    // Sleeping through a break does not shorten it and does not finish it: the
+    // deadline is absolute, so the time asleep counted, and the completion
+    // screen is what the user comes back to.
+    func testSleepThroughABreakLeavesTheCompletionScreenWaiting() {
         let start = Date(timeIntervalSince1970: 7_200)
         var clock = FakeClock(now: start)
         var settings = AppSettings.defaults
         settings.breakDuration = 2 * 60
         var machine = StateMachine(settings: settings, clock: clock)
 
-        clock.now = start.addingTimeInterval(10 * 60)
+        let breakStart = start.addingTimeInterval(10 * 60)
+        clock.now = breakStart
         machine.clock = clock
         machine.takeBreakNow()
         machine.startBreak()
-        machine.preserveForSleep()
+        machine.beginDowntimeBreak()
 
         clock.now = clock.now.addingTimeInterval(3 * 60)
         machine.clock = clock
         machine.restoreAfterSleep()
 
+        // The break it was already in is untouched by the downtime signal.
+        XCTAssertEqual(machine.runtime.breakStartedAt, breakStart)
+        XCTAssertEqual(machine.tick(), .breakCompleted)
+        XCTAssertEqual(machine.statistics, .empty)
+
+        machine.completeBreak()
         guard case .working = machine.runtime.timerState else {
-            return XCTFail("Expected working state")
+            return XCTFail("Expected working state after Continue")
         }
         XCTAssertNil(machine.runtime.breakStartedAt)
         XCTAssertNil(machine.runtime.manualBreakOrigin)
-        // The sleep finished the break: it counts as completed and the focus
-        // captured at startBreak() is credited.
         XCTAssertEqual(machine.statistics.completedBreaks, 1)
         XCTAssertEqual(machine.statistics.currentCleanStreak, 1)
-        let dayKey = FocusDay.key(for: start.addingTimeInterval(10 * 60))
-        XCTAssertEqual(machine.statistics.focusMinutesByDay, [dayKey: 10])
+        XCTAssertEqual(machine.statistics.focusMinutesByDay, [FocusDay.key(for: breakStart): 10])
     }
 
     func testDowntimeWithBreakDueResetsOnlyAfterLongPause() {
@@ -674,26 +696,27 @@ final class StateMachineTests: XCTestCase {
         machine.clock = clock
         XCTAssertEqual(machine.tick(), .breakDue)
 
-        // Short downtime keeps the pending break.
-        machine.preserveForSleep()
-        clock.now = clock.now.addingTimeInterval(30)
-        machine.clock = clock
-        machine.restoreAfterSleep()
-        XCTAssertEqual(machine.runtime.timerState, .breakDue)
-        XCTAssertNil(machine.runtime.preservedAt)
+        // A break falls due, then the screen goes away: that starts the break
+        // the user was being asked to take.
+        let away = clock.now
+        machine.beginDowntimeBreak()
+        guard case let .breaking(_, startedAt, _) = machine.runtime.timerState else {
+            return XCTFail("Expected the pending break to start, got \(machine.runtime.timerState)")
+        }
+        XCTAssertEqual(startedAt, away)
 
-        // A long one counts as the break itself: completed, with the focus
-        // up to the preservation moment (10.5 min, rounded) credited.
-        machine.preserveForSleep()
         clock.now = clock.now.addingTimeInterval(2 * 60)
         machine.clock = clock
         machine.restoreAfterSleep()
+        XCTAssertEqual(machine.tick(), .breakCompleted)
+        XCTAssertEqual(machine.statistics.completedBreaks, 0)
+
+        machine.completeBreak()
         guard case .working = machine.runtime.timerState else {
-            return XCTFail("Expected working state")
+            return XCTFail("Expected working state after Continue")
         }
         XCTAssertEqual(machine.statistics.completedBreaks, 1)
-        let dayKey = FocusDay.key(for: start.addingTimeInterval(10 * 60 + 30))
-        XCTAssertEqual(machine.statistics.focusMinutesByDay, [dayKey: 11])
+        XCTAssertEqual(machine.statistics.focusMinutesByDay, [FocusDay.key(for: away): 10])
     }
 
     func testInitFromPersistedDataAppliesLongPauseReset() {
@@ -706,7 +729,7 @@ final class StateMachineTests: XCTestCase {
 
         clock.now = start.addingTimeInterval(5 * 60)
         machine.clock = clock
-        machine.preserveForSleep()
+        machine.beginDowntimeBreak()
 
         // Relaunch hours later: the downtime counts as a taken break.
         let relaunch = FakeClock(now: start.addingTimeInterval(9 * 3600))
@@ -727,17 +750,17 @@ final class StateMachineTests: XCTestCase {
         settings.breakDuration = 2 * 60
         var machine = StateMachine(settings: settings, clock: clock)
 
-        // The app was killed without preserveForSleep(): the persisted state is
-        // still .working with an absolute deadline. Long after that deadline,
-        // restoration starts a fresh cycle.
+        // The app was killed with no heartbeat behind it: the persisted state
+        // is still .working with an absolute deadline. Restoration does not
+        // hand back a fresh cycle — that would be crediting a break nobody
+        // took. The dead deadline simply falls due, and the user gets a break
+        // to confirm like any other.
         clock.now = start.addingTimeInterval(12 * 60)
         machine.clock = clock
         machine.restoreAfterSleep()
 
-        guard case let .working(deadline, _) = machine.runtime.timerState else {
-            return XCTFail("Expected working state")
-        }
-        XCTAssertEqual(deadline.timeIntervalSince(clock.now), 10 * 60, accuracy: 0.1)
+        XCTAssertEqual(machine.tick(), .breakDue)
+        XCTAssertEqual(machine.statistics, .empty)
 
         // A deadline that is not yet stale is left untouched.
         var freshMachine = StateMachine(settings: settings, clock: FakeClock(now: start))
@@ -917,7 +940,11 @@ final class StateMachineTests: XCTestCase {
         XCTAssertEqual(deadline.timeIntervalSince(clock.now), 25 * 60, accuracy: 0.1)
     }
 
-    func testResumeAfterLongPauseStartsFreshCycle() {
+    // "Resume Now" cuts a pause short. It is the user saying they are back, not
+    // that they took a break — so the cycle carries on with its remaining time,
+    // and the paused span is simply excluded from focus. Only the pause running
+    // out to its own end date hands back a fresh cycle.
+    func testResumeNowCarriesTheCycleOnRatherThanRestartingIt() {
         let start = Date(timeIntervalSince1970: 4_100)
         var clock = FakeClock(now: start)
         var settings = AppSettings.defaults
@@ -925,11 +952,11 @@ final class StateMachineTests: XCTestCase {
         settings.breakDuration = 2 * 60
         var machine = StateMachine(settings: settings, clock: clock)
 
-        clock.now = start.addingTimeInterval(5 * 60)
+        let paused = start.addingTimeInterval(5 * 60)
+        clock.now = paused
         machine.clock = clock
         machine.suspend(until: start.addingTimeInterval(12 * 3600))
 
-        // Resuming after a pause at least as long as a break restarts the cycle.
         clock.now = start.addingTimeInterval(20 * 60)
         machine.clock = clock
         machine.resume()
@@ -937,11 +964,14 @@ final class StateMachineTests: XCTestCase {
         guard case let .working(deadline, _) = machine.runtime.timerState else {
             return XCTFail("Expected working state")
         }
-        XCTAssertEqual(deadline.timeIntervalSince(clock.now), 30 * 60, accuracy: 0.1)
-        XCTAssertEqual(machine.runtime.cycleStartDate, clock.now)
-        // The 5 minutes of focus before the pause survive in the day total.
-        let dayKey = FocusDay.key(for: start.addingTimeInterval(5 * 60))
-        XCTAssertEqual(machine.statistics.focusMinutesByDay, [dayKey: 5])
+        // 25 minutes were left when the pause began, and 25 are left now.
+        XCTAssertEqual(deadline.timeIntervalSince(clock.now), 25 * 60, accuracy: 0.1)
+        // The cycle start slid forward by exactly the pause.
+        XCTAssertEqual(
+            machine.runtime.cycleStartDate,
+            start.addingTimeInterval(clock.now.timeIntervalSince(paused))
+        )
+        XCTAssertTrue(machine.statistics.focusMinutesByDay.isEmpty)
         XCTAssertEqual(machine.statistics.completedBreaks, 0)
     }
 
@@ -955,7 +985,7 @@ final class StateMachineTests: XCTestCase {
         let paused = machine.runtime.timerState
 
         // Sleep leaves an active timed pause untouched…
-        machine.preserveForSleep()
+        machine.beginDowntimeBreak()
         XCTAssertEqual(machine.runtime.timerState, paused)
 
         // …and waking before the end date keeps it active.
@@ -1009,14 +1039,19 @@ final class StateMachineTests: XCTestCase {
         XCTAssertEqual(machine.tick(), .breakCompleted)
 
         // Screen saver / lock engages on the completion screen…
-        machine.preserveForSleep()
+        machine.beginDowntimeBreak()
         clock.now = clock.now.addingTimeInterval(2 * 60 + 15)
         machine.clock = clock
         machine.restoreAfterSleep()
 
-        // …and unlocking starts a fresh cycle with everything credited.
+        // …and unlocking changes nothing: the completion screen is still there,
+        // still uncredited. Locking the screen is not clicking Continue.
+        XCTAssertEqual(machine.runtime.timerState, .breakCompleted)
+        XCTAssertEqual(machine.statistics.completedBreaks, 0)
+
+        machine.completeBreak()
         guard case .working = machine.runtime.timerState else {
-            return XCTFail("Expected working state")
+            return XCTFail("Expected working state after Continue")
         }
         XCTAssertEqual(machine.runtime.cycleStartDate, clock.now)
         XCTAssertEqual(machine.statistics.completedBreaks, 1)
@@ -1186,10 +1221,13 @@ final class StateMachineTests: XCTestCase {
 
         clock.now = clock.now.addingTimeInterval(15 * 60)
         machine.clock = clock
-        machine.preserveForSleep()
+        machine.beginDowntimeBreak()
         clock.now = clock.now.addingTimeInterval(3600)
         machine.clock = clock
         machine.restoreAfterSleep()
+        // The downtime started the break; confirming it is what books the cycle.
+        _ = machine.tick()
+        machine.completeBreak()
 
         XCTAssertEqual(machine.statistics.totalFocusMinutes, 45)
         XCTAssertEqual(machine.runtime.taperedFocusSeconds, 45 * 60, accuracy: 0.001)
@@ -1233,7 +1271,7 @@ final class StateMachineTests: XCTestCase {
         XCTAssertEqual(machine.runtime.taperedFocusSeconds, 30 * 60, accuracy: 0.001)
 
         // Lock the screen for 7 hours: the workday is over.
-        machine.preserveForSleep()
+        machine.beginDowntimeBreak()
         clock.now = clock.now.addingTimeInterval(7 * 3600)
         machine.clock = clock
         machine.restoreAfterSleep()
@@ -1262,7 +1300,7 @@ final class StateMachineTests: XCTestCase {
 
         // A 3-hour pause is under the old hardcoded 6 hours but over the
         // configured 2-hour gap, so the day must start over.
-        machine.preserveForSleep()
+        machine.beginDowntimeBreak()
         clock.now = clock.now.addingTimeInterval(3 * 3600)
         machine.clock = clock
         machine.restoreAfterSleep()
@@ -1293,10 +1331,14 @@ final class StateMachineTests: XCTestCase {
         // began the moment the break ended, so the cycle it interrupted holds
         // no focus of its own — the old session counter charged a phantom
         // session here; measuring focus charges nothing.
-        machine.preserveForSleep()
+        machine.beginDowntimeBreak()
         clock.now = clock.now.addingTimeInterval(3600)
         machine.clock = clock
         machine.restoreAfterSleep()
+        // An hour is not the day ending, so the lunch is an ordinary break:
+        // it elapsed while away and still wants its Continue.
+        _ = machine.tick()
+        machine.completeBreak()
 
         XCTAssertEqual(machine.runtime.taperedFocusSeconds, 30 * 60, accuracy: 0.001)
         guard case let .working(deadline, _) = machine.runtime.timerState else {
