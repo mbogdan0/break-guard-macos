@@ -342,10 +342,18 @@ an IOKit `kIOPMAssertionTypePreventUserIdleDisplaySleep` assertion — acquired 
 `showOnAllScreens()`, released at the top of `hideAll()` (unconditional, ahead of the
 empty-window early-out, so a clean quit releases it too). The `.screenSaver` window *level*
 only wins the stacking order; without the assertion the saver still starts and
-`com.apple.screensaver.didstart` freezes the break (see 8.1). Timeout is
-`breakDuration + 5 min` with `kIOPMAssertionTimeoutActionRelease`, insurance behind
-`hideAll()` and IOKit's cleanup on process exit. Display-idle only — lid close, manual lock,
-and system sleep are untouched.
+`com.apple.screensaver.didstart` freezes the break (see 8.1). Display-idle only — lid close,
+manual lock, and system sleep are untouched.
+
+The assertion is **short and renewed**, not open-ended. `kIOPMAssertionTimeoutKey` is
+`breakDuration + 5 min` (floored at 60 s) with `kIOPMAssertionTimeoutActionRelease`, and
+`hold(timeout:)` re-creates it every half-ceiling off the per-second reconcile. A fixed
+timeout does not work here: the completion screen has no upper bound of its own, so the
+assertion expired under a live overlay and the display slept anyway — observed as
+`TimedOut … 00:07:00` in `pmset -g log` with the overlay still on screen. Renewing keeps both
+properties — never lapses while the overlay is up, never outlives a missed teardown by more
+than the ceiling. A failed create clears the held marker so the next tick retries rather than
+believing in an assertion it does not hold.
 
 | Control | Hold | Shown when |
 |---|---|---|
