@@ -356,6 +356,39 @@ final class AppState: ObservableObject {
         save()
     }
 
+    // Harder mode is the switch every other gate hangs from, so leaving it is
+    // gated too — otherwise the cheapest way past a 16-second confirmation is
+    // one click on the Settings tab. Turning it on stays instant.
+    //
+    // The caller writes nothing itself: on Cancel the setting must be exactly
+    // as it was, and the toggle that already drew itself in the off position
+    // has to be told to look again.
+    func setHarderToSkipBreaks(_ enabled: Bool) {
+        guard settings.harderToSkipBreaks != enabled else { return }
+        if enabled {
+            var updated = settings
+            updated.harderToSkipBreaks = true
+            updateSettings(updated)
+            return
+        }
+        let confirmed = confirmHonestly(
+            message: "Turn off Harder to skip breaks? 🛡️",
+            informative: "You switched this on knowing there would be a moment you wanted it gone, and this is that moment. Turning it off gives back every extension, every postponement, and the dimming — all at once. Be honest: has something actually changed, or is this the break you don't want to take?",
+            confirmTitle: "Turn It Off",
+            gate: SkipConfirmGate.disableHarderModeSeconds
+        )
+        guard confirmed else {
+            logger.info("Harder mode kept on after confirmation")
+            // Nothing changed, so nothing publishes on its own.
+            objectWillChange.send()
+            return
+        }
+        logger.info("Harder mode switched off")
+        var updated = settings
+        updated.harderToSkipBreaks = false
+        updateSettings(updated)
+    }
+
     func resetStatistics() {
         machine.statistics = .empty
         statistics = .empty

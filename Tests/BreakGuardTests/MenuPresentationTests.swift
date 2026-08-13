@@ -355,12 +355,29 @@ final class MenuPresentationTests: XCTestCase {
         )
     }
 
-    func testExtendGateButtonTitleDropsTheCountAtZero() {
-        XCTAssertEqual(extendGateButtonTitle("Extend Anyway", remaining: 16), "Extend Anyway (16)")
-        XCTAssertEqual(extendGateButtonTitle("Extend Anyway", remaining: 1), "Extend Anyway (1)")
-        XCTAssertEqual(extendGateButtonTitle("Extend Anyway", remaining: 0), "Extend Anyway")
+    // Leaving harder mode removes every other gate at once, so it is priced
+    // above any single extension — and only below the pause, which silences
+    // the app outright rather than lowering its guard.
+    func testLeavingHarderModeIsGatedAboveAnyExtension() {
+        XCTAssertEqual(SkipConfirmGate.disableHarderModeSeconds, 30)
+        XCTAssertGreaterThan(
+            SkipConfirmGate.disableHarderModeSeconds,
+            SkipConfirmGate.extendLongSeconds
+        )
+        XCTAssertLessThan(
+            SkipConfirmGate.disableHarderModeSeconds,
+            SkipConfirmGate.pauseUntilMorningSeconds
+        )
+    }
+
+    func testGateButtonTitleDropsTheCountAtZero() {
+        XCTAssertEqual(gateButtonTitle("Extend Anyway", remaining: 16), "Extend Anyway (16)")
+        XCTAssertEqual(gateButtonTitle("Extend Anyway", remaining: 1), "Extend Anyway (1)")
+        XCTAssertEqual(gateButtonTitle("Extend Anyway", remaining: 0), "Extend Anyway")
         // A negative count cannot leak into the title if a tick overshoots.
-        XCTAssertEqual(extendGateButtonTitle("Extend Anyway", remaining: -1), "Extend Anyway")
+        XCTAssertEqual(gateButtonTitle("Extend Anyway", remaining: -1), "Extend Anyway")
+        // Shared with every other gated confirmation, not just the extension.
+        XCTAssertEqual(gateButtonTitle("Turn It Off", remaining: 30), "Turn It Off (30)")
     }
 
     func testBreakPromptCatalogContainsTenUniqueMessages() {

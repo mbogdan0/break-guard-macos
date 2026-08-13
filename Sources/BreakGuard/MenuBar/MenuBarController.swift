@@ -295,52 +295,6 @@ final class MenuBarController: NSObject, NSMenuDelegate, NSMenuItemValidation {
         appState.takeBreakNow()
     }
 
-    // All confirmations share one voice: two sentences that appeal to the
-    // user's honesty about their own health, with the safe choice as Cancel.
-    //
-    // `gate` holds the confirm button disabled for that many seconds, counting
-    // down on the button itself. Cancel stays live throughout — the gate is on
-    // the choice the app wants reconsidered, never on backing out.
-    private func confirmHonestly(
-        message: String,
-        informative: String,
-        confirmTitle: String,
-        gate: TimeInterval? = nil
-    ) -> Bool {
-        NSApp.activate(ignoringOtherApps: true)
-        let alert = NSAlert()
-        alert.messageText = message
-        alert.informativeText = informative
-        alert.alertStyle = .informational
-        alert.addButton(withTitle: confirmTitle)
-        alert.addButton(withTitle: "Cancel")
-        let countdown = gate.map { startGateCountdown(on: alert.buttons[0], title: confirmTitle, seconds: $0) }
-        defer { countdown?.invalidate() }
-        return alert.runModal() == .alertFirstButtonReturn
-    }
-
-    // Disables the button and counts it down to zero. The timer is added to
-    // `.modalPanel` explicitly: `NSAlert.runModal()` does not run the default
-    // run loop mode, so a `Timer.scheduledTimer` here would never fire and the
-    // button would stay disabled forever. A disabled default button also
-    // ignores Return, which is the whole point of the gate.
-    private func startGateCountdown(on button: NSButton, title: String, seconds: TimeInterval) -> Timer {
-        var remaining = max(1, Int(seconds.rounded()))
-        button.isEnabled = false
-        button.title = extendGateButtonTitle(title, remaining: remaining)
-        let timer = Timer(timeInterval: 1, repeats: true) { timer in
-            MainActor.assumeIsolated {
-                remaining -= 1
-                button.title = extendGateButtonTitle(title, remaining: remaining)
-                guard remaining <= 0 else { return }
-                button.isEnabled = true
-                timer.invalidate()
-            }
-        }
-        RunLoop.main.add(timer, forMode: .modalPanel)
-        return timer
-    }
-
     @objc private func justTookBreak() {
         let confirmed = confirmHonestly(
             message: "Did you really take a break? 👀",
@@ -424,13 +378,6 @@ final class MenuBarController: NSObject, NSMenuDelegate, NSMenuItemValidation {
             NSApp.terminate(nil)
         }
     }
-}
-
-// The confirm button's title while its gate runs. Parenthesised seconds, and
-// the bare title once the count reaches zero — the enabled button should read
-// exactly as it always has, with no leftover "(0)" to click past.
-func extendGateButtonTitle(_ base: String, remaining: Int) -> String {
-    remaining > 0 ? "\(base) (\(remaining))" : base
 }
 
 func makeExtendFocusTitle(

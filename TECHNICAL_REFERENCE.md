@@ -327,6 +327,7 @@ invalidated in a `defer` after `runModal()` returns.
 | `SkipConfirmGate.extendLongSeconds` | **16** |
 | `SkipConfirmGate.extendShortThresholdMinutes` | **15**, inclusive |
 | `SkipConfirmGate.pauseUntilMorningSeconds` | **40** |
+| `SkipConfirmGate.disableHarderModeSeconds` | **30** (Settings ▸ General toggle, off direction only) |
 
 Each extend option's title is rebuilt on every **applied** presentation update with the
 resulting end time appended in grey: `deadline + minutes × 60` (`:332-351`). Falls back to
@@ -473,6 +474,19 @@ System, Statistics, About.
 | Action | Scope | Confirmation |
 |---|---|---|
 | **Restore Defaults…** (General ▸ Advanced) | all 16 settings, all tabs | `.confirmationDialog`, destructive role (`GeneralSettingsView.swift:71`, `:94-100`) |
+| **Harder to skip breaks** toggle, **off** direction | one setting | `confirmHonestly` gated **30 s** (`AppState.setHarderToSkipBreaks`) |
+| **Harder to skip breaks** toggle, **on** direction | one setting | none — friction belongs on the way out |
+
+`setHarderToSkipBreaks` writes nothing on Cancel and calls `objectWillChange.send()` so the
+toggle, which already drew itself in the off position, re-reads the unchanged value. The alert
+is dispatched via `DispatchQueue.main.async` from the binding setter: `runModal()` spins a
+nested run loop, and entering one from inside a SwiftUI binding setter re-enters the view
+update still in progress.
+
+**Known gap:** **Restore Defaults** writes `AppSettings.defaults` wholesale, which includes
+`harderToSkipBreaks = false`, so it turns harder mode off without the 30 s gate. It is behind
+its own destructive confirmation and costs every other setting on every tab, which makes it a
+poor way to dodge a single break — but it is a way.
 | **Reset Statistics…** (Statistics) | statistics only | `.confirmationDialog`, destructive role (`StatisticsSettingsView.swift:47-54`) |
 | **Send Test Notification** (System) | one notification | none; disabled unless `canSendTest` (`SystemSettingsView.swift:26`) |
 

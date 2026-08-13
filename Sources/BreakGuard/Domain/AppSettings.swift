@@ -150,6 +150,10 @@ enum SkipConfirmGate {
     // reminder until the morning — the largest single thing the app can be
     // told to stop doing.
     static let pauseUntilMorningSeconds: TimeInterval = 40
+    // Switching harder mode off is the move that removes every other gate at
+    // once, so it is the one gate that has to survive its own removal. Turning
+    // it *on* is never gated — friction belongs on the way out, not in.
+    static let disableHarderModeSeconds: TimeInterval = 30
 
     // Nil means no gate.
     static func extendSeconds(forMinutes minutes: Double, harderToSkipBreaks: Bool) -> TimeInterval? {

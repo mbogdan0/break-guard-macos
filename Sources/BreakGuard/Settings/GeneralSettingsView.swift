@@ -33,7 +33,7 @@ struct GeneralSettingsView: View {
             }
 
             Section {
-                Toggle("Harder to skip breaks", isOn: appState.settingBinding(\.harderToSkipBreaks))
+                Toggle("Harder to skip breaks", isOn: harderToSkipBreaksBinding)
                 SettingsStatusRow(
                     title: "Emergency override",
                     systemImage: "exclamationmark.shield",
@@ -108,6 +108,21 @@ struct GeneralSettingsView: View {
         } message: {
             Text("This resets every setting on every tab: timing, focus pace, skip policy, working hours, notifications, and menu bar options. Statistics and the emergency override quota are not affected.")
         }
+    }
+
+    // Not settingBinding: switching harder mode off asks first, behind a
+    // countdown. The alert is dispatched rather than run inline because
+    // runModal() spins a nested run loop, and doing that from inside a binding
+    // setter re-enters the SwiftUI update that is still in progress.
+    private var harderToSkipBreaksBinding: Binding<Bool> {
+        Binding(
+            get: { appState.settings.harderToSkipBreaks },
+            set: { newValue in
+                DispatchQueue.main.async {
+                    appState.setHarderToSkipBreaks(newValue)
+                }
+            }
+        )
     }
 
     private var advancedHeader: some View {
