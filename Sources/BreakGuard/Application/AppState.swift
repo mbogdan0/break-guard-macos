@@ -111,6 +111,11 @@ final class AppState: ObservableObject {
     private var overlayManager: OverlayScreenManager?
     private var nudgeManager: NudgeWindowManager?
     private var settingsWindow: NSWindow?
+    // What the settings were when the pane was opened, so closing it can charge
+    // for the net loosening rather than for every stepper click on the way.
+    private var settingsSnapshot: AppSettings?
+    // Quitting must never stop to argue about settings.
+    private var isTerminating = false
     // When the dismissed nudge card is allowed back. In memory by design, like
     // the camera-hold edge below: a relaunch showing the card again is the
     // correct answer, not a bug — the pressure never went away.
@@ -173,6 +178,7 @@ final class AppState: ObservableObject {
 
     func stop() {
         logger.info("Application stopping")
+        isTerminating = true
         uiTimer?.invalidate()
         // Deliberately nothing about breaks here. Quitting is not the screen
         // going away, and the heartbeat already records where watching stopped
@@ -316,6 +322,11 @@ final class AppState: ObservableObject {
     func showSettings() {
         refreshNotificationStatus()
         refreshLoginStatus()
+        // One snapshot per visit, not per open call: bringing an already-open
+        // window forward must not silently forgive the edits made so far.
+        if settingsWindow?.isVisible != true {
+            settingsSnapshot = settings
+        }
         if let settingsWindow {
             settingsWindow.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
@@ -335,7 +346,41 @@ final class AppState: ObservableObject {
         window.isReleasedWhenClosed = false
         window.makeKeyAndOrderFront(nil)
         settingsWindow = window
+        // Registered once, on the single window this app ever builds — it is
+        // reused across opens rather than rebuilt, so this cannot stack.
+        NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.confirmSettingsVisit() }
+        }
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    // Harder mode charges for a trip to the settings pane, once, on the net
+    // difference. Edits still apply as they are made — gating each write would
+    // open a dialog per stepper click — and Cancel puts the whole visit back.
+    private func confirmSettingsVisit() {
+        guard !isTerminating, let snapshot = settingsSnapshot else { return }
+        settingsSnapshot = nil
+        // Harder mode at either end of the visit is what makes this worth
+        // charging for: on at the start catches the pane being used to switch
+        // it off and loosen everything else in one trip.
+        guard snapshot.harderToSkipBreaks || settings.harderToSkipBreaks,
+              settings.weakensGuard(comparedTo: snapshot) else { return }
+        let confirmed = confirmHonestly(
+            message: "Keep the settings you just loosened? ⚙️",
+            informative: "You gave yourself more room in there — a longer stretch before the next break, a shorter one when it arrives, or one less thing watching. That is allowed, and it is also exactly what the tired end of a long day asks for. Be honest about which of the two this is; Cancel puts everything back the way you found it.",
+            confirmTitle: "Keep Them",
+            gate: SkipConfirmGate.loosenSettingsSeconds
+        )
+        guard !confirmed else {
+            logger.info("Loosened settings kept after confirmation")
+            return
+        }
+        logger.info("Loosened settings reverted after confirmation")
+        updateSettings(snapshot)
     }
 
     func updateSettings(_ updated: AppSettings) {

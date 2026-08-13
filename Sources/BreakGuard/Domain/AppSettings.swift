@@ -154,6 +154,10 @@ enum SkipConfirmGate {
     // once, so it is the one gate that has to survive its own removal. Turning
     // it *on* is never gated — friction belongs on the way out, not in.
     static let disableHarderModeSeconds: TimeInterval = 30
+    // Charged once per visit to the settings pane, on the net loosening. A
+    // separate constant from the one above even though they currently match:
+    // they price different decisions and should be free to diverge.
+    static let loosenSettingsSeconds: TimeInterval = 30
 
     // Nil means no gate.
     static func extendSeconds(forMinutes minutes: Double, harderToSkipBreaks: Bool) -> TimeInterval? {

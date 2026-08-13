@@ -483,10 +483,49 @@ is dispatched via `DispatchQueue.main.async` from the binding setter: `runModal(
 nested run loop, and entering one from inside a SwiftUI binding setter re-enters the view
 update still in progress.
 
-**Known gap:** **Restore Defaults** writes `AppSettings.defaults` wholesale, which includes
-`harderToSkipBreaks = false`, so it turns harder mode off without the 30 s gate. It is behind
-its own destructive confirmation and costs every other setting on every tab, which makes it a
-poor way to dodge a single break — but it is a way.
+#### The settings-visit gate
+
+`AppState.showSettings` snapshots `settings` at the start of each **visit** (only when the
+window is not already visible, so bringing an open window forward does not forgive the edits
+made so far). A `NSWindow.willCloseNotification` observer on the single, reused settings window
+calls `confirmSettingsVisit()`.
+
+| Step | Behaviour |
+|---|---|
+| Trigger | settings window closing, and `isTerminating == false` — quitting never stops to argue |
+| Applies when | `snapshot.harderToSkipBreaks \|\| settings.harderToSkipBreaks` |
+| Charged on | `settings.weakensGuard(comparedTo: snapshot)` — the **net** difference, once per visit |
+| Gate | **30 s** (`SkipConfirmGate.loosenSettingsSeconds`) |
+| Cancel | `updateSettings(snapshot)` — the whole visit is reverted, `launchAtLogin` included |
+
+Edits still apply live as they are made. Gating each write instead would open a dialog per
+stepper click (`secondsBinding` fires once per 60 s nudge, `timeOfDayBinding` once per
+`DatePicker` component change), and would charge the same for tightening as for loosening,
+which teaches the user to stay out of the pane entirely.
+
+`weakensGuard` (`Domain/SettingsGuard.swift`) is pure and fully tested
+(`Tests/BreakGuardTests/SettingsGuardTests.swift`), stated in both directions per field:
+
+| Weakens | Tightens | Excluded |
+|---|---|---|
+| longer `workInterval`, shorter `breakDuration` | the reverse | `warningLeadTime` — the break still lands at the same moment |
+| longer `firstPostponeDuration` / `secondPostponeDuration` | the reverse | `notificationSound` |
+| looser `focusPace.guardRank` (`moreBreaks` 0 → `tapering` 1 → `normal` 2 → `deepFocus` 3) | stricter rank | `showSecondsInMenuBar`, `coarseSecondsInMenuBar` |
+| shorter `taperingResetGap` | longer | `harderToSkipBreaks` — gated at its own toggle |
+| `holdBreaksWhileOnCamera` off → on | on → off | |
+| `launchAtLogin` on → off | | |
+| `workingHoursEnabled` off, or a range `widens` | narrower range | |
+| `scheduledBreak` off, or the range `narrows` | longer window | |
+
+`guardRank` exists because `workIntervalMultiplier` cannot express this: `.tapering` and
+`.normal` share **1.0**, but tapering shortens every window as the day accumulates, so leaving
+it is a loosening the multiplier alone cannot see.
+
+**Restore Defaults** is covered by this gate rather than exempt from it: it writes
+`AppSettings.defaults` wholesale from inside an open settings window, so the visit diff sees
+every field it reset. The residual gap is narrow — if the user's settings happened to be looser
+than the defaults in every compared field, the visit does not weaken anything and
+`harderToSkipBreaks = false` rides along uncharged.
 | **Reset Statistics…** (Statistics) | statistics only | `.confirmationDialog`, destructive role (`StatisticsSettingsView.swift:47-54`) |
 | **Send Test Notification** (System) | one notification | none; disabled unless `canSendTest` (`SystemSettingsView.swift:26`) |
 
