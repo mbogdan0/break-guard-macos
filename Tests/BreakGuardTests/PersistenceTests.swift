@@ -72,6 +72,7 @@ final class PersistenceTests: XCTestCase {
         settings.removeValue(forKey: "weekdayWorkingHours")
         settings.removeValue(forKey: "weekendWorkingHours")
         settings.removeValue(forKey: "harderToSkipBreaks")
+        settings.removeValue(forKey: "scheduledBreak")
         object["settings"] = settings
         try FileManager.default.createDirectory(
             at: location.deletingLastPathComponent(), withIntermediateDirectories: true
@@ -87,6 +88,25 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(loaded.settings.weekdayWorkingHours, WorkingHoursRange(enabled: true))
         XCTAssertEqual(loaded.settings.weekendWorkingHours, WorkingHoursRange(enabled: false))
         XCTAssertFalse(loaded.settings.harderToSkipBreaks)
+        XCTAssertEqual(loaded.settings.scheduledBreak, AppSettings.defaults.scheduledBreak)
+    }
+
+    func testScheduledBreakWindowRoundTrips() throws {
+        let location = temporaryStateURL()
+        defer { try? FileManager.default.removeItem(at: location.deletingLastPathComponent()) }
+        let store = PersistenceStore(fileURL: location)
+        var machine = StateMachine(clock: FakeClock(now: Date(timeIntervalSince1970: 9_200)))
+        machine.settings.scheduledBreak = WorkingHoursRange(
+            enabled: true, startMinutes: 13 * 60, endMinutes: 13 * 60 + 45
+        )
+
+        store.save(machine.data)
+        let loaded = try XCTUnwrap(store.load())
+
+        XCTAssertEqual(
+            loaded.settings.scheduledBreak,
+            WorkingHoursRange(enabled: true, startMinutes: 13 * 60, endMinutes: 13 * 60 + 45)
+        )
     }
 
     func testFocusExtendedAndWorkingHoursRoundTrip() throws {

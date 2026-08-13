@@ -79,6 +79,10 @@ final class AppState: ObservableObject {
     @Published var taperedFocusSeconds: TimeInterval = 0
     // True while the weekly emergency override can be spent on this break.
     @Published var canUseEmergencyOverride = false
+    // Why the screen is currently dimmed, if it is. Nil means no pressure.
+    @Published var pressureReason: PressureReason?
+    // Whether the same weekly quota can still be spent from the nudge card.
+    @Published var canSpendOverrideOnPressure = true
     // When the override becomes available again; nil while never used.
     @Published var emergencyOverrideAvailableAt: Date?
     // Whether the overlay's emergency disclosure is open. Lives here, not in
@@ -105,7 +109,12 @@ final class AppState: ObservableObject {
     private var machine: StateMachine
     private var uiTimer: Timer?
     private var overlayManager: OverlayScreenManager?
+    private var nudgeManager: NudgeWindowManager?
     private var settingsWindow: NSWindow?
+    // When the dismissed nudge card is allowed back. In memory by design, like
+    // the camera-hold edge below: a relaunch showing the card again is the
+    // correct answer, not a bug — the pressure never went away.
+    private var nudgeCardHiddenUntil: Date?
     // Camera-in-use flag from CameraUsageMonitor.
     private var cameraActive = false
     // Engagement from the previous tick, to catch the transitions: engaging
@@ -144,12 +153,14 @@ final class AppState: ObservableObject {
         self.canExtendFocus = machine.canExtendFocus
         self.taperedFocusSeconds = machine.runtime.taperedFocusSeconds
         self.canUseEmergencyOverride = machine.canUseEmergencyOverride
+        self.canSpendOverrideOnPressure = machine.canSpendOverrideOnPressure
         self.emergencyOverrideAvailableAt = machine.emergencyOverrideAvailableAt
     }
 
     func start() {
         logger.info("Application launch")
         overlayManager = OverlayScreenManager(appState: self)
+        nudgeManager = NudgeWindowManager(appState: self)
         notifications.configure()
         notifications.requestAuthorizationIfNeeded()
         refreshNotificationStatus()
@@ -170,6 +181,7 @@ final class AppState: ObservableObject {
         publish()
         notifications.cancelWarning()
         overlayManager?.hideAll()
+        nudgeManager?.hideAll()
         save()
     }
 
@@ -234,6 +246,23 @@ final class AppState: ObservableObject {
         publishAndReconcile()
     }
 
+    // Same weekly quota as the break overlay's override, spent from the nudge
+    // card instead. It buys quiet only: no break is skipped and the countdown
+    // is untouched, so nothing is recorded against the streak.
+    func spendPressureOverride() {
+        machine.spendOverrideOnPressure()
+        logger.info("Weekly emergency override spent on break pressure")
+        publishAndReconcile()
+    }
+
+    // Closing the card buys BreakPressure.cardReturnInterval of quiet from the
+    // card alone. The veil stays — the card is the part with a dismiss.
+    func dismissNudgeCard() {
+        nudgeCardHiddenUntil = machine.clock.now.addingTimeInterval(BreakPressure.cardReturnInterval)
+        logger.info("Nudge card dismissed")
+        reconcilePressure()
+    }
+
     func sendTestNotification() {
         notificationTestMessage = "Scheduling test notification…"
         notifications.sendTestNotification(settings: settings) { [weak self] result in
@@ -273,8 +302,12 @@ final class AppState: ObservableObject {
         )
     }
 
-    func pauseUntilNextMorning() {
-        guard let until = nextMorningResumeDate() else { return }
+    // The caller may pass the date it already showed the user. With harder
+    // mode's 40-second gate on the confirmation, recomputing here can land on
+    // the far side of 9 AM and pause until *tomorrow* after promising today —
+    // a narrow window, but the dialog's promise is the one that must hold.
+    func pauseUntilNextMorning(until promised: Date? = nil) {
+        guard let until = promised ?? nextMorningResumeDate() else { return }
         machine.suspend(until: until)
         logger.info("Paused until next morning")
         publishAndReconcile()
@@ -493,6 +526,7 @@ final class AppState: ObservableObject {
         setIfChanged(\.canExtendFocus, machine.canExtendFocus)
         setIfChanged(\.taperedFocusSeconds, machine.runtime.taperedFocusSeconds)
         setIfChanged(\.canUseEmergencyOverride, machine.canUseEmergencyOverride)
+        setIfChanged(\.canSpendOverrideOnPressure, machine.canSpendOverrideOnPressure)
         setIfChanged(\.emergencyOverrideAvailableAt, machine.emergencyOverrideAvailableAt)
         setIfChanged(\.isCameraHoldActive, machine.isCameraHoldEngaged)
         // The disclosure belongs to one break: collapse it once that break is
@@ -544,11 +578,44 @@ final class AppState: ObservableObject {
             overlayManager?.hideAll()
             notifications.cancelWarning()
         }
+        reconcilePressure()
         // Polling notification settings is an XPC round-trip; the status label
         // only needs to stay live while someone can actually see it.
         if settingsWindow?.isVisible == true {
             refreshNotificationStatus()
         }
+    }
+
+    // Runs on every tick for as long as the pressure does, which can be a whole
+    // evening, so the manager below is written to cost nothing when nothing
+    // changed — see NudgeWindowManager.
+    private func reconcilePressure() {
+        let now = machine.clock.now
+        let reason = settings.pressureReason(at: now)
+        // The satisfaction rule only exists for the scheduled break: a break
+        // taken inside the window is the window's whole purpose. Outside
+        // working hours a two-minute break settles nothing.
+        let window = reason == .scheduledBreak
+            ? settings.scheduledBreakWindow(containing: now)
+            : nil
+        guard let reason, !machine.isPressureSuppressed(satisfiedWindow: window) else {
+            setIfChanged(\.pressureReason, nil)
+            // A dismissal belongs to the episode it was made in. Once the
+            // pressure lifts — a break, a call, the end of the window — the
+            // next one starts with the card up rather than serving out the
+            // remainder of a two-minute silence nobody remembers asking for.
+            nudgeCardHiddenUntil = nil
+            nudgeManager?.hideAll()
+            return
+        }
+        setIfChanged(\.pressureReason, reason)
+        if let hiddenUntil = nudgeCardHiddenUntil, now >= hiddenUntil {
+            nudgeCardHiddenUntil = nil
+        }
+        nudgeManager?.show(
+            makeNudgePresentation(reason: reason, windowEnd: window?.end),
+            showCard: nudgeCardHiddenUntil == nil
+        )
     }
 
     private func save() {

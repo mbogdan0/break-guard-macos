@@ -29,13 +29,20 @@ enum FocusPace: String, Codable, CaseIterable {
     // Tapering shortens the focus window as fatigue accumulates. The measure
     // is time actually focused, not sessions completed: a session counter
     // rewards anyone who takes several short manual breaks in a row, since
-    // each one closes a cycle. One accumulated focus minute costs 1.1 seconds
-    // off the next window, so an 8-hour day trims a 30-minute window to ~21.
-    static let taperingSecondsPerFocusMinute = 1.1
+    // each one closes a cycle. One accumulated focus minute costs 1.2 seconds
+    // off the next window, so an 8-hour day trims a 30-minute window to ~20.
+    static let taperingSecondsPerFocusMinute = 1.2
 
-    // Non-configurable safety stop. The linear rule has no asymptote, so
-    // without a bottom a long enough day — or a very short work interval —
-    // would drive the window toward zero and fire breaks back to back.
+    // The most tapering may ever take off a window, reached after 10 hours of
+    // accumulated focus. Past that the day is already long enough that
+    // shortening the window further would only stack breaks on breaks, and the
+    // rule stops being about fatigue and starts being about attrition.
+    static let taperingMaximumPenalty: TimeInterval = 12 * 60
+
+    // Non-configurable safety stop, and not made redundant by the penalty cap
+    // above: the cap bounds what is subtracted, this bounds what is left. A
+    // short enough work interval still lands under it — anything below
+    // taperingMaximumPenalty + this would otherwise fire breaks back to back.
     static let taperingMinimumInterval: TimeInterval = 10 * 60
 
     // A gap that crosses into a new local day ends the tapering day well before
@@ -46,11 +53,11 @@ enum FocusPace: String, Codable, CaseIterable {
     // mistaken for a new day.
     static let taperingOvernightGap: TimeInterval = 3 * 60 * 60
 
-    // Past this the penalty already exceeds the longest configurable window,
-    // so further accumulation cannot change the outcome. Capping is not just
-    // tidiness: the total is persisted as a JSON number, JSONEncoder throws on
-    // infinity and NaN, and PersistenceStore.save() only logs that throw — a
-    // poisoned value would silently freeze every future write.
+    // A bound on the accumulator itself, not on its effect — the penalty cap
+    // already makes anything past 10 hours indistinguishable. This one is
+    // about storage: the total is persisted as a JSON number, JSONEncoder
+    // throws on infinity and NaN, and PersistenceStore.save() only logs that
+    // throw — a poisoned value would silently freeze every future write.
     static let taperingFocusCeiling = TimeInterval(SettingsRange.workInterval.upperBound) * 60
 
     // Rejects NaN as well: every comparison against NaN is false, so it falls
@@ -60,8 +67,14 @@ enum FocusPace: String, Codable, CaseIterable {
         return min(seconds, taperingFocusCeiling)
     }
 
+    // The cap is applied here rather than at the call site so no caller can
+    // reconstruct the uncapped figure — the settings pane reports this number
+    // to the user, and it has to be the one the interval math actually used.
     static func taperingPenalty(forFocus focusSeconds: TimeInterval) -> TimeInterval {
-        sanitizedTaperedFocus(focusSeconds) / 60 * taperingSecondsPerFocusMinute
+        min(
+            sanitizedTaperedFocus(focusSeconds) / 60 * taperingSecondsPerFocusMinute,
+            taperingMaximumPenalty
+        )
     }
 }
 
@@ -121,6 +134,34 @@ enum PostponeHoldTier: Equatable {
     case repeated
 }
 
+// In harder mode the actions that skip or silence rest go through a
+// confirmation whose confirm button stays disabled for a fixed count, shown in
+// parentheses on the button itself. The point is not the wait but the reflex it
+// breaks: a dialog whose default button is already under the pointer is
+// dismissed before the question is read. Outside harder mode nothing here
+// applies and every dialog behaves as it always has.
+enum SkipConfirmGate {
+    static let extendShortSeconds: TimeInterval = 8
+    static let extendLongSeconds: TimeInterval = 16
+    // At or under this the shorter gate applies. The short extension is the
+    // one that still resembles a decision rather than a whole afternoon.
+    static let extendShortThresholdMinutes: Double = 15
+    // Much longer than any extension's, because this one silences every
+    // reminder until the morning — the largest single thing the app can be
+    // told to stop doing.
+    static let pauseUntilMorningSeconds: TimeInterval = 40
+
+    // Nil means no gate.
+    static func extendSeconds(forMinutes minutes: Double, harderToSkipBreaks: Bool) -> TimeInterval? {
+        guard harderToSkipBreaks else { return nil }
+        return minutes <= extendShortThresholdMinutes ? extendShortSeconds : extendLongSeconds
+    }
+
+    static func pauseSeconds(harderToSkipBreaks: Bool) -> TimeInterval? {
+        harderToSkipBreaks ? pauseUntilMorningSeconds : nil
+    }
+}
+
 struct AppSettings: Codable, Equatable {
     var workInterval: TimeInterval = 30 * 60
     var focusPace: FocusPace = .normal
@@ -135,6 +176,14 @@ struct AppSettings: Codable, Equatable {
     var workingHoursEnabled: Bool = false
     var weekdayWorkingHours = WorkingHoursRange(enabled: true)
     var weekendWorkingHours = WorkingHoursRange(enabled: false)
+    // The daily rest window. Weekdays only, deliberately not configurable:
+    // a scheduled break that can be moved to the weekend is a break nobody
+    // takes. Pressure only runs while harderToSkipBreaks is on.
+    var scheduledBreak = WorkingHoursRange(
+        enabled: false,
+        startMinutes: 15 * 60 + 30,
+        endMinutes: 16 * 60
+    )
     // A gap this long without focus means the workday ended: tapering
     // starts over and sessions run at full length again.
     var taperingResetGap: TimeInterval = 6 * 60 * 60
@@ -183,6 +232,7 @@ struct AppSettings: Codable, Equatable {
         warningLeadTime = min(warningLeadTime, workInterval)
         weekdayWorkingHours.clamp()
         weekendWorkingHours.clamp()
+        scheduledBreak.clamp()
         let gapRange = (SettingsRange.taperingResetGapHours.lowerBound * 3600)...(SettingsRange.taperingResetGapHours.upperBound * 3600)
         taperingResetGap = clampSeconds(taperingResetGap, to: gapRange)
     }
@@ -199,7 +249,8 @@ extension AppSettings {
              firstPostponeDuration, secondPostponeDuration, notificationSound,
              launchAtLogin, showSecondsInMenuBar, coarseSecondsInMenuBar,
              workingHoursEnabled, weekdayWorkingHours, weekendWorkingHours,
-             taperingResetGap, harderToSkipBreaks, holdBreaksWhileOnCamera
+             scheduledBreak, taperingResetGap, harderToSkipBreaks,
+             holdBreaksWhileOnCamera
     }
 
     init(from decoder: Decoder) throws {
@@ -218,6 +269,7 @@ extension AppSettings {
         workingHoursEnabled = try container.decodeIfPresent(Bool.self, forKey: .workingHoursEnabled) ?? defaults.workingHoursEnabled
         weekdayWorkingHours = try container.decodeIfPresent(WorkingHoursRange.self, forKey: .weekdayWorkingHours) ?? defaults.weekdayWorkingHours
         weekendWorkingHours = try container.decodeIfPresent(WorkingHoursRange.self, forKey: .weekendWorkingHours) ?? defaults.weekendWorkingHours
+        scheduledBreak = try container.decodeIfPresent(WorkingHoursRange.self, forKey: .scheduledBreak) ?? defaults.scheduledBreak
         taperingResetGap = try container.decodeIfPresent(TimeInterval.self, forKey: .taperingResetGap) ?? defaults.taperingResetGap
         harderToSkipBreaks = try container.decodeIfPresent(Bool.self, forKey: .harderToSkipBreaks) ?? defaults.harderToSkipBreaks
         holdBreaksWhileOnCamera = try container.decodeIfPresent(Bool.self, forKey: .holdBreaksWhileOnCamera) ?? defaults.holdBreaksWhileOnCamera

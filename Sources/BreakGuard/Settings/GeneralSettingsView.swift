@@ -42,7 +42,7 @@ struct GeneralSettingsView: View {
             } header: {
                 Text("Skipping Breaks")
             } footer: {
-                Text("Harder mode allows one Extend Focus or postponement per cycle. The override, at the foot of a break overlay, buys \(formatDurationPhrase(EmergencyOverride.focusGrant)) once every 7 days.")
+                Text("Harder mode allows one Extend Focus or postponement per cycle. Every Extend Focus first has to sit through a confirmation whose button stays disabled for \(Int(SkipConfirmGate.extendShortSeconds))–\(Int(SkipConfirmGate.extendLongSeconds)) seconds, and Pause Until 9 AM for \(Int(SkipConfirmGate.pauseUntilMorningSeconds)). It also turns on the scheduled break and after-hours dimming set up on the Schedule tab. The override, at the foot of a break overlay or on a dimming reminder, buys \(formatDurationPhrase(EmergencyOverride.focusGrant)) once every 7 days.")
                     .foregroundStyle(.secondary)
             }
 
@@ -200,7 +200,8 @@ struct GeneralSettingsView: View {
             let after8h = formatDurationPhrase((tapered / 60).rounded() * 60)
             pace = "Every focused minute trims "
                 + "\(FocusPace.taperingSecondsPerFocusMinute) seconds off the next window — "
-                + "\(effective) becomes about \(after8h) after an 8-hour day."
+                + "\(effective) becomes about \(after8h) after an 8-hour day. "
+                + "Never more than \(formatDurationPhrase(FocusPace.taperingMaximumPenalty)) in total."
         }
         return pace + " Applies from the next cycle."
     }

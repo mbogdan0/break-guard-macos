@@ -96,10 +96,10 @@ final class AppSettingsTests: XCTestCase {
 
     // The one place the actual rate is pinned to literals.
     func testTaperingPenaltyScalesWithFocusMinutes() {
-        XCTAssertEqual(FocusPace.taperingSecondsPerFocusMinute, 1.1)
+        XCTAssertEqual(FocusPace.taperingSecondsPerFocusMinute, 1.2)
         XCTAssertEqual(FocusPace.taperingPenalty(forFocus: 0), 0)
-        XCTAssertEqual(FocusPace.taperingPenalty(forFocus: 30 * 60), 33, accuracy: 0.001)
-        XCTAssertEqual(FocusPace.taperingPenalty(forFocus: 8 * 3600), 528, accuracy: 0.001)
+        XCTAssertEqual(FocusPace.taperingPenalty(forFocus: 30 * 60), 36, accuracy: 0.001)
+        XCTAssertEqual(FocusPace.taperingPenalty(forFocus: 8 * 3600), 576, accuracy: 0.001)
         // Linear, so twice the focus is exactly twice the penalty.
         XCTAssertEqual(
             FocusPace.taperingPenalty(forFocus: 2 * 3600),
@@ -122,27 +122,46 @@ final class AppSettingsTests: XCTestCase {
 
         settings.focusPace = .tapering
         XCTAssertEqual(settings.effectiveWorkInterval(taperedFocus: 0), 30 * 60)
-        // One 30-minute window banked costs the next one 33 seconds.
+        // One 30-minute window banked costs the next one 36 seconds.
         XCTAssertEqual(
             settings.effectiveWorkInterval(taperedFocus: 30 * 60),
-            30 * 60 - 33,
+            30 * 60 - 36,
             accuracy: 0.001
         )
-        // An 8-hour day lands a 30-minute window at about 21 minutes.
+        // An 8-hour day lands a 30-minute window at about 20 minutes.
         XCTAssertEqual(
             settings.effectiveWorkInterval(taperedFocus: 8 * 3600),
-            1272,
+            1224,
             accuracy: 0.001
         )
     }
 
-    func testTaperingNeverFallsBelowTheSafetyBottom() {
+    // The penalty stops growing at 12 minutes, reached after 10 hours of
+    // accumulated focus. Past that, more focus cannot shorten the window
+    // further however long the day runs.
+    func testTaperingPenaltyStopsAtTheCap() {
+        XCTAssertEqual(FocusPace.taperingMaximumPenalty, 12 * 60)
+        // One minute under the cap is still linear.
+        XCTAssertEqual(FocusPace.taperingPenalty(forFocus: 599 * 60), 718.8, accuracy: 0.001)
+        XCTAssertEqual(FocusPace.taperingPenalty(forFocus: 600 * 60), 12 * 60, accuracy: 0.001)
+        XCTAssertEqual(FocusPace.taperingPenalty(forFocus: 100 * 3600), 12 * 60, accuracy: 0.001)
+        XCTAssertEqual(FocusPace.taperingPenalty(forFocus: .infinity), 12 * 60, accuracy: 0.001)
+
         var settings = AppSettings.defaults
         settings.workInterval = 30 * 60
         settings.focusPace = .tapering
+        // So a 30-minute window bottoms out at 18, not at the safety floor.
+        XCTAssertEqual(settings.effectiveWorkInterval(taperedFocus: 100 * 3600), 18 * 60)
+    }
+
+    func testTaperingNeverFallsBelowTheSafetyBottom() {
+        var settings = AppSettings.defaults
+        settings.focusPace = .tapering
         XCTAssertEqual(FocusPace.taperingMinimumInterval, 10 * 60)
 
-        // 100 hours of focus would drive the raw formula far below zero.
+        // The floor only binds under taperingMaximumPenalty + itself (22 min);
+        // a 15-minute window minus the full 12-minute penalty would leave 3.
+        settings.workInterval = 15 * 60
         XCTAssertEqual(
             settings.effectiveWorkInterval(taperedFocus: 100 * 3600),
             FocusPace.taperingMinimumInterval

@@ -297,7 +297,16 @@ final class MenuBarController: NSObject, NSMenuDelegate, NSMenuItemValidation {
 
     // All confirmations share one voice: two sentences that appeal to the
     // user's honesty about their own health, with the safe choice as Cancel.
-    private func confirmHonestly(message: String, informative: String, confirmTitle: String) -> Bool {
+    //
+    // `gate` holds the confirm button disabled for that many seconds, counting
+    // down on the button itself. Cancel stays live throughout — the gate is on
+    // the choice the app wants reconsidered, never on backing out.
+    private func confirmHonestly(
+        message: String,
+        informative: String,
+        confirmTitle: String,
+        gate: TimeInterval? = nil
+    ) -> Bool {
         NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
         alert.messageText = message
@@ -305,7 +314,31 @@ final class MenuBarController: NSObject, NSMenuDelegate, NSMenuItemValidation {
         alert.alertStyle = .informational
         alert.addButton(withTitle: confirmTitle)
         alert.addButton(withTitle: "Cancel")
+        let countdown = gate.map { startGateCountdown(on: alert.buttons[0], title: confirmTitle, seconds: $0) }
+        defer { countdown?.invalidate() }
         return alert.runModal() == .alertFirstButtonReturn
+    }
+
+    // Disables the button and counts it down to zero. The timer is added to
+    // `.modalPanel` explicitly: `NSAlert.runModal()` does not run the default
+    // run loop mode, so a `Timer.scheduledTimer` here would never fire and the
+    // button would stay disabled forever. A disabled default button also
+    // ignores Return, which is the whole point of the gate.
+    private func startGateCountdown(on button: NSButton, title: String, seconds: TimeInterval) -> Timer {
+        var remaining = max(1, Int(seconds.rounded()))
+        button.isEnabled = false
+        button.title = extendGateButtonTitle(title, remaining: remaining)
+        let timer = Timer(timeInterval: 1, repeats: true) { timer in
+            MainActor.assumeIsolated {
+                remaining -= 1
+                button.title = extendGateButtonTitle(title, remaining: remaining)
+                guard remaining <= 0 else { return }
+                button.isEnabled = true
+                timer.invalidate()
+            }
+        }
+        RunLoop.main.add(timer, forMode: .modalPanel)
+        return timer
     }
 
     @objc private func justTookBreak() {
@@ -320,26 +353,38 @@ final class MenuBarController: NSObject, NSMenuDelegate, NSMenuItemValidation {
     }
 
     @objc private func extendBy15Minutes() {
-        appState.extendFocus(minutes: 15)
+        confirmExtension(minutes: 15, label: "15 minutes")
     }
 
     @objc private func extendBy35Minutes() {
-        confirmLongExtension(minutes: 35, label: "35 minutes")
+        confirmExtension(minutes: 35, label: "35 minutes")
     }
 
     @objc private func extendBy45Minutes() {
-        confirmLongExtension(minutes: 45, label: "45 minutes")
+        confirmExtension(minutes: 45, label: "45 minutes")
     }
 
     @objc private func extendBy65Minutes() {
-        confirmLongExtension(minutes: 65, label: "1 hour 5 minutes")
+        confirmExtension(minutes: 65, label: "1 hour 5 minutes")
     }
 
-    private func confirmLongExtension(minutes: Double, label: String) {
+    // Outside harder mode the short extension stays a single click — it is the
+    // cheap nudge the menu is for. Harder mode has no cheap nudge, so every
+    // duration goes through the dialog and waits out its gate.
+    private func confirmExtension(minutes: Double, label: String) {
+        let gate = SkipConfirmGate.extendSeconds(
+            forMinutes: minutes,
+            harderToSkipBreaks: appState.settings.harderToSkipBreaks
+        )
+        if gate == nil, minutes <= SkipConfirmGate.extendShortThresholdMinutes {
+            appState.extendFocus(minutes: minutes)
+            return
+        }
         let confirmed = confirmHonestly(
             message: "Extend focus by \(label)? ⏳",
             informative: "That is a long stretch without rest, and your eyes will pay the bill later. Be honest — do you really need this, or is the break the healthier choice?",
-            confirmTitle: "Extend Anyway"
+            confirmTitle: "Extend Anyway",
+            gate: gate
         )
         if confirmed {
             appState.extendFocus(minutes: minutes)
@@ -353,10 +398,11 @@ final class MenuBarController: NSObject, NSMenuDelegate, NSMenuItemValidation {
         let confirmed = confirmHonestly(
             message: "Pause reminders until \(time) \(day)? 🌙",
             informative: "This silences every break reminder until \(time) \(day) — a promise that you are done straining your eyes for the day. Don't use it to keep working unguarded: your health is what's on the line.",
-            confirmTitle: "Pause Until \(time)"
+            confirmTitle: "Pause Until \(time)",
+            gate: SkipConfirmGate.pauseSeconds(harderToSkipBreaks: appState.settings.harderToSkipBreaks)
         )
         if confirmed {
-            appState.pauseUntilNextMorning()
+            appState.pauseUntilNextMorning(until: resumeDate)
         }
     }
 
@@ -378,6 +424,13 @@ final class MenuBarController: NSObject, NSMenuDelegate, NSMenuItemValidation {
             NSApp.terminate(nil)
         }
     }
+}
+
+// The confirm button's title while its gate runs. Parenthesised seconds, and
+// the bare title once the count reaches zero — the enabled button should read
+// exactly as it always has, with no leftover "(0)" to click past.
+func extendGateButtonTitle(_ base: String, remaining: Int) -> String {
+    remaining > 0 ? "\(base) (\(remaining))" : base
 }
 
 func makeExtendFocusTitle(

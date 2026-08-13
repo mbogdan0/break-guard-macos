@@ -316,6 +316,53 @@ final class MenuPresentationTests: XCTestCase {
         XCTAssertEqual(postponeHoldHint(9), "Hold 9s")
     }
 
+    // The menu offers exactly these four durations.
+    private static let extendOptions: [Double] = [15, 35, 45, 65]
+
+    func testConfirmGatesOnlyApplyInHarderMode() {
+        for minutes in Self.extendOptions {
+            XCTAssertNil(
+                SkipConfirmGate.extendSeconds(forMinutes: minutes, harderToSkipBreaks: false),
+                "\(minutes) min should be ungated outside harder mode"
+            )
+        }
+        XCTAssertNil(SkipConfirmGate.pauseSeconds(harderToSkipBreaks: false))
+    }
+
+    func testExtendGateChargesTheLongerCountPastTheShortThreshold() {
+        XCTAssertEqual(SkipConfirmGate.extendSeconds(forMinutes: 15, harderToSkipBreaks: true), 8)
+        XCTAssertEqual(SkipConfirmGate.extendSeconds(forMinutes: 35, harderToSkipBreaks: true), 16)
+        XCTAssertEqual(SkipConfirmGate.extendSeconds(forMinutes: 45, harderToSkipBreaks: true), 16)
+        XCTAssertEqual(SkipConfirmGate.extendSeconds(forMinutes: 65, harderToSkipBreaks: true), 16)
+        // The threshold is inclusive on the short side.
+        XCTAssertEqual(
+            SkipConfirmGate.extendSeconds(
+                forMinutes: SkipConfirmGate.extendShortThresholdMinutes + 1,
+                harderToSkipBreaks: true
+            ),
+            SkipConfirmGate.extendLongSeconds
+        )
+    }
+
+    // Silencing every reminder until the morning is the largest single thing
+    // the app can be told to stop doing, so it is priced well above any
+    // extension.
+    func testPauseUntilMorningIsGatedLongestOfAll() {
+        XCTAssertEqual(SkipConfirmGate.pauseSeconds(harderToSkipBreaks: true), 40)
+        XCTAssertGreaterThan(
+            SkipConfirmGate.pauseUntilMorningSeconds,
+            SkipConfirmGate.extendLongSeconds
+        )
+    }
+
+    func testExtendGateButtonTitleDropsTheCountAtZero() {
+        XCTAssertEqual(extendGateButtonTitle("Extend Anyway", remaining: 16), "Extend Anyway (16)")
+        XCTAssertEqual(extendGateButtonTitle("Extend Anyway", remaining: 1), "Extend Anyway (1)")
+        XCTAssertEqual(extendGateButtonTitle("Extend Anyway", remaining: 0), "Extend Anyway")
+        // A negative count cannot leak into the title if a tick overshoots.
+        XCTAssertEqual(extendGateButtonTitle("Extend Anyway", remaining: -1), "Extend Anyway")
+    }
+
     func testBreakPromptCatalogContainsTenUniqueMessages() {
         XCTAssertEqual(BreakPromptCatalog.all.count, 10)
         XCTAssertEqual(Set(BreakPromptCatalog.all).count, 10)

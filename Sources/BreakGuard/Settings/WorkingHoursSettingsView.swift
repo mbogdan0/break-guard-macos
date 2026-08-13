@@ -11,14 +11,48 @@ struct WorkingHoursSettingsView: View {
                     isOn: appState.settingBinding(\.workingHoursEnabled)
                 )
             } footer: {
-                Text("Outside your working hours the menu bar counter turns yellow as a reminder to wind down. The red pre-break warning always takes priority.")
+                Text("Outside your working hours the menu bar counter turns yellow as a reminder to wind down. The red pre-break warning always takes priority.\n\n\(pressureFootnote(subject: "outside these hours"))")
                     .foregroundStyle(.secondary)
             }
 
             categorySection("Weekdays", keyPath: \.weekdayWorkingHours)
             categorySection("Weekends", keyPath: \.weekendWorkingHours)
+
+            scheduledBreakSection
         }
         .formStyle(.grouped)
+    }
+
+    // The one section on this tab that does nothing without harder mode, so it
+    // says so where it can be read rather than only in the footer.
+    private var scheduledBreakSection: some View {
+        let range = appState.settings.scheduledBreak
+        return Section {
+            Toggle("Enabled", isOn: appState.settingBinding(\.scheduledBreak.enabled))
+            DatePicker(
+                "Start",
+                selection: appState.timeOfDayBinding(\.scheduledBreak.startMinutes),
+                displayedComponents: .hourAndMinute
+            )
+            .disabled(!range.enabled)
+            DatePicker(
+                "End",
+                selection: appState.timeOfDayBinding(\.scheduledBreak.endMinutes),
+                displayedComponents: .hourAndMinute
+            )
+            .disabled(!range.enabled)
+        } header: {
+            Text("Scheduled Break")
+        } footer: {
+            Text("A daily rest window on weekdays only. \(pressureFootnote(subject: "inside this window"))")
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func pressureFootnote(subject: String) -> String {
+        appState.settings.harderToSkipBreaks
+            ? "With Harder to skip breaks on, the screen dims \(subject) and a card returns every \(formatDurationPhrase(BreakPressure.cardReturnInterval)) until you take a break. Nothing is ever blocked — every click still goes through."
+            : "Turn on Harder to skip breaks (General) to also dim the screen \(subject) and show a recurring reminder."
     }
 
     private func categorySection(

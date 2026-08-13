@@ -86,6 +86,52 @@ struct StateMachine {
         return clock.now >= availableAt
     }
 
+    // The same weekly hatch, spent from the nudge card instead of a break
+    // overlay. Deliberately asymmetric with useEmergencyOverride(): no break
+    // is being skipped here — the countdown goes on exactly as it was — so
+    // nothing is recorded as a violation and no skip allowance is consumed.
+    // All it buys is quiet: the veil and card stay down for the grant.
+    var canSpendOverrideOnPressure: Bool {
+        guard let availableAt = emergencyOverrideAvailableAt else { return true }
+        return clock.now >= availableAt
+    }
+
+    mutating func spendOverrideOnPressure() {
+        guard canSpendOverrideOnPressure else { return }
+        runtime.emergencyOverrideUsedAt = clock.now
+    }
+
+    // The quiet window the hatch buys, from either entry point. Spending it at
+    // a break overlay silences the pressure too, which is the coherent reading
+    // of an override: one stamp, one grant, whatever it was spent on.
+    var isPressureOverrideActive: Bool {
+        guard let usedAt = runtime.emergencyOverrideUsedAt else { return false }
+        return clock.now < usedAt.addingTimeInterval(EmergencyOverride.focusGrant)
+    }
+
+    // Whether the veil and card must stay down regardless of the clock.
+    // `satisfiedWindow` is the scheduled break window the user already took a
+    // break inside — nagging someone who complied would teach them to ignore
+    // it. Outside working hours has no such window and never passes one: a
+    // two-minute break is not "stopped working for the day".
+    func isPressureSuppressed(satisfiedWindow: (start: Date, end: Date)? = nil) -> Bool {
+        if cameraHoldActive { return true }
+        if isPressureOverrideActive { return true }
+        switch runtime.timerState {
+        case .breakDue, .breaking, .breakCompleted:
+            // The real overlay owns the screen.
+            return true
+        case .suspended:
+            // A timed pause, or an idle bracket on a machine nobody is at.
+            return true
+        case .working, .warning, .postponed:
+            break
+        }
+        guard let window = satisfiedWindow,
+              let lastBreak = statistics.lastCompletedBreakDate else { return false }
+        return lastBreak >= window.start && lastBreak < window.end
+    }
+
     // Once-a-week escape hatch: trades the break for a long focus window even
     // in harder-to-skip mode. It ignores that mode's cost rather than handing
     // out extra allowance, so it spends both the extension and the free skip —

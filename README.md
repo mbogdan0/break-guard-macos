@@ -43,6 +43,7 @@ Line Tools. Approve it, wait for the installation to finish, and run the same co
 - Honesty-first confirmations for every action that skips or silences rest
 - Streaks, daily focus history, and focused-minute statistics
 - Optional working hours that turn the menu bar yellow outside them
+- A weekday scheduled break, and a Harder mode that dims the screen without ever blocking it
 - Sleep and inactivity detection that avoids counting time away as work
 - Local notifications with capability-aware Time Sensitive delivery
 - Local-only, schema-versioned persistence

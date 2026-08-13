@@ -116,11 +116,11 @@ final class TaperingAndOverrideEdgeCaseTests: XCTestCase {
         machine.clock = clock
         machine.markBreakTaken()
 
-        // 4h10m banked costs 275 seconds off the next window.
+        // 4h10m banked costs 300 seconds off the next window.
         guard case let .working(deadline, _) = machine.runtime.timerState else {
             return XCTFail("Expected working state")
         }
-        XCTAssertEqual(deadline.timeIntervalSince(clock.now), 30 * 60 - 275, accuracy: 0.001)
+        XCTAssertEqual(deadline.timeIntervalSince(clock.now), 30 * 60 - 300, accuracy: 0.001)
     }
 
     // Postponing ends the break it interrupted, so the capture startBreak()
@@ -301,6 +301,85 @@ final class TaperingAndOverrideEdgeCaseTests: XCTestCase {
         // A manual break never offers the override, and the stamp is unchanged.
         XCTAssertFalse(machine.canUseEmergencyOverride)
         XCTAssertEqual(machine.runtime.emergencyOverrideUsedAt, usedAt)
+    }
+
+    // MARK: - The override as a pressure hatch
+
+    // Spending it from the nudge card is deliberately cheaper than spending it
+    // at a break: no break is being skipped, so nothing may be recorded against
+    // the streak. All it costs is the week's quota.
+    func testSpendingTheOverrideOnPressureRecordsNoViolation() {
+        let start = Date(timeIntervalSince1970: 210_000)
+        let clock = FakeClock(now: start)
+        var machine = taperingMachine(start: start, clock: clock)
+        machine.statistics.currentCleanStreak = 4
+
+        XCTAssertTrue(machine.canSpendOverrideOnPressure)
+        machine.spendOverrideOnPressure()
+
+        XCTAssertEqual(machine.runtime.emergencyOverrideUsedAt, start)
+        XCTAssertTrue(machine.isPressureOverrideActive)
+        XCTAssertFalse(machine.canSpendOverrideOnPressure)
+        // Nothing about the cycle or the statistics moved.
+        XCTAssertFalse(machine.runtime.cycleViolated)
+        XCTAssertEqual(machine.runtime.cyclePostponements, 0)
+        XCTAssertEqual(machine.statistics.violatedCycles, 0)
+        XCTAssertEqual(machine.statistics.currentCleanStreak, 4)
+        guard case .working = machine.runtime.timerState else {
+            return XCTFail("The countdown must be left exactly as it was")
+        }
+    }
+
+    func testThePressureGrantExpiresWithTheFocusGrant() {
+        let start = Date(timeIntervalSince1970: 220_000)
+        var clock = FakeClock(now: start)
+        var machine = taperingMachine(start: start, clock: clock)
+        machine.spendOverrideOnPressure()
+
+        clock.now = start.addingTimeInterval(EmergencyOverride.focusGrant - 1)
+        machine.clock = clock
+        XCTAssertTrue(machine.isPressureOverrideActive)
+
+        clock.now = start.addingTimeInterval(EmergencyOverride.focusGrant)
+        machine.clock = clock
+        XCTAssertFalse(machine.isPressureOverrideActive)
+        // The weekly cooldown outlives the grant by a long way.
+        XCTAssertFalse(machine.canSpendOverrideOnPressure)
+    }
+
+    // One stamp, one grant: an override spent to skip a break also buys quiet
+    // from the dimming for as long as its focus grant runs.
+    func testSpendingTheOverrideAtABreakAlsoSilencesThePressure() {
+        let start = Date(timeIntervalSince1970: 230_000)
+        var clock = FakeClock(now: start)
+        var machine = taperingMachine(start: start, clock: clock)
+
+        clock.now = start.addingTimeInterval(30 * 60)
+        machine.clock = clock
+        XCTAssertEqual(machine.tick(), .breakDue)
+        machine.useEmergencyOverride()
+
+        XCTAssertTrue(machine.isPressureOverrideActive)
+        XCTAssertTrue(machine.isPressureSuppressed())
+        XCTAssertFalse(machine.canSpendOverrideOnPressure)
+    }
+
+    func testASpentQuotaCannotBeSpentAgainOnPressure() {
+        let start = Date(timeIntervalSince1970: 240_000)
+        var clock = FakeClock(now: start)
+        var machine = taperingMachine(start: start, clock: clock)
+        machine.spendOverrideOnPressure()
+
+        clock.now = start.addingTimeInterval(EmergencyOverride.cooldown - 1)
+        machine.clock = clock
+        machine.spendOverrideOnPressure()
+        XCTAssertEqual(machine.runtime.emergencyOverrideUsedAt, start, "the stamp must not be refreshed")
+
+        clock.now = start.addingTimeInterval(EmergencyOverride.cooldown)
+        machine.clock = clock
+        XCTAssertTrue(machine.canSpendOverrideOnPressure)
+        machine.spendOverrideOnPressure()
+        XCTAssertEqual(machine.runtime.emergencyOverrideUsedAt, clock.now)
     }
 
     // MARK: - Warning lead

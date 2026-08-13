@@ -42,7 +42,7 @@ fires every second regardless.
 
 ## 2. Settings — defaults, ranges, readers
 
-All 15 persisted settings. Defaults at `Domain/AppSettings.swift:89-107`, ranges at
+All 16 persisted settings. Defaults at `Domain/AppSettings.swift:89-107`, ranges at
 `Domain/AppSettings.swift:62-69`.
 
 | Key | Type | Default | Range | Primary reader |
@@ -63,6 +63,7 @@ All 15 persisted settings. Defaults at `Domain/AppSettings.swift:89-107`, ranges
 | `workingHoursEnabled` | Bool | **false** | — | `WorkingHours.swift:27` |
 | `weekdayWorkingHours` | struct | `enabled: true`, 09:00–18:00 | see below | `WorkingHours.swift:30` |
 | `weekendWorkingHours` | struct | `enabled: false`, 09:00–18:00 | see below | `WorkingHours.swift:29` |
+| `scheduledBreak` | struct | `enabled: false`, 15:30–16:00 | same range rules; **weekdays only**, not configurable | `BreakPressure.swift` |
 
 ### 2.1 `clamp()` — order matters
 
@@ -72,7 +73,7 @@ All 15 persisted settings. Defaults at `Domain/AppSettings.swift:89-107`, ranges
 1. Each duration bounded to its own range (`:138-142`).
 2. **Then** `warningLeadTime = min(warningLeadTime, workInterval)` (`:143`) — a second,
    tighter bound applied after the first.
-3. Working-hours ranges clamped (`:144-145`).
+3. Working-hours ranges and the scheduled-break window clamped (`:144-146`).
 4. `taperingResetGap` bounded to `3600 … 86400` s (`:146-147`).
 
 `clampSeconds` (`:190-194`) rejects NaN first (→ lower bound), bounds **before** the `Int`
@@ -244,13 +245,19 @@ effectiveWorkInterval = workInterval × paceMultiplier
 ### 4.2 Tapering penalty — `:120-125`, `:55-57`
 
 ```
-penalty  = clamp(taperedFocusSeconds, 0, 864000) / 60 × 1.1     seconds
+penalty  = min( clamp(taperedFocusSeconds, 0, 864000) / 60 × 1.2, 720 )   seconds
 interval = max( min(base, 600), base − penalty )
 ```
 
-Worked, base 1800 s: after 2 h of accumulated focus (120 min) → penalty 132 s → 1668 s
-(27.8 min). After 8 h (480 min) → penalty 528 s → 1272 s (21.2 min). The 600 s floor is
-reached at ≈1091 min (≈18.2 h) of accumulated focus.
+Worked, base 1800 s: after 2 h of accumulated focus (120 min) → penalty 144 s → 1656 s
+(27.6 min). After 8 h (480 min) → penalty 576 s → 1224 s (20.4 min). The penalty stops growing
+at **720 s** after 600 focus minutes (10 h), so a 1800 s base bottoms out at **1080 s (18 min)**
+however long the day runs.
+
+**The 600 s floor and the 720 s cap are independent** and neither is redundant. The cap bounds
+what is subtracted; the floor bounds what is left. With the cap in place the floor can only
+bind when `base − 720 < 600`, i.e. a work interval under **1320 s (22 min)** — at the 1800 s
+default it is unreachable.
 
 ### 4.3 Warning lead — `:133-135`
 
@@ -290,21 +297,36 @@ not stored, so that helper reconstructs it as
 Take a Break Now · Extend Focus ▸ · Pause Until 9 AM · Resume Now · separator · Settings… ·
 separator · Quit.
 
-| Control | Confirmation | Delay / hold | Hidden or disabled when |
+| Control | Confirmation | Gate (harder mode) | Hidden or disabled when |
 |---|---|---|---|
-| **Take a Break Now** | none | **instant** | hidden unless state ∈ {`.working`, `.warning`, `.postponed`} (`:159`) |
-| **Extend Focus ▸ By 15 Minutes** | **none** | instant, +900 s | greyed when `!canExtendFocus` (`:41-46`) |
-| **Extend Focus ▸ By 35 Minutes** | **NSAlert** | +2100 s | same |
-| **Extend Focus ▸ By 45 Minutes** | **NSAlert** | +2700 s | same |
-| **Extend Focus ▸ By 1 Hour 5 Minutes** | **NSAlert** | +3900 s | same |
-| **Pause Until 9 AM** | **NSAlert** | instant | hidden unless `primaryAction == .takeBreak` (`:163`) |
-| **Resume Now** | none | instant | hidden unless state is `.suspended` (`:164`) |
-| **Settings…** | none | ⌘, | — |
-| **Quit BreakGuard** | **NSAlert** | ⌘Q | — |
+| **Take a Break Now** | none | — | hidden unless state ∈ {`.working`, `.warning`, `.postponed`} (`:159`) |
+| **Extend Focus ▸ By 15 Minutes** | none in normal mode; **NSAlert** in harder mode | **8 s** | greyed when `!canExtendFocus` (`:41-46`) |
+| **Extend Focus ▸ By 35 Minutes** | **NSAlert** | **16 s** | same |
+| **Extend Focus ▸ By 45 Minutes** | **NSAlert** | **16 s** | same |
+| **Extend Focus ▸ By 1 Hour 5 Minutes** | **NSAlert** | **16 s** | same |
+| **Pause Until 9 AM** | **NSAlert** | **40 s** | hidden unless `primaryAction == .takeBreak` (`:163`) |
+| **Resume Now** | none | — | hidden unless state is `.suspended` (`:164`) |
+| **Settings…** | none | — | ⌘, |
+| **Quit BreakGuard** | **NSAlert** | none | ⌘Q |
 
-Only the **15-minute** extension skips confirmation (`:271-285`). All alerts put the
-confirm button first and **Cancel** second, so the safe choice is the default
-(`:249-258`).
+Only the **15-minute** extension skips confirmation, and only outside harder mode. All alerts
+put the confirm button first and **Cancel** second, so the safe choice is the default.
+
+**The gate** (`SkipConfirmGate`, applied in `confirmHonestly(… gate:)`): with
+`harderToSkipBreaks` on, the confirm button starts disabled with the remaining count in
+parentheses — `Extend Anyway (16)` — and enables at zero. **Cancel stays live throughout**;
+the gate is on the choice being reconsidered, never on backing out. A disabled default button
+also ignores Return, which is the point. The countdown `Timer` is added to `RunLoop.main` in
+**`.modalPanel`** mode explicitly: `NSAlert.runModal()` does not run the default mode, so a
+`Timer.scheduledTimer` would never fire and the button would stay disabled forever. It is
+invalidated in a `defer` after `runModal()` returns.
+
+| Constant | Value |
+|---|---|
+| `SkipConfirmGate.extendShortSeconds` | **8** (extensions of ≤ 15 min) |
+| `SkipConfirmGate.extendLongSeconds` | **16** |
+| `SkipConfirmGate.extendShortThresholdMinutes` | **15**, inclusive |
+| `SkipConfirmGate.pauseUntilMorningSeconds` | **40** |
 
 Each extend option's title is rebuilt on every **applied** presentation update with the
 resulting end time appended in grey: `deadline + minutes × 60` (`:332-351`). Falls back to
@@ -450,7 +472,7 @@ System, Statistics, About.
 
 | Action | Scope | Confirmation |
 |---|---|---|
-| **Restore Defaults…** (General ▸ Advanced) | all 15 settings, all tabs | `.confirmationDialog`, destructive role (`GeneralSettingsView.swift:71`, `:94-100`) |
+| **Restore Defaults…** (General ▸ Advanced) | all 16 settings, all tabs | `.confirmationDialog`, destructive role (`GeneralSettingsView.swift:71`, `:94-100`) |
 | **Reset Statistics…** (Statistics) | statistics only | `.confirmationDialog`, destructive role (`StatisticsSettingsView.swift:47-54`) |
 | **Send Test Notification** (System) | one notification | none; disabled unless `canSendTest` (`SystemSettingsView.swift:26`) |
 
@@ -563,6 +585,54 @@ precisely because "Restore Defaults" and "Reset Statistics" replace those wholes
 refill the quota (`PersistedAppData.swift:36-39`). `startWorkCycle()` carries it explicitly
 through its rebuild (`StateMachine.swift:199-200`).
 
+### 6.5 Break pressure — dimming and the nudge card
+
+`Domain/BreakPressure.swift`, `Overlay/NudgeWindowManager.swift`,
+`AppState.reconcilePressure()`. Non-blocking by construction: the veil window sets
+`ignoresMouseEvents = true`, so every click, drag, scroll, and keystroke reaches whatever is
+underneath. Nothing here holds the display awake — that is a break's job.
+
+**Master gate.** `pressureReason(at:)` returns `nil` unless `harderToSkipBreaks`. With the
+switch off nothing below exists and Working Hours stays a menu bar color.
+
+| Reason | Condition | Precedence |
+|---|---|---|
+| `.scheduledBreak` | `scheduledBreak.enabled`, day is a **weekday**, and `now` is in `[start, end)` | wins |
+| `.outsideWorkingHours` | `isOutsideWorkingHours(at:)` — the same predicate the amber pill uses | only if the above did not apply |
+
+| Constant | Value | Source |
+|---|---|---|
+| Veil opacity | **0.28** black, constant (no ramp) | `BreakPressure.veilOpacity` |
+| Card return after dismissal | **120 s** | `BreakPressure.cardReturnInterval` |
+| Veil / card window level | `.screenSaver`, re-asserted every **10 ticks** | `NudgeWindowManager` |
+
+**Suppression** — `StateMachine.isPressureSuppressed(satisfiedWindow:)`, true on any of:
+
+| Condition | Why |
+|---|---|
+| `.breakDue` / `.breaking` / `.breakCompleted` | the real overlay owns the screen |
+| `.suspended` | timed pause, or an idle bracket on an unattended machine |
+| `cameraHoldActive` | the app already refuses to interrupt a call |
+| `isPressureOverrideActive` | `now < emergencyOverrideUsedAt + 5400 s` |
+| `statistics.lastCompletedBreakDate ∈ [windowStart, windowEnd)` | a break taken inside the scheduled window satisfies it |
+
+The last rule is passed a window **only** for `.scheduledBreak`; after hours no window is
+passed, so a two-minute break settles nothing there.
+
+**The override as a pressure hatch.** `spendOverrideOnPressure()` shares the one weekly quota
+with `useEmergencyOverride()` and is deliberately asymmetric with it: it stamps
+`emergencyOverrideUsedAt` and nothing else — no violation, no streak reset, no allowance spent,
+no state change. Conversely, an override spent at a break overlay also silences the pressure
+for its 5400 s grant, since both read the same stamp.
+
+**Card actions.** One action either way: *Take a Break Now*, an ordinary break of
+`breakDuration` via `takeBreakNow()`, plus the collapsed override disclosure. Stopping for the
+day is deliberately **not** offered here — it lives in the status menu behind its own
+40-second gate (§5.1). The card is a
+`.nonactivatingPanel`, so pressing its buttons never steals key focus from the app being
+typed in; `NudgeCardHostingView.acceptsFirstMouse` returns `true` so the first click lands on
+the control rather than on activating the panel.
+
 ---
 
 ## 7. Tapering
@@ -571,7 +641,8 @@ through its rebuild (`StateMachine.swift:199-200`).
 
 | Constant | Value | Source |
 |---|---|---|
-| Rate | **1 s off the next window per accumulated focus minute** | `AppSettings.swift:34` |
+| Rate | **1.2 s off the next window per accumulated focus minute** | `AppSettings.swift:34` |
+| Penalty cap | **720 s (12 min)**, non-configurable — reached at 600 focus minutes (10 h) | `AppSettings.swift` |
 | Floor | **600 s (10 min)**, non-configurable | `AppSettings.swift:39` |
 | Accumulator ceiling | **864 000 s (240 h)** | `AppSettings.swift:46` |
 | Reset gap | **21 600 s (6 h)** default, 1–24 h configurable | `AppSettings.swift:104` |

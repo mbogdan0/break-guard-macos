@@ -1119,25 +1119,25 @@ final class StateMachineTests: XCTestCase {
         machine.clock = clock
         completeCycle(&machine, &clock)
 
-        // 30 minutes of focus banked, so the next window is 33 seconds shorter.
+        // 30 minutes of focus banked, so the next window is 36 seconds shorter.
         XCTAssertEqual(machine.runtime.taperedFocusSeconds, 30 * 60, accuracy: 0.001)
         guard case let .working(secondDeadline, _) = machine.runtime.timerState else {
             return XCTFail("Expected working state")
         }
-        XCTAssertEqual(secondDeadline.timeIntervalSince(clock.now), 30 * 60 - 33, accuracy: 0.001)
+        XCTAssertEqual(secondDeadline.timeIntervalSince(clock.now), 30 * 60 - 36, accuracy: 0.001)
 
         // And the shortfall accumulates rather than resetting each cycle.
         clock.now = secondDeadline
         machine.clock = clock
         completeCycle(&machine, &clock)
 
-        XCTAssertEqual(machine.runtime.taperedFocusSeconds, 60 * 60 - 33, accuracy: 0.001)
+        XCTAssertEqual(machine.runtime.taperedFocusSeconds, 60 * 60 - 36, accuracy: 0.001)
         guard case let .working(thirdDeadline, _) = machine.runtime.timerState else {
             return XCTFail("Expected working state")
         }
         XCTAssertEqual(
             thirdDeadline.timeIntervalSince(clock.now),
-            30 * 60 - FocusPace.taperingPenalty(forFocus: 60 * 60 - 33),
+            30 * 60 - FocusPace.taperingPenalty(forFocus: 60 * 60 - 36),
             accuracy: 0.001
         )
     }
@@ -1344,7 +1344,7 @@ final class StateMachineTests: XCTestCase {
         guard case let .working(deadline, _) = machine.runtime.timerState else {
             return XCTFail("Expected working state")
         }
-        XCTAssertEqual(deadline.timeIntervalSince(clock.now), 30 * 60 - 33, accuracy: 0.001)
+        XCTAssertEqual(deadline.timeIntervalSince(clock.now), 30 * 60 - 36, accuracy: 0.001)
     }
 
     func testTaperingResetsAfterCrashWithLongDeadDeadline() {
