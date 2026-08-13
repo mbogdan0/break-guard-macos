@@ -530,9 +530,13 @@ final class AppState: ObservableObject {
             notifications.cancelWarning()
         }
         if !engaged, cameraHoldWasEngaged, case .warning = machine.runtime.timerState {
-            // The runway starts now; tell the user the break is coming.
+            // The runway starts now; tell the user the break is coming, and
+            // say so in terms of the runway rather than the configured lead —
+            // the hold pinned the deadline there, so that is the time the user
+            // actually has.
             notifications.scheduleWarning(
                 at: machine.clock.now.addingTimeInterval(1),
+                breakAt: machine.clock.now.addingTimeInterval(machine.cameraHoldRunway),
                 settings: machine.settings
             )
         }
@@ -635,13 +639,13 @@ final class AppState: ObservableObject {
 
     private func reconcileStateEffects() {
         switch timerState {
-        case let .working(_, warningDeadline):
+        case let .working(deadline, warningDeadline):
             overlayManager?.hideAll()
             // While the camera hold pins the countdown, the warning deadline
             // advances every tick; rescheduling against it would fire a
             // notification every second into the call.
             if !isCameraHoldActive {
-                notifications.scheduleWarning(at: warningDeadline, settings: settings)
+                notifications.scheduleWarning(at: warningDeadline, breakAt: deadline, settings: settings)
             }
         case .warning:
             overlayManager?.hideAll()

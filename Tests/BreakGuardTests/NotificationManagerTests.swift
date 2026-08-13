@@ -54,16 +54,43 @@ final class NotificationManagerTests: XCTestCase {
         XCTAssertEqual(NotificationManager.warningTitle(leadTime: 30 * 60), "Break in 30 minutes")
     }
 
+    // A lead entered to the second must be reported to the second. Rounding to
+    // whole minutes reported 90 s as "2 minutes" — and rounding *up* promises
+    // time the countdown does not have.
+    func testWarningTitleKeepsSecondsOnPartialMinutes() {
+        XCTAssertEqual(NotificationManager.warningTitle(leadTime: 90), "Break in 1 minute 30 seconds")
+        XCTAssertEqual(NotificationManager.warningTitle(leadTime: 100), "Break in 1 minute 40 seconds")
+        XCTAssertEqual(NotificationManager.warningTitle(leadTime: 150), "Break in 2 minutes 30 seconds")
+        XCTAssertEqual(NotificationManager.warningTitle(leadTime: 61), "Break in 1 minute 1 second")
+    }
+
     func testWarningTitleHandlesSubMinuteEdges() {
         XCTAssertEqual(NotificationManager.warningTitle(leadTime: 30), "Break in 30 seconds")
         XCTAssertEqual(NotificationManager.warningTitle(leadTime: 0), "Break starting now")
+    }
+
+    // The title is the gap between the notification and the break, not the
+    // configured lead: effectiveWarningLeadTime caps the setting at half the
+    // window, and a camera hold arms the warning against its own runway.
+    func testWarningTitleFollowsTheScheduleNotTheSetting() {
+        let client = FakeNotificationCenterClient()
+        let manager = NotificationManager(client: client)
+        var settings = AppSettings.defaults
+        settings.warningLeadTime = 30 * 60
+
+        let fireAt = Date().addingTimeInterval(120)
+        manager.scheduleWarning(at: fireAt, breakAt: fireAt.addingTimeInterval(90), settings: settings)
+
+        XCTAssertEqual(client.requests.count, 1)
+        XCTAssertEqual(client.requests[0].content.title, "Break in 1 minute 30 seconds")
     }
 
     func testWarningUsesActiveInterruptionWithoutTimeSensitiveSupport() {
         let client = FakeNotificationCenterClient()
         let manager = NotificationManager(client: client)
 
-        manager.scheduleWarning(at: Date().addingTimeInterval(120), settings: .defaults)
+        let fireAt = Date().addingTimeInterval(120)
+        manager.scheduleWarning(at: fireAt, breakAt: fireAt.addingTimeInterval(60), settings: .defaults)
 
         XCTAssertEqual(client.requests.count, 1)
         XCTAssertEqual(client.requests[0].content.interruptionLevel, .active)
@@ -80,7 +107,8 @@ final class NotificationManagerTests: XCTestCase {
         )
         let manager = NotificationManager(client: client)
 
-        manager.scheduleWarning(at: Date().addingTimeInterval(120), settings: .defaults)
+        let fireAt = Date().addingTimeInterval(120)
+        manager.scheduleWarning(at: fireAt, breakAt: fireAt.addingTimeInterval(60), settings: .defaults)
 
         XCTAssertEqual(client.requests.count, 1)
         XCTAssertEqual(client.requests[0].content.interruptionLevel, .timeSensitive)
@@ -92,8 +120,8 @@ final class NotificationManagerTests: XCTestCase {
         let manager = NotificationManager(client: client)
         let date = Date().addingTimeInterval(120)
 
-        manager.scheduleWarning(at: date, settings: .defaults)
-        manager.scheduleWarning(at: date, settings: .defaults)
+        manager.scheduleWarning(at: date, breakAt: date.addingTimeInterval(60), settings: .defaults)
+        manager.scheduleWarning(at: date, breakAt: date.addingTimeInterval(60), settings: .defaults)
 
         XCTAssertEqual(client.requests.count, 2)
     }

@@ -141,7 +141,14 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
         client.getCapabilities(completion)
     }
 
-    func scheduleWarning(at date: Date, settings: AppSettings) {
+    // `deadline` is when the break actually lands, so the title is always the
+    // gap between this notification and that moment. Taking it as a date
+    // rather than a duration is deliberate: the lead a cycle runs is not
+    // settings.warningLeadTime — effectiveWarningLeadTime caps it at half the
+    // window, and a camera hold arms the warning against its own runway — and
+    // a caller cannot pass a lead that disagrees with the schedule it just
+    // asked for.
+    func scheduleWarning(at date: Date, breakAt deadline: Date, settings: AppSettings) {
         guard settings.warningLeadTime > 0, date > Date(), let generation = beginWarningSchedule(at: date) else {
             return
         }
@@ -149,6 +156,7 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
         client.getCapabilities { [weak self] capabilities in
             guard let self, self.isCurrentWarning(generation: generation, date: date) else { return }
             let content = Self.warningContent(
+                leadTime: deadline.timeIntervalSince(date),
                 settings: settings,
                 interruptionLevel: capabilities.supportsTimeSensitive ? .timeSensitive : .active
             )
@@ -211,20 +219,23 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
         client.removePendingNotificationRequests(withIdentifiers: [warningIdentifier])
     }
 
+    // Shares formatDurationPhrase with the settings footers rather than
+    // rounding to whole minutes on its own. The old rule reported a 90-second
+    // lead as "2 minutes" — and rounding up is the dangerous direction, since
+    // the title then promises time the countdown does not have.
     static func warningTitle(leadTime: TimeInterval) -> String {
         let seconds = max(0, Int(leadTime.rounded()))
         guard seconds > 0 else { return "Break starting now" }
-        guard seconds >= 60 else { return "Break in \(seconds) seconds" }
-        let minutes = Int((leadTime / 60).rounded())
-        return minutes == 1 ? "Break in 1 minute" : "Break in \(minutes) minutes"
+        return "Break in \(formatDurationPhrase(TimeInterval(seconds)))"
     }
 
     static func warningContent(
+        leadTime: TimeInterval,
         settings: AppSettings,
         interruptionLevel: UNNotificationInterruptionLevel
     ) -> UNMutableNotificationContent {
         let content = UNMutableNotificationContent()
-        content.title = warningTitle(leadTime: settings.warningLeadTime)
+        content.title = warningTitle(leadTime: leadTime)
         content.body = "Save your work and finish the current task."
         if settings.notificationSound {
             content.sound = .default
@@ -282,7 +293,13 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
 
         let request = UNNotificationRequest(
             identifier: testIdentifier,
-            content: Self.warningContent(settings: settings, interruptionLevel: .active),
+            // The preview shows the configured lead: there is no cycle behind
+            // it to cap or pin, so the setting is the honest answer here.
+            content: Self.warningContent(
+                leadTime: settings.warningLeadTime,
+                settings: settings,
+                interruptionLevel: .active
+            ),
             trigger: UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
         )
         client.add(request) { [weak self] error in
