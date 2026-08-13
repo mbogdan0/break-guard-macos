@@ -23,8 +23,33 @@ func confirmHonestly(
     alert.addButton(withTitle: confirmTitle)
     alert.addButton(withTitle: "Cancel")
     let countdown = gate.map { startGateCountdown(on: alert.buttons[0], title: confirmTitle, seconds: $0) }
-    defer { countdown?.invalidate() }
+    isConfirmationOpen = true
+    defer {
+        countdown?.invalidate()
+        isConfirmationOpen = false
+    }
+    // Anything but the confirm button — including an abort — is the safe
+    // branch at every call site.
     return alert.runModal() == .alertFirstButtonReturn
+}
+
+// Whether a confirmation is on screen right now. The gates run for up to 40
+// seconds, which is long enough for a break to fall due behind one — and long
+// enough for the nudge card to be told to keep out of its way.
+@MainActor private(set) var isConfirmationOpen = false
+
+// Takes the screen back for a break. The overlay sits at `.screenSaver` and
+// would otherwise cover the alert while the modal session went on swallowing
+// clicks meant for it — a break screen that ignores the mouse, with the only
+// way out an Escape key nobody would think to press.
+//
+// Aborting rather than answering: `runModal()` returns `.abort`, which is not
+// the confirm button, so every caller takes the branch that changes nothing.
+@MainActor
+func abortOpenConfirmation() {
+    guard isConfirmationOpen else { return }
+    isConfirmationOpen = false
+    NSApp.abortModal()
 }
 
 // Disables the button and counts it down to zero. The timer is added to

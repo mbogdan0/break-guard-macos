@@ -477,6 +477,19 @@ System, Statistics, About.
 | **Harder to skip breaks** toggle, **off** direction | one setting | `confirmHonestly` gated **30 s** (`AppState.setHarderToSkipBreaks`) |
 | **Harder to skip breaks** toggle, **on** direction | one setting | none — friction belongs on the way out |
 
+**A break falling due aborts any open confirmation** (`abortOpenConfirmation`, called from
+`reconcileStateEffects` before the overlay is ordered front). The overlay sits at
+`.screenSaver` and would otherwise cover the alert while the modal session went on swallowing
+the clicks meant for the break — recoverable only with an Escape key nobody would think to
+press. `runModal()` returns `.abort`, which is not the confirm button, so every caller takes
+the branch that changes nothing. The app's 1 s tick keeps running during a modal session
+(`RunLoop.main` `.common` covers `NSModalPanelRunLoopMode`), which is what makes this
+reachable at all — and what makes the abort work.
+
+For the same reason the **nudge card is suppressed while a confirmation is open**: it also
+sits at `.screenSaver` and, unlike the veil, takes its clicks rather than passing them
+through. The veil stays up — dimming an alert is harmless.
+
 `setHarderToSkipBreaks` writes nothing on Cancel and calls `objectWillChange.send()` so the
 toggle, which already drew itself in the off position, re-reads the unchanged value. The alert
 is dispatched via `DispatchQueue.main.async` from the binding setter: `runModal()` spins a
@@ -497,6 +510,10 @@ calls `confirmSettingsVisit()`.
 | Charged on | `settings.weakensGuard(comparedTo: snapshot)` — the **net** difference, once per visit |
 | Gate | **30 s** (`SkipConfirmGate.loosenSettingsSeconds`) |
 | Cancel | `updateSettings(snapshot)` — the whole visit is reverted, `launchAtLogin` included |
+
+The visit is keyed on the snapshot's existence, **not** on `window.isVisible`: a miniaturized
+window reports `isVisible == false`, so testing that let a visit be re-baselined — loosen,
+miniaturize, reopen, close, no charge.
 
 Edits still apply live as they are made. Gating each write instead would open a dialog per
 stepper click (`secondsBinding` fires once per 60 s nudge, `timeOfDayBinding` once per

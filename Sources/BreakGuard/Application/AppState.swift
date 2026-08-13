@@ -322,9 +322,12 @@ final class AppState: ObservableObject {
     func showSettings() {
         refreshNotificationStatus()
         refreshLoginStatus()
-        // One snapshot per visit, not per open call: bringing an already-open
-        // window forward must not silently forgive the edits made so far.
-        if settingsWindow?.isVisible != true {
+        // One snapshot per visit, not per open call. Keyed on the snapshot
+        // itself rather than on the window being visible: a miniaturized
+        // window reports isVisible == false, so that test let a visit be
+        // re-baselined — loosen, miniaturize, reopen, close, no charge.
+        // The visit ends where the snapshot is cleared, in confirmSettingsVisit.
+        if settingsSnapshot == nil {
             settingsSnapshot = settings
         }
         if let settingsWindow {
@@ -644,9 +647,14 @@ final class AppState: ObservableObject {
             overlayManager?.hideAll()
         case .breakDue:
             notifications.cancelWarning()
+            // Before the overlay goes up, not after: it covers the whole
+            // screen at `.screenSaver`, and a confirmation left running behind
+            // it would keep swallowing the clicks meant for the break.
+            abortOpenConfirmation()
             startBreakIfDue()
         case .breaking, .breakCompleted:
             notifications.cancelWarning()
+            abortOpenConfirmation()
             overlayManager?.showOnAllScreens()
             overlayManager?.bringToFront()
         case .postponed:
@@ -692,7 +700,11 @@ final class AppState: ObservableObject {
         }
         nudgeManager?.show(
             makeNudgePresentation(reason: reason, windowEnd: window?.end),
-            showCard: nudgeCardHiddenUntil == nil
+            // The card sits at `.screenSaver` and, unlike the veil, takes its
+            // clicks rather than passing them through — so while a
+            // confirmation is up it would eat the ones meant for the alert
+            // underneath. The veil stays: dimming an alert is harmless.
+            showCard: nudgeCardHiddenUntil == nil && !isConfirmationOpen
         )
     }
 
