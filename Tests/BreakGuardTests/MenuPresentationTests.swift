@@ -291,49 +291,83 @@ final class MenuPresentationTests: XCTestCase {
     }
 
     func testPostponeHoldDurationScalesWithTheLongerPostponement() {
-        // The shorter postponement holds for 1 s, the longer for 3 s —
+        // The shorter postponement holds for 2 s, the longer for 6 s —
         // regardless of which of the two settings slots it occupies.
-        XCTAssertEqual(postponeHoldDuration(for: 2 * 60, comparedTo: 15 * 60), 1)
-        XCTAssertEqual(postponeHoldDuration(for: 15 * 60, comparedTo: 2 * 60), 3)
-        XCTAssertEqual(postponeHoldDuration(for: 15 * 60, comparedTo: 15 * 60), 1)
+        XCTAssertEqual(postponeHoldDuration(for: 2 * 60, comparedTo: 15 * 60), 2)
+        XCTAssertEqual(postponeHoldDuration(for: 15 * 60, comparedTo: 2 * 60), 6)
+        XCTAssertEqual(postponeHoldDuration(for: 15 * 60, comparedTo: 15 * 60), 2)
     }
 
     func testPostponeHoldDurationUsesHarderTier() {
-        XCTAssertEqual(postponeHoldDuration(for: 2 * 60, comparedTo: 15 * 60, tier: .harder), 3)
-        XCTAssertEqual(postponeHoldDuration(for: 15 * 60, comparedTo: 2 * 60, tier: .harder), 9)
-        XCTAssertEqual(postponeHoldDuration(for: 15 * 60, comparedTo: 15 * 60, tier: .harder), 3)
+        XCTAssertEqual(postponeHoldDuration(for: 2 * 60, comparedTo: 15 * 60, tier: .harder), 4)
+        XCTAssertEqual(postponeHoldDuration(for: 15 * 60, comparedTo: 2 * 60, tier: .harder), 12)
+        XCTAssertEqual(postponeHoldDuration(for: 15 * 60, comparedTo: 15 * 60, tier: .harder), 4)
     }
 
     func testPostponeHoldDurationUsesRepeatedTier() {
-        XCTAssertEqual(postponeHoldDuration(for: 2 * 60, comparedTo: 15 * 60, tier: .repeated), 3)
-        XCTAssertEqual(postponeHoldDuration(for: 15 * 60, comparedTo: 2 * 60, tier: .repeated), 9)
-        XCTAssertEqual(postponeHoldDuration(for: 15 * 60, comparedTo: 15 * 60, tier: .repeated), 3)
+        XCTAssertEqual(postponeHoldDuration(for: 2 * 60, comparedTo: 15 * 60, tier: .repeated), 4)
+        XCTAssertEqual(postponeHoldDuration(for: 15 * 60, comparedTo: 2 * 60, tier: .repeated), 12)
+        XCTAssertEqual(postponeHoldDuration(for: 15 * 60, comparedTo: 15 * 60, tier: .repeated), 4)
+    }
+
+    // The holds follow the same rule as the dialog gates: harder mode is the
+    // reference and the standard tier pays exactly half.
+    func testPostponeHoldStandardTierIsHalfOfHarder() {
+        for (duration, other) in [(2.0 * 60, 15.0 * 60), (15.0 * 60, 2.0 * 60)] {
+            XCTAssertEqual(
+                postponeHoldDuration(for: duration, comparedTo: other, tier: .standard) * 2,
+                postponeHoldDuration(for: duration, comparedTo: other, tier: .harder)
+            )
+        }
+    }
+
+    // Off the ladder on purpose: the once-a-week quota is the real price, so
+    // the hold does not double in harder mode the way everything else does.
+    func testEmergencyOverrideHoldIsFlat() {
+        XCTAssertEqual(EmergencyOverride.holdDuration, 3)
     }
 
     func testPostponeHoldHintReadsAsSeconds() {
-        XCTAssertEqual(postponeHoldHint(1), "Hold 1s")
-        XCTAssertEqual(postponeHoldHint(3), "Hold 3s")
-        XCTAssertEqual(postponeHoldHint(9), "Hold 9s")
+        XCTAssertEqual(postponeHoldHint(2), "Hold 2s")
+        XCTAssertEqual(postponeHoldHint(4), "Hold 4s")
+        XCTAssertEqual(postponeHoldHint(12), "Hold 12s")
     }
 
     // The menu offers exactly these four durations.
     private static let extendOptions: [Double] = [15, 35, 45, 65]
 
-    func testConfirmGatesOnlyApplyInHarderMode() {
+    // No action is free in either mode. Normal mode is the same ladder at half
+    // the count — one rule, so a new gate cannot quietly acquire an exception.
+    func testNormalModePaysHalfOfEveryHarderModeGate() {
         for minutes in Self.extendOptions {
-            XCTAssertNil(
-                SkipConfirmGate.extendSeconds(forMinutes: minutes, harderToSkipBreaks: false),
-                "\(minutes) min should be ungated outside harder mode"
+            XCTAssertEqual(
+                SkipConfirmGate.extendSeconds(forMinutes: minutes, harderToSkipBreaks: false) * 2,
+                SkipConfirmGate.extendSeconds(forMinutes: minutes, harderToSkipBreaks: true),
+                "\(minutes) min should cost half outside harder mode"
             )
         }
-        XCTAssertNil(SkipConfirmGate.pauseSeconds(harderToSkipBreaks: false))
+        XCTAssertEqual(
+            SkipConfirmGate.pauseSeconds(harderToSkipBreaks: false) * 2,
+            SkipConfirmGate.pauseSeconds(harderToSkipBreaks: true)
+        )
+        XCTAssertEqual(
+            SkipConfirmGate.quitSeconds(harderToSkipBreaks: false) * 2,
+            SkipConfirmGate.quitSeconds(harderToSkipBreaks: true)
+        )
+        // Halved, never waived.
+        for minutes in Self.extendOptions {
+            XCTAssertGreaterThan(
+                SkipConfirmGate.extendSeconds(forMinutes: minutes, harderToSkipBreaks: false),
+                0
+            )
+        }
     }
 
     func testExtendGateChargesTheLongerCountPastTheShortThreshold() {
-        XCTAssertEqual(SkipConfirmGate.extendSeconds(forMinutes: 15, harderToSkipBreaks: true), 8)
-        XCTAssertEqual(SkipConfirmGate.extendSeconds(forMinutes: 35, harderToSkipBreaks: true), 16)
-        XCTAssertEqual(SkipConfirmGate.extendSeconds(forMinutes: 45, harderToSkipBreaks: true), 16)
-        XCTAssertEqual(SkipConfirmGate.extendSeconds(forMinutes: 65, harderToSkipBreaks: true), 16)
+        XCTAssertEqual(SkipConfirmGate.extendSeconds(forMinutes: 15, harderToSkipBreaks: true), 12)
+        XCTAssertEqual(SkipConfirmGate.extendSeconds(forMinutes: 35, harderToSkipBreaks: true), 30)
+        XCTAssertEqual(SkipConfirmGate.extendSeconds(forMinutes: 45, harderToSkipBreaks: true), 30)
+        XCTAssertEqual(SkipConfirmGate.extendSeconds(forMinutes: 65, harderToSkipBreaks: true), 30)
         // The threshold is inclusive on the short side.
         XCTAssertEqual(
             SkipConfirmGate.extendSeconds(
@@ -344,14 +378,14 @@ final class MenuPresentationTests: XCTestCase {
         )
     }
 
-    // Silencing every reminder until the morning is the largest single thing
-    // the app can be told to stop doing, so it is priced well above any
-    // extension.
-    func testPauseUntilMorningIsGatedLongestOfAll() {
-        XCTAssertEqual(SkipConfirmGate.pauseSeconds(harderToSkipBreaks: true), 40)
-        XCTAssertGreaterThan(
+    // Silencing every reminder until the morning and quitting outright stop the
+    // same reminders, so they are priced together at the top of the ladder.
+    func testPauseAndQuitShareTheLongestGate() {
+        XCTAssertEqual(SkipConfirmGate.pauseSeconds(harderToSkipBreaks: true), 180)
+        XCTAssertEqual(SkipConfirmGate.quitSeconds(harderToSkipBreaks: true), 180)
+        XCTAssertEqual(
             SkipConfirmGate.pauseUntilMorningSeconds,
-            SkipConfirmGate.extendLongSeconds
+            SkipConfirmGate.quitAppSeconds
         )
     }
 
@@ -359,7 +393,7 @@ final class MenuPresentationTests: XCTestCase {
     // above any single extension — and only below the pause, which silences
     // the app outright rather than lowering its guard.
     func testLeavingHarderModeIsGatedAboveAnyExtension() {
-        XCTAssertEqual(SkipConfirmGate.disableHarderModeSeconds, 30)
+        XCTAssertEqual(SkipConfirmGate.disableHarderModeSeconds, 90)
         XCTAssertGreaterThan(
             SkipConfirmGate.disableHarderModeSeconds,
             SkipConfirmGate.extendLongSeconds
@@ -370,14 +404,46 @@ final class MenuPresentationTests: XCTestCase {
         )
     }
 
+    // One ladder, priced by how much rest the action removes. A change that
+    // reorders any two rungs has to come here and say so.
+    func testTheLadderRisesWithWhatTheActionCosts() {
+        let ladder: [TimeInterval] = [
+            postponeHoldDuration(for: 2 * 60, comparedTo: 15 * 60, tier: .harder),
+            postponeHoldDuration(for: 15 * 60, comparedTo: 2 * 60, tier: .harder),
+            SkipConfirmGate.extendLongSeconds,
+            SkipConfirmGate.loosenSettingsSeconds,
+            SkipConfirmGate.disableHarderModeSeconds,
+            SkipConfirmGate.pauseUntilMorningSeconds
+        ]
+        XCTAssertEqual(ladder, ladder.sorted(), "the ladder must rise")
+        XCTAssertEqual(Set(ladder).count, ladder.count, "no two rungs should tie")
+        // The long postponement and the short extension buy the same 15 minutes
+        // of screen time, so they are the one deliberate tie.
+        XCTAssertEqual(
+            postponeHoldDuration(for: 15 * 60, comparedTo: 2 * 60, tier: .harder),
+            SkipConfirmGate.extendShortSeconds
+        )
+    }
+
     func testGateButtonTitleDropsTheCountAtZero() {
-        XCTAssertEqual(gateButtonTitle("Extend Anyway", remaining: 16), "Extend Anyway (16)")
+        XCTAssertEqual(gateButtonTitle("Extend Anyway", remaining: 30), "Extend Anyway (30)")
         XCTAssertEqual(gateButtonTitle("Extend Anyway", remaining: 1), "Extend Anyway (1)")
         XCTAssertEqual(gateButtonTitle("Extend Anyway", remaining: 0), "Extend Anyway")
         // A negative count cannot leak into the title if a tick overshoots.
         XCTAssertEqual(gateButtonTitle("Extend Anyway", remaining: -1), "Extend Anyway")
         // Shared with every other gated confirmation, not just the extension.
-        XCTAssertEqual(gateButtonTitle("Turn It Off", remaining: 30), "Turn It Off (30)")
+        XCTAssertEqual(gateButtonTitle("Turn It Off", remaining: 45), "Turn It Off (45)")
+    }
+
+    // A three-minute gate counting down in bare seconds is a number to decode,
+    // so from a minute up the title reads as a clock.
+    func testGateButtonTitleReadsAsAClockPastAMinute() {
+        XCTAssertEqual(gateButtonTitle("Quit Anyway", remaining: 180), "Quit Anyway (3:00)")
+        XCTAssertEqual(gateButtonTitle("Quit Anyway", remaining: 90), "Quit Anyway (1:30)")
+        XCTAssertEqual(gateButtonTitle("Turn It Off", remaining: 60), "Turn It Off (1:00)")
+        XCTAssertEqual(gateButtonTitle("Turn It Off", remaining: 61), "Turn It Off (1:01)")
+        // Just below the switch it stays a bare count.
+        XCTAssertEqual(gateButtonTitle("Keep Them", remaining: 59), "Keep Them (59)")
     }
 
     func testBreakPromptCatalogContainsTenUniqueMessages() {

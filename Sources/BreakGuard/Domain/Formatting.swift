@@ -40,6 +40,31 @@ func formatDurationPhrase(_ interval: TimeInterval) -> String {
     return parts.isEmpty ? "0 seconds" : parts.joined(separator: " ")
 }
 
+// How long until something comes back, for the emergency override's cooldown:
+// "3 days 5 hours", "5 hours 12 minutes", "12 minutes". Days matter here where
+// they do not in formatDurationPhrase — the quota runs a week — and the two
+// largest units are the whole answer, because nobody waiting three days needs
+// the seconds. Anything already elapsed reads as the arrival it is.
+func formatTimeUntilPhrase(_ interval: TimeInterval) -> String {
+    let total = max(0, Int(interval.rounded()))
+    guard total >= 60 else { return "less than a minute" }
+    let units: [(count: Int, name: String)] = [
+        (total / 86400, "day"),
+        (total % 86400 / 3600, "hour"),
+        (total % 3600 / 60, "minute")
+    ]
+    // Skip past the empty leading units, keep the two that follow, and drop a
+    // zero if one landed in second place — "3 days" rather than "3 days 0
+    // hours". Never reorders: a smaller unit can only ever be dropped, so the
+    // result stays an underestimate of the wait, never an overestimate.
+    let parts = units
+        .drop { $0.count == 0 }
+        .prefix(2)
+        .filter { $0.count > 0 }
+        .map { "\($0.count) \($0.name)\($0.count == 1 ? "" : "s")" }
+    return parts.joined(separator: " ")
+}
+
 // Compact duration for space-constrained controls like the overlay's
 // postpone buttons: "2m 20s", "15m", "1h 30m".
 func formatDurationCompact(_ interval: TimeInterval) -> String {

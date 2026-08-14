@@ -3,7 +3,6 @@ import SwiftUI
 struct GeneralSettingsView: View {
     @ObservedObject var appState: AppState
     @State private var advancedExpanded = false
-    @State private var showRestoreConfirmation = false
 
     var body: some View {
         Form {
@@ -42,7 +41,7 @@ struct GeneralSettingsView: View {
             } header: {
                 Text("Skipping Breaks")
             } footer: {
-                Text("Harder mode allows one Extend Focus or postponement per cycle. Every Extend Focus first has to sit through a confirmation whose button stays disabled for \(Int(SkipConfirmGate.extendShortSeconds))–\(Int(SkipConfirmGate.extendLongSeconds)) seconds, and Pause Until 9 AM for \(Int(SkipConfirmGate.pauseUntilMorningSeconds)). It also turns on the scheduled break and after-hours dimming set up on the Schedule tab. The override, at the foot of a break overlay or on a dimming reminder, buys \(formatDurationPhrase(EmergencyOverride.focusGrant)) once every 7 days.")
+                Text("Every skip sits through a confirmation whose button stays disabled for a moment first — \(Int(SkipConfirmGate.extendShortSeconds / 2))–\(Int(SkipConfirmGate.extendLongSeconds / 2)) seconds for Extend Focus, \(formatDurationPhrase(SkipConfirmGate.pauseUntilMorningSeconds / 2)) for Pause Until 9 AM and for quitting. Harder mode doubles every one of those, allows only one Extend Focus or postponement per cycle, and turns on the scheduled break and after-hours dimming set up on the Schedule tab. The override, at the foot of a break overlay or on a dimming reminder, buys \(formatDurationPhrase(EmergencyOverride.focusGrant)) once every 7 days.")
                     .foregroundStyle(.secondary)
             }
 
@@ -73,22 +72,9 @@ struct GeneralSettingsView: View {
                         range: SettingsRange.postponeDuration
                     )
                     taperingResetRow
-                    HStack {
-                        Spacer()
-                        // Reaches further than Reset Statistics on the other
-                        // tab, so it asks the same way that one does.
-                        Button("Restore Defaults…", role: .destructive) {
-                            showRestoreConfirmation = true
-                        }
-                    }
                 }
             } header: {
                 advancedHeader
-            } footer: {
-                if advancedExpanded {
-                    Text("Restore Defaults resets every setting on every tab.")
-                        .foregroundStyle(.secondary)
-                }
             }
         }
         .formStyle(.grouped)
@@ -99,14 +85,6 @@ struct GeneralSettingsView: View {
             DispatchQueue.main.async {
                 NSApp.keyWindow?.makeFirstResponder(nil)
             }
-        }
-        .confirmationDialog("Restore default settings?", isPresented: $showRestoreConfirmation) {
-            Button("Restore Defaults", role: .destructive) {
-                appState.restoreDefaultSettings()
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This resets every setting on every tab: timing, focus pace, skip policy, working hours, notifications, and menu bar options. Statistics and the emergency override quota are not affected.")
         }
     }
 
@@ -191,7 +169,7 @@ struct GeneralSettingsView: View {
     private var emergencyOverrideStatusText: String {
         guard let availableAt = appState.emergencyOverrideAvailableAt,
               Date() < availableAt else { return "Available" }
-        return "Used · back on \(DateFormatter.breakGuardDateTime.string(from: availableAt))"
+        return "Used · back in \(formatTimeUntilPhrase(availableAt.timeIntervalSinceNow))"
     }
 
     // One line per pace. Tapering's live penalty is the row right above and

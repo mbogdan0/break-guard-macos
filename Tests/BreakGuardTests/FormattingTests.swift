@@ -70,6 +70,35 @@ final class FormattingTests: XCTestCase {
         XCTAssertEqual(formatDurationPhrase(-10), "0 seconds")
     }
 
+    func testTimeUntilPhraseStopsAtTwoUnits() {
+        let day: TimeInterval = 86400
+        XCTAssertEqual(formatTimeUntilPhrase(3 * day + 5 * 3600), "3 days 5 hours")
+        XCTAssertEqual(formatTimeUntilPhrase(5 * 3600 + 12 * 60), "5 hours 12 minutes")
+        XCTAssertEqual(formatTimeUntilPhrase(12 * 60), "12 minutes")
+        // The third unit is dropped, never rounded into the second.
+        XCTAssertEqual(formatTimeUntilPhrase(3 * day + 5 * 3600 + 59 * 60), "3 days 5 hours")
+        // The full cooldown, which is what the row reads the moment it is spent.
+        XCTAssertEqual(formatTimeUntilPhrase(EmergencyOverride.cooldown), "7 days")
+    }
+
+    func testTimeUntilPhraseDropsAZeroSecondUnit() {
+        let day: TimeInterval = 86400
+        XCTAssertEqual(formatTimeUntilPhrase(3 * day), "3 days")
+        XCTAssertEqual(formatTimeUntilPhrase(2 * 3600), "2 hours")
+        // A zero hour between days and minutes takes the minutes with it
+        // rather than reading "3 days 0 hours".
+        XCTAssertEqual(formatTimeUntilPhrase(3 * day + 5 * 60), "3 days")
+    }
+
+    func testTimeUntilPhraseSingularisesAndFloors() {
+        XCTAssertEqual(formatTimeUntilPhrase(86400 + 3600), "1 day 1 hour")
+        XCTAssertEqual(formatTimeUntilPhrase(60), "1 minute")
+        XCTAssertEqual(formatTimeUntilPhrase(59), "less than a minute")
+        XCTAssertEqual(formatTimeUntilPhrase(0), "less than a minute")
+        // An availability moment already past cannot render as a wait.
+        XCTAssertEqual(formatTimeUntilPhrase(-3600), "less than a minute")
+    }
+
     func testDurationCompactCoversEveryUnit() {
         XCTAssertEqual(formatDurationCompact(0), "0s")
         XCTAssertEqual(formatDurationCompact(45), "45s")

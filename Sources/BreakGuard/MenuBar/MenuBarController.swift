@@ -322,18 +322,14 @@ final class MenuBarController: NSObject, NSMenuDelegate, NSMenuItemValidation {
         confirmExtension(minutes: 65, label: "1 hour 5 minutes")
     }
 
-    // Outside harder mode the short extension stays a single click — it is the
-    // cheap nudge the menu is for. Harder mode has no cheap nudge, so every
-    // duration goes through the dialog and waits out its gate.
+    // No cheap nudge in either mode: every extension goes through the dialog
+    // and waits out its gate. Normal mode pays half the count, not nothing —
+    // an hour of extra screen time is the same hour whatever the mode says.
     private func confirmExtension(minutes: Double, label: String) {
         let gate = SkipConfirmGate.extendSeconds(
             forMinutes: minutes,
             harderToSkipBreaks: appState.settings.harderToSkipBreaks
         )
-        if gate == nil, minutes <= SkipConfirmGate.extendShortThresholdMinutes {
-            appState.extendFocus(minutes: minutes)
-            return
-        }
         let confirmed = confirmHonestly(
             message: "Extend focus by \(label)? ⏳",
             informative: "That is a long stretch without rest, and your eyes will pay the bill later. Be honest — do you really need this, or is the break the healthier choice?",
@@ -368,11 +364,15 @@ final class MenuBarController: NSObject, NSMenuDelegate, NSMenuItemValidation {
         appState.showSettings()
     }
 
+    // Gated like Pause Until 9 AM, and for longer than anything else: this
+    // silences the same reminders permanently. The menu item is the only way
+    // out — the app is an accessory, so there is no Cmd+Q to slip past it.
     @objc private func quit() {
         let confirmed = confirmHonestly(
             message: "Quit BreakGuard? 🛑",
             informative: "With BreakGuard off, nothing stands between your eyes and the next marathon screen session. Be honest — quit only if you are truly stepping away, not dodging your breaks.",
-            confirmTitle: "Quit Anyway"
+            confirmTitle: "Quit Anyway",
+            gate: SkipConfirmGate.quitSeconds(harderToSkipBreaks: appState.settings.harderToSkipBreaks)
         )
         if confirmed {
             NSApp.terminate(nil)

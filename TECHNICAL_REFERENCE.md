@@ -297,37 +297,48 @@ not stored, so that helper reconstructs it as
 Take a Break Now · Extend Focus ▸ · Pause Until 9 AM · Resume Now · separator · Settings… ·
 separator · Quit.
 
-| Control | Confirmation | Gate (harder mode) | Hidden or disabled when |
+| Control | Confirmation | Gate (harder / normal) | Hidden or disabled when |
 |---|---|---|---|
 | **Take a Break Now** | none | — | hidden unless state ∈ {`.working`, `.warning`, `.postponed`} (`:159`) |
-| **Extend Focus ▸ By 15 Minutes** | none in normal mode; **NSAlert** in harder mode | **8 s** | greyed when `!canExtendFocus` (`:41-46`) |
-| **Extend Focus ▸ By 35 Minutes** | **NSAlert** | **16 s** | same |
-| **Extend Focus ▸ By 45 Minutes** | **NSAlert** | **16 s** | same |
-| **Extend Focus ▸ By 1 Hour 5 Minutes** | **NSAlert** | **16 s** | same |
-| **Pause Until 9 AM** | **NSAlert** | **40 s** | hidden unless `primaryAction == .takeBreak` (`:163`) |
+| **Extend Focus ▸ By 15 Minutes** | **NSAlert** | **12 s / 6 s** | greyed when `!canExtendFocus` (`:41-46`) |
+| **Extend Focus ▸ By 35 Minutes** | **NSAlert** | **30 s / 15 s** | same |
+| **Extend Focus ▸ By 45 Minutes** | **NSAlert** | **30 s / 15 s** | same |
+| **Extend Focus ▸ By 1 Hour 5 Minutes** | **NSAlert** | **30 s / 15 s** | same |
+| **Pause Until 9 AM** | **NSAlert** | **180 s / 90 s** | hidden unless `primaryAction == .takeBreak` (`:163`) |
 | **Resume Now** | none | — | hidden unless state is `.suspended` (`:164`) |
 | **Settings…** | none | — | ⌘, |
-| **Quit BreakGuard** | **NSAlert** | none | ⌘Q |
+| **Quit BreakGuard** | **NSAlert** | **180 s / 90 s** | ⌘Q |
 
-Only the **15-minute** extension skips confirmation, and only outside harder mode. All alerts
-put the confirm button first and **Cancel** second, so the safe choice is the default.
+No extension skips confirmation any more, in either mode. All alerts put the confirm button
+first and **Cancel** second, so the safe choice is the default.
 
-**The gate** (`SkipConfirmGate`, applied in `confirmHonestly(… gate:)`): with
-`harderToSkipBreaks` on, the confirm button starts disabled with the remaining count in
-parentheses — `Extend Anyway (16)` — and enables at zero. **Cancel stays live throughout**;
-the gate is on the choice being reconsidered, never on backing out. A disabled default button
-also ignores Return, which is the point. The countdown `Timer` is added to `RunLoop.main` in
-**`.modalPanel`** mode explicitly: `NSAlert.runModal()` does not run the default mode, so a
-`Timer.scheduledTimer` would never fire and the button would stay disabled forever. It is
-invalidated in a `defer` after `runModal()` returns.
+**The gate** (`SkipConfirmGate`, applied in `confirmHonestly(… gate:)`): the confirm button
+starts disabled with the remaining count in parentheses — `Extend Anyway (30)`, or
+`Quit Anyway (3:00)` once the count reaches a minute — and enables at zero. **Cancel stays
+live throughout**; the gate is on the choice being reconsidered, never on backing out. A
+disabled default button also ignores Return, which is the point. The countdown `Timer` is
+added to `RunLoop.main` in **`.modalPanel`** mode explicitly: `NSAlert.runModal()` does not
+run the default mode, so a `Timer.scheduledTimer` would never fire and the button would stay
+disabled forever. It is invalidated in a `defer` after `runModal()` returns.
 
-| Constant | Value |
+**One ladder, one scaling rule.** The constants below are the *harder-mode* counts; normal
+mode pays exactly half via `SkipConfirmGate.scaled(_:harderToSkipBreaks:)`. Nothing is
+waived — an hour of extra screen time costs the same hour whatever the mode says — so the
+resolvers return a non-optional `TimeInterval` rather than `nil` for "ungated".
+
+| Constant | Value (harder mode) |
 |---|---|
-| `SkipConfirmGate.extendShortSeconds` | **8** (extensions of ≤ 15 min) |
-| `SkipConfirmGate.extendLongSeconds` | **16** |
+| `SkipConfirmGate.extendShortSeconds` | **12** (extensions of ≤ 15 min) |
+| `SkipConfirmGate.extendLongSeconds` | **30** |
 | `SkipConfirmGate.extendShortThresholdMinutes` | **15**, inclusive |
-| `SkipConfirmGate.pauseUntilMorningSeconds` | **40** |
-| `SkipConfirmGate.disableHarderModeSeconds` | **30** (Settings ▸ General toggle, off direction only) |
+| `SkipConfirmGate.pauseUntilMorningSeconds` | **180** |
+| `SkipConfirmGate.quitAppSeconds` | **180** |
+| `SkipConfirmGate.loosenSettingsSeconds` | **60** (never halved — see §5) |
+| `SkipConfirmGate.disableHarderModeSeconds` | **90** (never halved; only reachable while harder mode is on) |
+
+The two never-halved constants are the ones whose dialog only exists because harder mode was
+on, so there is no normal-mode case to price. `MenuPresentationTests` asserts both the halving
+rule and that the ladder rises monotonically, so reordering a rung has to be deliberate.
 
 Each extend option's title is rebuilt on every **applied** presentation update with the
 resulting end time appended in grey: `deadline + minutes × 60` (`:332-351`). Falls back to
@@ -473,9 +484,14 @@ System, Statistics, About.
 
 | Action | Scope | Confirmation |
 |---|---|---|
-| **Restore Defaults…** (General ▸ Advanced) | all 16 settings, all tabs | `.confirmationDialog`, destructive role (`GeneralSettingsView.swift:71`, `:94-100`) |
-| **Harder to skip breaks** toggle, **off** direction | one setting | `confirmHonestly` gated **30 s** (`AppState.setHarderToSkipBreaks`) |
+| **Harder to skip breaks** toggle, **off** direction | one setting | `confirmHonestly` gated **90 s** (`AppState.setHarderToSkipBreaks`) |
 | **Harder to skip breaks** toggle, **on** direction | one setting | none — friction belongs on the way out |
+| **Reset Statistics…** (Statistics) | statistics only | `.confirmationDialog`, destructive role (`StatisticsSettingsView.swift:47-54`) — ungated, it removes no rest |
+
+There is **no Restore Defaults**. It was removed with the gate unification: a single click
+that reset every tab to values looser than most users configure is the cheapest possible way
+past the per-visit loosening charge described in §5, and the charge was the only thing
+standing behind it.
 
 **A break falling due aborts any open confirmation** (`abortOpenConfirmation`, called from
 `reconcileStateEffects` before the overlay is ordered front). The overlay sits at
@@ -485,6 +501,11 @@ press. `runModal()` returns `.abort`, which is not the confirm button, so every 
 the branch that changes nothing. The app's 1 s tick keeps running during a modal session
 (`RunLoop.main` `.common` covers `NSModalPanelRunLoopMode`), which is what makes this
 reachable at all — and what makes the abort work.
+
+With the top gates at **three minutes**, this is a routine path rather than a corner case: a
+break can now comfortably fall due behind a Quit or Pause confirmation, and does. The
+consequence is deliberate — a Quit waiting out its gate is interrupted by the very break it
+was about to disable, and changes nothing.
 
 For the same reason the **nudge card is suppressed while a confirmation is open**: it also
 sits at `.screenSaver` and, unlike the veil, takes its clicks rather than passing them
@@ -508,7 +529,7 @@ calls `confirmSettingsVisit()`.
 | Trigger | settings window closing, and `isTerminating == false` — quitting never stops to argue |
 | Applies when | `snapshot.harderToSkipBreaks \|\| settings.harderToSkipBreaks` |
 | Charged on | `settings.weakensGuard(comparedTo: snapshot)` — the **net** difference, once per visit |
-| Gate | **30 s** (`SkipConfirmGate.loosenSettingsSeconds`) |
+| Gate | **60 s** (`SkipConfirmGate.loosenSettingsSeconds`), never halved — the charge only exists when harder mode was on at one end of the visit |
 | Cancel | `updateSettings(snapshot)` — the whole visit is reverted, `launchAtLogin` included |
 
 The visit is keyed on the snapshot's existence, **not** on `window.isVisible`: a miniaturized
@@ -538,12 +559,11 @@ which teaches the user to stay out of the pane entirely.
 `.normal` share **1.0**, but tapering shortens every window as the day accumulates, so leaving
 it is a loosening the multiplier alone cannot see.
 
-**Restore Defaults** is covered by this gate rather than exempt from it: it writes
-`AppSettings.defaults` wholesale from inside an open settings window, so the visit diff sees
-every field it reset. The residual gap is narrow — if the user's settings happened to be looser
-than the defaults in every compared field, the visit does not weaken anything and
-`harderToSkipBreaks = false` rides along uncharged.
-| **Reset Statistics…** (Statistics) | statistics only | `.confirmationDialog`, destructive role (`StatisticsSettingsView.swift:47-54`) |
+**Restore Defaults used to be covered by this gate rather than exempt from it**, writing
+`AppSettings.defaults` wholesale from inside an open settings window so the visit diff saw
+every field it reset. The residual gap was narrow but real: if the user's settings happened to
+be looser than the defaults in every compared field, the visit weakened nothing and
+`harderToSkipBreaks = false` rode along uncharged. The button is gone, and with it the gap.
 | **Send Test Notification** (System) | one notification | none; disabled unless `canSendTest` (`SystemSettingsView.swift:26`) |
 
 Neither reset touches `emergencyOverrideUsedAt` — it lives in `RuntimeState`, which neither
@@ -626,7 +646,7 @@ window (`MenuPresentation.swift:118`).
 |---|---|
 | `focusGrant` | **5400 s (90 min)** |
 | `cooldown` | **604 800 s (rolling 7 days from last use)** |
-| `holdDuration` | **1 s** |
+| `holdDuration` | **3 s**, flat — the one friction value that does **not** double in harder mode |
 
 Rolling, not calendar — explicitly so it cannot be spent twice across a weekend (`:67-69`).
 Boundary is inclusive: locked at `cooldown − 1 s`, available at exactly `cooldown`.
@@ -646,14 +666,26 @@ Effect (`:88-101`):
 - spends **both** allowances (`cyclePostponements += 1` *and* `focusExtended = true`), so a
   90-minute grant cannot stack a further extension on top
 
-The row is shown during cooldown too, reading "Already used this week. Available again on
-\<date time\>." (`OverlayScreenManager.swift:351-357`) — deliberate, per the comment at
-`:218-219`.
+The row is shown during cooldown too — a hatch nobody knows about is one nobody can plan
+around — reading "Already used this week. Available again **in** 3 days 5 hours."
+(`OverlayScreenManager.swift`, and the same sentence on the nudge card).
+
+That is the **remaining wait**, not the date it lands on, via `formatTimeUntilPhrase`
+(`Domain/Formatting.swift`): a timestamp three days out makes the reader do the subtraction
+themselves. Two largest units only — days, hours, minutes — because nobody waiting three days
+needs the seconds; a zero in second place is dropped (`3 days`, not `3 days 0 hours`), and
+anything under a minute reads "less than a minute". Settings ▸ General shows the same fact
+compactly as `Used · back in 3 days 5 hours`.
+
+The strings are computed in view bodies against `Date()`, so they are correct whenever the
+overlay or nudge is presented and refresh on any `AppState` publish. A settings pane left open
+for hours can drift, which at days/hours granularity is invisible — no timer is warranted.
+`DateFormatter.breakGuardDateTime` was retired with this change; `breakGuardTime` remains.
 
 `emergencyOverrideUsedAt` lives in `RuntimeState`, **not** in `AppSettings` or `Statistics`,
-precisely because "Restore Defaults" and "Reset Statistics" replace those wholesale and would
-refill the quota (`PersistedAppData.swift:36-39`). `startWorkCycle()` carries it explicitly
-through its rebuild (`StateMachine.swift:199-200`).
+precisely because "Reset Statistics" replaces the latter wholesale and would refill the quota
+(`PersistedAppData.swift:36-39`). `startWorkCycle()` carries it explicitly through its rebuild
+(`StateMachine.swift:199-200`).
 
 ### 6.5 Break pressure — dimming and the nudge card
 
@@ -1074,11 +1106,12 @@ Commit `8c47028` changed harder mode from "one extension, then costlier postpone
 
 ### 12.2 Assistive tech bypasses every hold-to-confirm timer
 
-`Overlay/HoldToConfirmButton.swift:67-69` exposes the control as a plain `Button` via
+`Overlay/HoldToConfirmButton.swift` exposes the control as a plain `Button` via
 `.accessibilityRepresentation`. VoiceOver and Switch Control therefore activate **postpone**
-and the **emergency override** with **zero hold time** — the 1/3/6/9 s friction values in
-§5.3 do not apply on that path. The weekly override quota still applies; the deliberation
-delay does not.
+and the **emergency override** with **zero hold time** — the 2/4/6/12 s hold values do not
+apply on that path. The weekly override quota still applies; the deliberation delay does not.
+The gate unification widened this gap rather than closing it: the holds roughly doubled, so
+the bypass is now worth more.
 
 ### 12.3 Asymmetric confirmation on the destructive settings actions — **fixed**
 
@@ -1086,9 +1119,14 @@ delay does not.
 **Reset Statistics** — narrower in scope — required one. The wider-reaching action was the
 unguarded one.
 
-**Now:** `Restore Defaults…` carries a destructive role and a `.confirmationDialog`
-(`GeneralSettingsView.swift:71`, `:94-100`), matching the pattern already used by
-`StatisticsSettingsView`. The dialog names what is reset and what is not.
+**Then:** `Restore Defaults…` gained a destructive role and a `.confirmationDialog`, matching
+the pattern already used by `StatisticsSettingsView`.
+
+**Now:** the button is **gone entirely**, removed with the gate unification. A confirmation
+dialog was never the right price for it — one click resetting every tab to values looser than
+most users configure is the cheapest possible route past the per-visit loosening charge, and
+the only remaining destructive settings action is `Reset Statistics…`, which removes no rest
+and stays ungated.
 
 ### 12.4 Warning re-arm used the raw lead, not the effective lead — **fixed**
 

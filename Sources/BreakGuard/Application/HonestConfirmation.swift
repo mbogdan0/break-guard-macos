@@ -33,9 +33,10 @@ func confirmHonestly(
     return alert.runModal() == .alertFirstButtonReturn
 }
 
-// Whether a confirmation is on screen right now. The gates run for up to 40
-// seconds, which is long enough for a break to fall due behind one — and long
-// enough for the nudge card to be told to keep out of its way.
+// Whether a confirmation is on screen right now. The longest gates run three
+// minutes, so a break falling due behind one is routine rather than a corner
+// case — and it is long enough for the nudge card to be told to keep out of
+// its way.
 @MainActor private(set) var isConfirmationOpen = false
 
 // Takes the screen back for a break. The overlay sits at `.screenSaver` and
@@ -75,9 +76,15 @@ private func startGateCountdown(on button: NSButton, title: String, seconds: Tim
     return timer
 }
 
-// The confirm button's title while its gate runs. Parenthesised seconds, and
-// the bare title once the count reaches zero — the enabled button should read
-// exactly as it always has, with no leftover "(0)" to click past.
+// The confirm button's title while its gate runs, and the bare title once the
+// count reaches zero — the enabled button should read exactly as it always has,
+// with no leftover "(0)" to click past.
+//
+// The longest gates run three minutes, and "(180)" counting down is a number to
+// decode rather than a time to wait out, so from a minute up it switches to
+// m:ss — the same shape the settings duration fields use.
 func gateButtonTitle(_ base: String, remaining: Int) -> String {
-    remaining > 0 ? "\(base) (\(remaining))" : base
+    guard remaining > 0 else { return base }
+    guard remaining >= 60 else { return "\(base) (\(remaining))" }
+    return "\(base) (\(String(format: "%d:%02d", remaining / 60, remaining % 60)))"
 }

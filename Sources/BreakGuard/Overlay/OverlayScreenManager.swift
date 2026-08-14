@@ -336,6 +336,7 @@ struct BreakOverlayView: View {
                 if appState.canUseEmergencyOverride {
                     HoldToConfirmButton(
                         title: "Skip This Break — +\(formatDurationCompact(EmergencyOverride.focusGrant))",
+                        subtitle: postponeHoldHint(EmergencyOverride.holdDuration),
                         holdDuration: EmergencyOverride.holdDuration
                     ) {
                         appState.useEmergencyOverride()
@@ -362,8 +363,11 @@ struct BreakOverlayView: View {
         guard let availableAt = appState.emergencyOverrideAvailableAt else {
             return "Not available for this break."
         }
-        return "Already used this week. Available again on "
-            + DateFormatter.breakGuardDateTime.string(from: availableAt) + "."
+        // The wait, not the date it lands on: "in 3 days 5 hours" is the
+        // question being asked, and a timestamp makes the reader do the
+        // subtraction themselves.
+        return "Already used this week. Available again in "
+            + formatTimeUntilPhrase(availableAt.timeIntervalSinceNow) + "."
     }
 
     private var completionContent: some View {

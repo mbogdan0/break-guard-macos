@@ -81,6 +81,9 @@ struct HoldToConfirmButton: View {
 // The shorter postponement is the lesser evil, so it needs the shorter hold;
 // the longer one demands more deliberation. Compare against the sibling
 // duration rather than field order because either setting can be longer.
+//
+// Same rule as the dialog gates in SkipConfirmGate: the harder-mode counts are
+// the reference and normal mode pays half.
 func postponeHoldDuration(
     for duration: TimeInterval,
     comparedTo other: TimeInterval,
@@ -89,12 +92,12 @@ func postponeHoldDuration(
     let isLonger = duration > other
     switch tier {
     case .standard:
-        return isLonger ? 3 : 1
+        return isLonger ? 6 : 2
     // Harder mode and a repeat postponement price the same: in both the
     // cycle's cheap skip is already gone. The tiers stay distinct in the enum
     // because the reasons are distinct and may not always cost the same.
     case .harder, .repeated:
-        return isLonger ? 9 : 3
+        return isLonger ? 12 : 4
     }
 }
 

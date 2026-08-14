@@ -377,7 +377,8 @@ struct NudgeCardView: View {
         guard let availableAt = appState.emergencyOverrideAvailableAt else {
             return "Not available right now."
         }
-        return "Already used this week. Available again on "
-            + DateFormatter.breakGuardDateTime.string(from: availableAt) + "."
+        // The wait rather than the date — same wording as the break overlay's.
+        return "Already used this week. Available again in "
+            + formatTimeUntilPhrase(availableAt.timeIntervalSinceNow) + "."
     }
 }

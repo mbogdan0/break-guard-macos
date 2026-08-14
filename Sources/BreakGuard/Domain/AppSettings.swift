@@ -95,9 +95,11 @@ enum SettingsRange {
 enum EmergencyOverride {
     static let focusGrant: TimeInterval = 90 * 60
     static let cooldown: TimeInterval = 7 * 24 * 60 * 60
-    // Short on purpose. The weekly quota is what makes this hard to abuse, so
-    // the hold only has to be deliberate enough to not fire on a stray click.
-    static let holdDuration: TimeInterval = 1
+    // Short on purpose, and the one piece of friction that does not scale with
+    // harder mode. The weekly quota is what makes this hard to abuse, so the
+    // hold only has to be deliberate enough to not fire on a stray click —
+    // pricing it off the ladder would charge twice for the same decision.
+    static let holdDuration: TimeInterval = 3
 }
 
 // Absence inferred from input silence. Sleep and lock notifications cannot
@@ -134,39 +136,56 @@ enum PostponeHoldTier: Equatable {
     case repeated
 }
 
-// In harder mode the actions that skip or silence rest go through a
-// confirmation whose confirm button stays disabled for a fixed count, shown in
-// parentheses on the button itself. The point is not the wait but the reflex it
-// breaks: a dialog whose default button is already under the pointer is
-// dismissed before the question is read. Outside harder mode nothing here
-// applies and every dialog behaves as it always has.
+// The actions that skip or silence rest go through a confirmation whose confirm
+// button stays disabled for a fixed count, shown in parentheses on the button
+// itself. The point is not the wait but the reflex it breaks: a dialog whose
+// default button is already under the pointer is dismissed before the question
+// is read.
+//
+// One ladder, priced by how much rest the action removes, and one rule for the
+// two modes: these are the harder-mode counts, and normal mode pays half. An
+// action costs the same wherever it is reached from, and no action is free.
 enum SkipConfirmGate {
-    static let extendShortSeconds: TimeInterval = 8
-    static let extendLongSeconds: TimeInterval = 16
+    static let extendShortSeconds: TimeInterval = 12
+    static let extendLongSeconds: TimeInterval = 30
     // At or under this the shorter gate applies. The short extension is the
     // one that still resembles a decision rather than a whole afternoon.
     static let extendShortThresholdMinutes: Double = 15
     // Much longer than any extension's, because this one silences every
     // reminder until the morning — the largest single thing the app can be
     // told to stop doing.
-    static let pauseUntilMorningSeconds: TimeInterval = 40
+    static let pauseUntilMorningSeconds: TimeInterval = 180
+    // Priced with the pause above: quitting silences the same reminders, and
+    // for longer. This is the only way out — the app is an accessory with no
+    // Cmd+Q — so the menu item carries the whole weight of the decision.
+    static let quitAppSeconds: TimeInterval = 180
     // Switching harder mode off is the move that removes every other gate at
     // once, so it is the one gate that has to survive its own removal. Turning
     // it *on* is never gated — friction belongs on the way out, not in.
-    static let disableHarderModeSeconds: TimeInterval = 30
-    // Charged once per visit to the settings pane, on the net loosening. A
-    // separate constant from the one above even though they currently match:
-    // they price different decisions and should be free to diverge.
-    static let loosenSettingsSeconds: TimeInterval = 30
+    // Never halved: it is only reachable while harder mode is on.
+    static let disableHarderModeSeconds: TimeInterval = 90
+    // Charged once per visit to the settings pane, on the net loosening. Also
+    // never halved — the charge only exists when harder mode was on at one end
+    // of the visit, so there is no normal-mode case to price.
+    static let loosenSettingsSeconds: TimeInterval = 60
 
-    // Nil means no gate.
-    static func extendSeconds(forMinutes minutes: Double, harderToSkipBreaks: Bool) -> TimeInterval? {
-        guard harderToSkipBreaks else { return nil }
-        return minutes <= extendShortThresholdMinutes ? extendShortSeconds : extendLongSeconds
+    // Normal mode pays half of every count above. One rule instead of a
+    // per-action table of exceptions, and the ordering survives the halving.
+    static func scaled(_ seconds: TimeInterval, harderToSkipBreaks: Bool) -> TimeInterval {
+        harderToSkipBreaks ? seconds : seconds / 2
     }
 
-    static func pauseSeconds(harderToSkipBreaks: Bool) -> TimeInterval? {
-        harderToSkipBreaks ? pauseUntilMorningSeconds : nil
+    static func extendSeconds(forMinutes minutes: Double, harderToSkipBreaks: Bool) -> TimeInterval {
+        let base = minutes <= extendShortThresholdMinutes ? extendShortSeconds : extendLongSeconds
+        return scaled(base, harderToSkipBreaks: harderToSkipBreaks)
+    }
+
+    static func pauseSeconds(harderToSkipBreaks: Bool) -> TimeInterval {
+        scaled(pauseUntilMorningSeconds, harderToSkipBreaks: harderToSkipBreaks)
+    }
+
+    static func quitSeconds(harderToSkipBreaks: Bool) -> TimeInterval {
+        scaled(quitAppSeconds, harderToSkipBreaks: harderToSkipBreaks)
     }
 }
 
