@@ -62,8 +62,20 @@ final class SettingsGuardTests: XCTestCase {
     }
 
     func testTaperingResettingSoonerIsWeaker() {
-        assertWeakens({ $0.taperingResetGap -= 3600 }, "tapering starting over sooner")
-        assertTightens({ $0.taperingResetGap += 3600 }, "carrying tapering longer is a tightening")
+        var tapering = baseline
+        tapering.focusPace = .tapering
+
+        var sooner = tapering
+        sooner.taperingResetGap -= 3600
+        XCTAssertTrue(sooner.weakensGuard(comparedTo: tapering), "tapering starting over sooner")
+
+        var later = tapering
+        later.taperingResetGap += 3600
+        XCTAssertFalse(later.weakensGuard(comparedTo: tapering), "carrying tapering longer is a tightening")
+
+        // The gap only drives tapering, so editing it under any other pace
+        // changes nothing and must not be charged.
+        assertTightens({ $0.taperingResetGap -= 3600 }, "the reset gap is inert outside tapering")
     }
 
     func testCameraHoldAndLaunchAtLogin() {
@@ -104,6 +116,41 @@ final class SettingsGuardTests: XCTestCase {
         var categoryOff = enabled
         categoryOff.weekdayWorkingHours.enabled = false
         XCTAssertTrue(categoryOff.weakensGuard(comparedTo: enabled), "a day category switched off")
+    }
+
+    // The master switch decides whether the day ranges mean anything at all.
+    // Comparing them without it got the direction wrong, because the defaults
+    // park an unused 9–18 weekday range behind a switch that is off.
+    func testWorkingHoursAreJudgedThroughTheirMasterSwitch() {
+        XCTAssertFalse(baseline.workingHoursEnabled)
+        assertTightens(
+            { $0.weekdayWorkingHours.startMinutes = 8 * 60 },
+            "hours widened behind an off switch change nothing"
+        )
+
+        var switchedOn = baseline
+        switchedOn.workingHoursEnabled = true
+        switchedOn.weekdayWorkingHours = WorkingHoursRange(
+            enabled: true, startMinutes: 8 * 60, endMinutes: 20 * 60
+        )
+        XCTAssertFalse(
+            switchedOn.weakensGuard(comparedTo: baseline),
+            "turning after-hours pressure on is a tightening however wide the hours"
+        )
+        XCTAssertTrue(
+            baseline.weakensGuard(comparedTo: switchedOn),
+            "and switching it back off is the loosening"
+        )
+
+        // Switching the feature off when no day category was armed takes
+        // nothing away, so it is not charged either.
+        var armedNoDays = baseline
+        armedNoDays.workingHoursEnabled = true
+        armedNoDays.weekdayWorkingHours.enabled = false
+        armedNoDays.weekendWorkingHours.enabled = false
+        var disarmed = armedNoDays
+        disarmed.workingHoursEnabled = false
+        XCTAssertFalse(disarmed.weakensGuard(comparedTo: armedNoDays))
     }
 
     // The opposite direction from working hours: pressure applies *inside* the

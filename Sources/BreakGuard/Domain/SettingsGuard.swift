@@ -21,8 +21,10 @@ extension AppSettings {
         if firstPostponeDuration > baseline.firstPostponeDuration { return true }
         if secondPostponeDuration > baseline.secondPostponeDuration { return true }
 
-        // Tapering starting over sooner means full-length windows sooner.
-        if taperingResetGap < baseline.taperingResetGap { return true }
+        // Tapering starting over sooner means full-length windows sooner — but
+        // only while the pace is tapering; the gap is inert otherwise. Leaving
+        // tapering altogether is already caught by guardRank above.
+        if focusPace == .tapering, taperingResetGap < baseline.taperingResetGap { return true }
 
         // A break that a call can postpone indefinitely.
         if holdBreaksWhileOnCamera && !baseline.holdBreaksWhileOnCamera { return true }
@@ -31,10 +33,15 @@ extension AppSettings {
         if !launchAtLogin && baseline.launchAtLogin { return true }
 
         // After-hours pressure: switched off, or given fewer hours to fall
-        // outside of.
-        if !workingHoursEnabled && baseline.workingHoursEnabled { return true }
-        if weekdayWorkingHours.widens(from: baseline.weekdayWorkingHours) { return true }
-        if weekendWorkingHours.widens(from: baseline.weekendWorkingHours) { return true }
+        // outside of. The master switch is folded into the ranges rather than
+        // tested beside them, which also covers switching it off: with the
+        // current side inert, widens(from:) reports whether the baseline had
+        // any pressure to lose — and says no when both day ranges were off
+        // anyway, where the old standalone test charged for a no-op.
+        if afterHoursRange(weekdayWorkingHours)
+            .widens(from: baseline.afterHoursRange(baseline.weekdayWorkingHours)) { return true }
+        if afterHoursRange(weekendWorkingHours)
+            .widens(from: baseline.afterHoursRange(baseline.weekendWorkingHours)) { return true }
 
         // The scheduled rest window: switched off, or made shorter.
         if scheduledBreak.narrows(from: baseline.scheduledBreak) { return true }
@@ -43,6 +50,15 @@ extension AppSettings {
         // own toggle, and charging for one decision twice is not friction, it
         // is noise.
         return false
+    }
+
+    // A day range means nothing while the master switch is off, so it compares
+    // as disabled. Comparing the raw ranges got the direction wrong: the
+    // defaults leave an unused 9–18 weekday range behind the switch, so
+    // turning after-hours pressure *on* with wider hours than that read as a
+    // loosening, when it is the opposite.
+    private func afterHoursRange(_ range: WorkingHoursRange) -> WorkingHoursRange {
+        workingHoursEnabled ? range : WorkingHoursRange(enabled: false)
     }
 }
 

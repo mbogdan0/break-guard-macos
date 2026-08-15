@@ -497,10 +497,27 @@ standing behind it.
 `reconcileStateEffects` before the overlay is ordered front). The overlay sits at
 `.screenSaver` and would otherwise cover the alert while the modal session went on swallowing
 the clicks meant for the break — recoverable only with an Escape key nobody would think to
-press. `runModal()` returns `.abort`, which is not the confirm button, so every caller takes
-the branch that changes nothing. The app's 1 s tick keeps running during a modal session
-(`RunLoop.main` `.common` covers `NSModalPanelRunLoopMode`), which is what makes this
-reachable at all — and what makes the abort work.
+press. The app's 1 s tick keeps running during a modal session (`RunLoop.main` `.common`
+covers `NSModalPanelRunLoopMode`), which is what makes this reachable at all — and what makes
+the abort work.
+
+`runModal()` returns `.abort`, which `confirmHonestly` reports as `HonestAnswer.aborted`
+rather than folding into the confirm/decline pair. For four of the five callers the two are
+the same branch — `quit`, `confirmExtension`, `pauseUntilMorning` and `setHarderToSkipBreaks`
+all write nothing unless the answer is `.confirmed`. `confirmSettingsVisit` is the exception
+and must tell them apart, because *its* declined branch is a write; see §"The settings-visit
+gate".
+
+`abortOpenConfirmation()` returns whether it actually aborted something, and the `.breakDue`
+and `.breaking` branches bail out of the reconcile when it did. `abortModal()` only unwinds
+the modal loop on its **next** pass, so ordering the overlay front in the same tick would put
+it over a session that is still live — the very state being avoided. Waiting one tick costs a
+second and makes the ordering real; the state is still `.breakDue` when the tick comes round.
+
+`confirmHonestly` also refuses to nest: it returns `.aborted` immediately when a confirmation
+is already open. `isConfirmationOpen` is one flag for the whole app, so a second alert's
+`defer` would clear it while the first was still on screen, leaving that one invisible to
+`abortOpenConfirmation()` and uncovered by the nudge-card suppression below.
 
 With the top gates at **three minutes**, this is a routine path rather than a corner case: a
 break can now comfortably fall due behind a Quit or Pause confirmation, and does. The
@@ -530,11 +547,30 @@ calls `confirmSettingsVisit()`.
 | Applies when | `snapshot.harderToSkipBreaks \|\| settings.harderToSkipBreaks` |
 | Charged on | `settings.weakensGuard(comparedTo: snapshot)` — the **net** difference, once per visit |
 | Gate | **60 s** (`SkipConfirmGate.loosenSettingsSeconds`), never halved — the charge only exists when harder mode was on at one end of the visit |
-| Cancel | `updateSettings(snapshot)` — the whole visit is reverted, `launchAtLogin` included |
+| Cancel | the whole visit is reverted, `launchAtLogin` included — **except** `harderToSkipBreaks`, which keeps its live value |
+| Abort | nothing is written; the snapshot is parked and the question is asked again |
 
 The visit is keyed on the snapshot's existence, **not** on `window.isVisible`: a miniaturized
 window reports `isVisible == false`, so testing that let a visit be re-baselined — loosen,
 miniaturize, reopen, close, no charge.
+
+**Cancel keeps the live `harderToSkipBreaks`** because that toggle is priced at its own 90 s
+gate and is deliberately absent from `weakensGuard`. Writing it back from the snapshot made the
+safe branch unsafe in both directions: switched **on** during the visit, Cancel turned it back
+off — a loosening performed by the branch meant to prevent one; switched **off** during the
+visit, Cancel reinstated it, discarding a decision already paid for separately.
+
+**An abort is not a Cancel here.** This is the only confirmation whose declined branch is a
+*write* — it discards a whole settings visit. A break falling due behind the 60 s gate aborts
+the alert (see above), and treating that as Cancel would answer a question the user never saw.
+Instead `settingsSnapshot` goes back and `settingsChargeDeferred` is set;
+`retryDeferredSettingsCharge()`, called from `reconcileStateEffects`, asks again once the state
+is `.working`/`.warning` with no confirmation open. Reopening the pane clears the flag — the
+visit is live again, so the charge returns to being levied on close.
+
+**Known limit, accepted:** the charge is levied on *close*, while edits apply live, so a pane
+left open — or miniaturized indefinitely — is never charged. Quitting with the pane open skips
+it too, via the `isTerminating` guard, though quitting costs 180 s so that route is not cheaper.
 
 Edits still apply live as they are made. Gating each write instead would open a dialog per
 stepper click (`secondsBinding` fires once per 60 s nudge, `timeOfDayBinding` once per
@@ -549,11 +585,19 @@ which teaches the user to stay out of the pane entirely.
 | longer `workInterval`, shorter `breakDuration` | the reverse | `warningLeadTime` — the break still lands at the same moment |
 | longer `firstPostponeDuration` / `secondPostponeDuration` | the reverse | `notificationSound` |
 | looser `focusPace.guardRank` (`moreBreaks` 0 → `tapering` 1 → `normal` 2 → `deepFocus` 3) | stricter rank | `showSecondsInMenuBar`, `coarseSecondsInMenuBar` |
-| shorter `taperingResetGap` | longer | `harderToSkipBreaks` — gated at its own toggle |
+| shorter `taperingResetGap`, **while the pace is `.tapering`** | longer | the same gap under any other pace — it drives nothing there |
 | `holdBreaksWhileOnCamera` off → on | on → off | |
 | `launchAtLogin` on → off | | |
-| `workingHoursEnabled` off, or a range `widens` | narrower range | |
+| an after-hours range `widens` | narrower range, or the feature switched on | |
 | `scheduledBreak` off, or the range `narrows` | longer window | |
+
+The after-hours row compares `afterHoursRange(_:)`, which reports a day range as disabled
+whenever `workingHoursEnabled` is off, rather than comparing the raw ranges beside a separate
+test on the switch. The raw comparison got the *direction* wrong: the defaults park an unused
+9–18 weekday range behind a switch that ships off, so turning after-hours pressure **on** with
+wider hours than that read as a loosening. Folding the switch in also subsumes its own row —
+with the current side inert, `widens(from:)` reports whether the baseline had any pressure to
+lose, and correctly says no when both day categories were off anyway.
 
 `guardRank` exists because `workIntervalMultiplier` cannot express this: `.tapering` and
 `.normal` share **1.0**, but tapering shortens every window as the day accumulates, so leaving

@@ -1,5 +1,16 @@
 import AppKit
 
+// What a confirmation came back with. `declined` is the user answering Cancel;
+// `aborted` is no answer at all — the app took the dialog away, or never opened
+// it. A caller whose safe branch is "change nothing" may treat the two alike,
+// but a caller that *acts* on a decline has to tell them apart: an abort is not
+// the user asking for that action either.
+enum HonestAnswer {
+    case confirmed
+    case declined
+    case aborted
+}
+
 // All confirmations share one voice: two sentences that appeal to the user's
 // honesty about their own health, with the safe choice as Cancel. Shared by the
 // status menu and the settings pane so a dialog cannot drift into a different
@@ -14,7 +25,12 @@ func confirmHonestly(
     informative: String,
     confirmTitle: String,
     gate: TimeInterval? = nil
-) -> Bool {
+) -> HonestAnswer {
+    // Never nest. `isConfirmationOpen` is one flag for the whole app, so a
+    // second alert's `defer` would clear it while the first is still on screen
+    // — leaving that one invisible to abortOpenConfirmation() and the nudge
+    // card free to cover it, which is exactly what the flag exists to prevent.
+    guard !isConfirmationOpen else { return .aborted }
     NSApp.activate(ignoringOtherApps: true)
     let alert = NSAlert()
     alert.messageText = message
@@ -28,9 +44,11 @@ func confirmHonestly(
         countdown?.invalidate()
         isConfirmationOpen = false
     }
-    // Anything but the confirm button — including an abort — is the safe
-    // branch at every call site.
-    return alert.runModal() == .alertFirstButtonReturn
+    switch alert.runModal() {
+    case .alertFirstButtonReturn: return .confirmed
+    case .abort: return .aborted
+    default: return .declined
+    }
 }
 
 // Whether a confirmation is on screen right now. The longest gates run three
@@ -44,13 +62,20 @@ func confirmHonestly(
 // clicks meant for it — a break screen that ignores the mouse, with the only
 // way out an Escape key nobody would think to press.
 //
-// Aborting rather than answering: `runModal()` returns `.abort`, which is not
-// the confirm button, so every caller takes the branch that changes nothing.
+// Aborting rather than answering: `runModal()` returns `.abort`, which reaches
+// the caller as `.aborted` rather than as a decline. The two are not the same
+// question — see HonestAnswer.
+//
+// Returns whether there was anything to abort. `abortModal()` only unwinds the
+// modal loop on its next pass, so a caller about to take the screen has to wait
+// out that pass rather than assume the alert is already gone.
 @MainActor
-func abortOpenConfirmation() {
-    guard isConfirmationOpen else { return }
+@discardableResult
+func abortOpenConfirmation() -> Bool {
+    guard isConfirmationOpen else { return false }
     isConfirmationOpen = false
     NSApp.abortModal()
+    return true
 }
 
 // Disables the button and counts it down to zero. The timer is added to

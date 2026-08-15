@@ -296,12 +296,12 @@ final class MenuBarController: NSObject, NSMenuDelegate, NSMenuItemValidation {
     }
 
     @objc private func justTookBreak() {
-        let confirmed = confirmHonestly(
+        let answer = confirmHonestly(
             message: "Did you really take a break? 👀",
             informative: "Confirm only if you truly rested away from the screen — nothing is logged, so the only person you can cheat is yourself. Your eyes are keeping the real score.",
             confirmTitle: "Yes, I Took a Break"
         )
-        if confirmed {
+        if answer == .confirmed {
             appState.markBreakTaken()
         }
     }
@@ -330,13 +330,13 @@ final class MenuBarController: NSObject, NSMenuDelegate, NSMenuItemValidation {
             forMinutes: minutes,
             harderToSkipBreaks: appState.settings.harderToSkipBreaks
         )
-        let confirmed = confirmHonestly(
+        let answer = confirmHonestly(
             message: "Extend focus by \(label)? ⏳",
             informative: "That is a long stretch without rest, and your eyes will pay the bill later. Be honest — do you really need this, or is the break the healthier choice?",
             confirmTitle: "Extend Anyway",
             gate: gate
         )
-        if confirmed {
+        if answer == .confirmed {
             appState.extendFocus(minutes: minutes)
         }
     }
@@ -345,13 +345,13 @@ final class MenuBarController: NSObject, NSMenuDelegate, NSMenuItemValidation {
         guard let resumeDate = appState.nextMorningResumeDate() else { return }
         let time = DateFormatter.breakGuardTime.string(from: resumeDate)
         let day = Calendar.current.isDateInToday(resumeDate) ? "today" : "tomorrow"
-        let confirmed = confirmHonestly(
+        let answer = confirmHonestly(
             message: "Pause reminders until \(time) \(day)? 🌙",
             informative: "This silences every break reminder until \(time) \(day) — a promise that you are done straining your eyes for the day. Don't use it to keep working unguarded: your health is what's on the line.",
             confirmTitle: "Pause Until \(time)",
             gate: SkipConfirmGate.pauseSeconds(harderToSkipBreaks: appState.settings.harderToSkipBreaks)
         )
-        if confirmed {
+        if answer == .confirmed {
             appState.pauseUntilNextMorning(until: resumeDate)
         }
     }
@@ -368,13 +368,13 @@ final class MenuBarController: NSObject, NSMenuDelegate, NSMenuItemValidation {
     // silences the same reminders permanently. The menu item is the only way
     // out — the app is an accessory, so there is no Cmd+Q to slip past it.
     @objc private func quit() {
-        let confirmed = confirmHonestly(
+        let answer = confirmHonestly(
             message: "Quit BreakGuard? 🛑",
             informative: "With BreakGuard off, nothing stands between your eyes and the next marathon screen session. Be honest — quit only if you are truly stepping away, not dodging your breaks.",
             confirmTitle: "Quit Anyway",
             gate: SkipConfirmGate.quitSeconds(harderToSkipBreaks: appState.settings.harderToSkipBreaks)
         )
-        if confirmed {
+        if answer == .confirmed {
             NSApp.terminate(nil)
         }
     }

@@ -114,6 +114,11 @@ final class AppState: ObservableObject {
     // What the settings were when the pane was opened, so closing it can charge
     // for the net loosening rather than for every stepper click on the way.
     private var settingsSnapshot: AppSettings?
+    // A charge whose confirmation was taken off the screen before it could be
+    // answered. The snapshot above stays parked and the question comes back
+    // once the screen is the user's again — reverting a whole settings visit on
+    // a question nobody saw would be the app answering for them.
+    private var settingsChargeDeferred = false
     // Quitting must never stop to argue about settings.
     private var isTerminating = false
     // When the dismissed nudge card is allowed back. In memory by design, like
@@ -309,9 +314,9 @@ final class AppState: ObservableObject {
     }
 
     // The caller may pass the date it already showed the user. With harder
-    // mode's 40-second gate on the confirmation, recomputing here can land on
-    // the far side of 9 AM and pause until *tomorrow* after promising today —
-    // a narrow window, but the dialog's promise is the one that must hold.
+    // mode's three-minute gate on the confirmation, recomputing here can land
+    // on the far side of 9 AM and pause until *tomorrow* after promising today
+    // — a narrow window, but the dialog's promise is the one that must hold.
     func pauseUntilNextMorning(until promised: Date? = nil) {
         guard let until = promised ?? nextMorningResumeDate() else { return }
         machine.suspend(until: until)
@@ -330,6 +335,10 @@ final class AppState: ObservableObject {
         if settingsSnapshot == nil {
             settingsSnapshot = settings
         }
+        // Reopening the pane makes the visit live again, so a charge deferred
+        // by an interrupted confirmation goes back to being levied on close
+        // rather than interrupting the editing that is now under way.
+        settingsChargeDeferred = false
         if let settingsWindow {
             settingsWindow.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
@@ -367,23 +376,56 @@ final class AppState: ObservableObject {
     private func confirmSettingsVisit() {
         guard !isTerminating, let snapshot = settingsSnapshot else { return }
         settingsSnapshot = nil
+        settingsChargeDeferred = false
         // Harder mode at either end of the visit is what makes this worth
         // charging for: on at the start catches the pane being used to switch
         // it off and loosen everything else in one trip.
         guard snapshot.harderToSkipBreaks || settings.harderToSkipBreaks,
               settings.weakensGuard(comparedTo: snapshot) else { return }
-        let confirmed = confirmHonestly(
+        switch confirmHonestly(
             message: "Keep the settings you just loosened? ⚙️",
             informative: "You gave yourself more room in there — a longer stretch before the next break, a shorter one when it arrives, or one less thing watching. That is allowed, and it is also exactly what the tired end of a long day asks for. Be honest about which of the two this is; Cancel puts everything back the way you found it.",
             confirmTitle: "Keep Them",
             gate: SkipConfirmGate.loosenSettingsSeconds
-        )
-        guard !confirmed else {
+        ) {
+        case .confirmed:
             logger.info("Loosened settings kept after confirmation")
-            return
+        case .aborted:
+            // Alone among the confirmations, this one's safe branch is a write:
+            // it undoes a whole settings visit. An abort is not an answer, so
+            // taking it as Cancel would discard the user's edits over a
+            // question they never got to see. Park the snapshot instead and ask
+            // again once the screen is theirs — the debt outlives the break.
+            logger.info("Settings charge deferred — confirmation interrupted")
+            settingsSnapshot = snapshot
+            settingsChargeDeferred = true
+        case .declined:
+            logger.info("Loosened settings reverted after confirmation")
+            // Everything except the toggle that is priced at its own gate.
+            // Reverting that one would either discard a switch-off already paid
+            // for at 90 seconds, or — if it was switched on during the visit —
+            // loosen the guard from the branch meant to be the safe one.
+            var reverted = snapshot
+            reverted.harderToSkipBreaks = settings.harderToSkipBreaks
+            updateSettings(reverted)
         }
-        logger.info("Loosened settings reverted after confirmation")
-        updateSettings(snapshot)
+    }
+
+    // A deferred charge comes back as soon as the screen is the user's again.
+    // Without this the question would wait for the next visit to the pane,
+    // which may never come — and the loosening would have been free.
+    //
+    // Both guards also make this safe against its own confirmation: the alert
+    // spins a nested run loop that keeps the 1 s tick running, and by then the
+    // flag is already clear and a confirmation is already open.
+    private func retryDeferredSettingsCharge() {
+        guard settingsChargeDeferred, !isConfirmationOpen else { return }
+        switch timerState {
+        case .working, .warning:
+            confirmSettingsVisit()
+        case .breakDue, .breaking, .breakCompleted, .postponed, .suspended:
+            break
+        }
     }
 
     func updateSettings(_ updated: AppSettings) {
@@ -405,7 +447,7 @@ final class AppState: ObservableObject {
     }
 
     // Harder mode is the switch every other gate hangs from, so leaving it is
-    // gated too — otherwise the cheapest way past a 16-second confirmation is
+    // gated too — otherwise the cheapest way past a 30-second confirmation is
     // one click on the Settings tab. Turning it on stays instant.
     //
     // The caller writes nothing itself: on Cancel the setting must be exactly
@@ -419,13 +461,14 @@ final class AppState: ObservableObject {
             updateSettings(updated)
             return
         }
-        let confirmed = confirmHonestly(
+        let answer = confirmHonestly(
             message: "Turn off Harder to skip breaks? 🛡️",
             informative: "You switched this on knowing there would be a moment you wanted it gone, and this is that moment. Turning it off gives back every extension, every postponement, and the dimming — all at once. Be honest: has something actually changed, or is this the break you don't want to take?",
             confirmTitle: "Turn It Off",
             gate: SkipConfirmGate.disableHarderModeSeconds
         )
-        guard confirmed else {
+        // A decline and an abort agree here: the safe branch writes nothing.
+        guard answer == .confirmed else {
             logger.info("Harder mode kept on after confirmation")
             // Nothing changed, so nothing publishes on its own.
             objectWillChange.send()
@@ -651,11 +694,15 @@ final class AppState: ObservableObject {
             // Before the overlay goes up, not after: it covers the whole
             // screen at `.screenSaver`, and a confirmation left running behind
             // it would keep swallowing the clicks meant for the break.
-            abortOpenConfirmation()
+            //
+            // `abortModal()` only unwinds the modal loop on its next pass, so
+            // the break waits out the tick that ordered the alert away rather
+            // than racing it. The state is still .breakDue a second later.
+            guard !abortOpenConfirmation() else { return }
             startBreakIfDue()
         case .breaking, .breakCompleted:
             notifications.cancelWarning()
-            abortOpenConfirmation()
+            guard !abortOpenConfirmation() else { return }
             overlayManager?.showOnAllScreens()
             overlayManager?.bringToFront()
         case .postponed:
@@ -666,6 +713,7 @@ final class AppState: ObservableObject {
             notifications.cancelWarning()
         }
         reconcilePressure()
+        retryDeferredSettingsCharge()
         // Polling notification settings is an XPC round-trip; the status label
         // only needs to stay live while someone can actually see it.
         if settingsWindow?.isVisible == true {
