@@ -48,6 +48,17 @@ final class FormattingTests: XCTestCase {
         XCTAssertNil(parseDurationField(":30"))
     }
 
+    func testParseRejectsOverflowWithoutRejectingTheLargestSafeValue() {
+        XCTAssertNil(parseDurationField(String(Int.max)))
+        XCTAssertNil(parseDurationField("\(Int.max):00"))
+        let minutes = Int.max / 60
+        let seconds = Int.max % 60
+        XCTAssertEqual(parseDurationField("\(minutes):\(seconds)"), Int.max)
+        XCTAssertNil(parseDurationField("\(minutes):\(seconds + 1)"))
+        XCTAssertEqual(parseDurationField(String(minutes)), minutes * 60)
+        XCTAssertNil(parseDurationField(String(minutes + 1)))
+    }
+
     func testParseStrategyThrowsOnMalformedInput() throws {
         let strategy = DurationFieldStrategy()
         XCTAssertEqual(try strategy.parse("2:30"), 150)

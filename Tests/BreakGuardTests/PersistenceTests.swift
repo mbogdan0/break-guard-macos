@@ -66,6 +66,7 @@ final class PersistenceTests: XCTestCase {
         runtime.removeValue(forKey: "cycleRegularPostponements")
         runtime.removeValue(forKey: "taperedFocusSeconds")
         runtime.removeValue(forKey: "emergencyOverrideUsedAt")
+        runtime.removeValue(forKey: "dailySkipUsage")
         object["runtime"] = runtime
         var settings = try XCTUnwrap(object["settings"] as? [String: Any])
         settings.removeValue(forKey: "workingHoursEnabled")
@@ -73,6 +74,8 @@ final class PersistenceTests: XCTestCase {
         settings.removeValue(forKey: "weekendWorkingHours")
         settings.removeValue(forKey: "harderToSkipBreaks")
         settings.removeValue(forKey: "scheduledBreak")
+        settings.removeValue(forKey: "dailySkipLimit")
+        settings.removeValue(forKey: "holdBreaksWhileMicrophoneInUse")
         object["settings"] = settings
         try FileManager.default.createDirectory(
             at: location.deletingLastPathComponent(), withIntermediateDirectories: true
@@ -84,6 +87,9 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(loaded.runtime.cycleRegularPostponements, 0)
         XCTAssertEqual(loaded.runtime.taperedFocusSeconds, 0)
         XCTAssertNil(loaded.runtime.emergencyOverrideUsedAt)
+        XCTAssertEqual(loaded.runtime.dailySkipUsage, DailySkipUsage())
+        XCTAssertEqual(loaded.settings.dailySkipLimit, 3)
+        XCTAssertFalse(loaded.settings.holdBreaksWhileMicrophoneInUse)
         XCTAssertFalse(loaded.settings.workingHoursEnabled)
         XCTAssertEqual(loaded.settings.weekdayWorkingHours, WorkingHoursRange(enabled: true))
         XCTAssertEqual(loaded.settings.weekendWorkingHours, WorkingHoursRange(enabled: false))
@@ -192,6 +198,31 @@ final class PersistenceTests: XCTestCase {
             from: overriddenLegacy
         )
         XCTAssertEqual(decodedOverride.runtime.cycleRegularPostponements, 0)
+    }
+
+    func testSuspensionUsesItsOwnRemainingTimeWhenLoadingOlderData() throws {
+        let start = Date(timeIntervalSince1970: 9_400)
+        let clock = FakeClock(now: start)
+        var machine = StateMachine(clock: clock)
+        machine.suspend(until: start.addingTimeInterval(3600))
+        let suspended = machine.runtime.timerState
+
+        var object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: JSONEncoder.breakGuard.encode(machine.data))
+                as? [String: Any]
+        )
+        var runtime = try XCTUnwrap(object["runtime"] as? [String: Any])
+        XCTAssertNil(runtime["preservedRemaining"])
+        runtime["preservedRemaining"] = 1 // Removed duplicate field in an older file.
+        object["runtime"] = runtime
+        let decoded = try JSONDecoder.breakGuard.decode(
+            PersistedAppData.self,
+            from: JSONSerialization.data(withJSONObject: object)
+        )
+        machine = StateMachine(data: decoded, clock: clock)
+        XCTAssertEqual(machine.runtime.timerState, suspended)
+        machine.resume()
+        XCTAssertEqual(machine.runtime.timerState, StateMachine(clock: clock).runtime.timerState)
     }
 
     func testOlderSchemaIsRejected() throws {

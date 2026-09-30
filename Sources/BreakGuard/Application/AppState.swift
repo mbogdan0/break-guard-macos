@@ -74,12 +74,13 @@ final class AppState: ObservableObject {
     @Published var postponeHoldTier: PostponeHoldTier = .standard
     // False once harder mode's single normal skip action is used up.
     @Published var canExtendFocus = true
+    @Published var dailySkipsRemaining = AppSettings.defaults.dailySkipLimit
     // Focus accumulated since the last tapering reset; the settings pane
     // derives the penalty from it with FocusPace.taperingPenalty(forFocus:).
     @Published var taperedFocusSeconds: TimeInterval = 0
     // True while the weekly emergency override can be spent on this break.
     @Published var canUseEmergencyOverride = false
-    // Why the screen is currently dimmed, if it is. Nil means no pressure.
+    // Why a recurring reminder is active. Nil means no pressure.
     @Published var pressureReason: PressureReason?
     // Whether the same weekly quota can still be spent from the nudge card.
     @Published var canSpendOverrideOnPressure = true
@@ -92,9 +93,10 @@ final class AppState: ObservableObject {
     @Published var notificationAccessStatus: NotificationAccessStatus = .checking
     @Published var loginStatusDescription = "Unknown"
     @Published var notificationTestMessage: String?
-    // True while the camera hold is what keeps the countdown from advancing
-    // into the warning window; drives the menu bar's on-call indication.
-    @Published var isCameraHoldActive = false
+    // The selected devices currently holding the countdown. Device activity
+    // is evidence of media use, not proof that the user is on a call.
+    @Published private(set) var callHoldActivity = CallActivity()
+    var isCallHoldActive: Bool { callHoldActivity.isActive }
 
     // Fires once per UI-timer second, after publish(), for observers whose
     // display is time-derived (menu bar countdown) rather than state-derived.
@@ -122,14 +124,19 @@ final class AppState: ObservableObject {
     // Quitting must never stop to argue about settings.
     private var isTerminating = false
     // When the dismissed nudge card is allowed back. In memory by design, like
-    // the camera-hold edge below: a relaunch showing the card again is the
+    // the call-hold edge below: a relaunch showing the card again is the
     // correct answer, not a bug — the pressure never went away.
-    private var nudgeCardHiddenUntil: Date?
-    // Camera-in-use flag from CameraUsageMonitor.
-    private var cameraActive = false
+    private var pressureReminder = PressureReminderState()
+    private let callActivityClient: CallActivityClient
+    private var callActivity = CallActivity()
+    private var sessionInactive = false
+    // A call is presence even without keyboard or mouse input. When it ends,
+    // idle detection must not backdate absence across the entire call.
+    private var lastCallActivityAt: Date?
+    private let idleSeconds: () -> TimeInterval
     // Engagement from the previous tick, to catch the transitions: engaging
     // cancels the pending warning notification, releasing re-arms it.
-    private var cameraHoldWasEngaged = false
+    private var callHoldWasEngaged = false
     // True while the countdown is bracketed because input went silent.
     private var idleSuspensionActive = false
     // Second-precise liveness for tick-gap detection. The persisted heartbeat
@@ -142,17 +149,22 @@ final class AppState: ObservableObject {
     init(
         persistence: PersistenceStore,
         notifications: NotificationManager,
-        loginItems: LoginItemManager
+        loginItems: LoginItemManager,
+        clock: TimeProvider = SystemClock(),
+        idleSeconds: @escaping () -> TimeInterval = AppState.systemIdleSeconds,
+        callActivityClient: CallActivityClient = SystemCallActivityClient()
     ) {
         self.persistence = persistence
         self.notifications = notifications
         self.loginItems = loginItems
+        self.idleSeconds = idleSeconds
+        self.callActivityClient = callActivityClient
         if let data = persistence.load() {
             logger.info("State restoration from persisted data")
-            self.machine = StateMachine(data: data)
+            self.machine = StateMachine(data: data, clock: clock)
         } else {
             logger.info("State restoration using defaults")
-            self.machine = StateMachine()
+            self.machine = StateMachine(clock: clock)
         }
         self.settings = machine.settings
         self.statistics = machine.statistics
@@ -161,6 +173,7 @@ final class AppState: ObservableObject {
         self.canPostpone = machine.canPostpone
         self.postponeHoldTier = machine.postponeHoldTier
         self.canExtendFocus = machine.canExtendFocus
+        self.dailySkipsRemaining = machine.dailySkipsRemaining
         self.taperedFocusSeconds = machine.runtime.taperedFocusSeconds
         self.canUseEmergencyOverride = machine.canUseEmergencyOverride
         self.canSpendOverrideOnPressure = machine.canSpendOverrideOnPressure
@@ -177,8 +190,7 @@ final class AppState: ObservableObject {
         applyLaunchAtLoginPreference()
         refreshLoginStatus()
         startUITimer()
-        reconcileStateEffects()
-        save()
+        tick()
     }
 
     func stop() {
@@ -208,11 +220,13 @@ final class AppState: ObservableObject {
     }
 
     func takeBreakNow() {
+        guard !sessionInactive, !isTerminating else { return }
         machine.takeBreakNow()
         publishAndReconcile()
     }
 
     func cancelManualBreak() {
+        guard !sessionInactive, !isTerminating else { return }
         machine.cancelManualBreak()
         logger.info("Manual break cancelled")
         publishAndReconcile()
@@ -227,31 +241,28 @@ final class AppState: ObservableObject {
     }
 
     func startBreakIfDue() {
-        guard timerState == .breakDue else { return }
+        guard !sessionInactive, timerState == .breakDue else { return }
         machine.startBreak()
         logger.info("Break start")
         publishAndReconcile()
     }
 
-    func markBreakTaken() {
-        machine.markBreakTaken()
-        logger.info("User marked an off-screen break as taken")
-        publishAndReconcile()
-    }
-
     func postpone(seconds: TimeInterval) {
+        guard !sessionInactive, !isTerminating else { return }
         machine.postpone(by: seconds)
         logger.info("Postponed for \(seconds, privacy: .public) seconds")
         publishAndReconcile()
     }
 
     func completeBreak() {
+        guard !sessionInactive, !isTerminating else { return }
         machine.completeBreak()
         logger.info("Break completed")
         publishAndReconcile()
     }
 
     func useEmergencyOverride() {
+        guard !sessionInactive, !isTerminating else { return }
         machine.useEmergencyOverride()
         logger.info("Weekly emergency override spent")
         publishAndReconcile()
@@ -261,15 +272,16 @@ final class AppState: ObservableObject {
     // card instead. It buys quiet only: no break is skipped and the countdown
     // is untouched, so nothing is recorded against the streak.
     func spendPressureOverride() {
+        guard !sessionInactive, !isTerminating else { return }
         machine.spendOverrideOnPressure()
         logger.info("Weekly emergency override spent on break pressure")
         publishAndReconcile()
     }
 
-    // Closing the card buys BreakPressure.cardReturnInterval of quiet from the
-    // card alone. The veil stays — the card is the part with a dismiss.
+    // Holding the dismiss button buys a minute of quiet.
     func dismissNudgeCard() {
-        nudgeCardHiddenUntil = machine.clock.now.addingTimeInterval(BreakPressure.cardReturnInterval)
+        guard !sessionInactive, !isTerminating else { return }
+        pressureReminder.dismiss(at: machine.clock.now)
         logger.info("Nudge card dismissed")
         reconcilePressure()
     }
@@ -294,12 +306,14 @@ final class AppState: ObservableObject {
     }
 
     func extendFocus(minutes: Double) {
+        guard !sessionInactive, !isTerminating else { return }
         machine.extendFocus(by: minutes * 60)
         logger.info("Focus window extended by \(minutes, privacy: .public) minutes")
         publishAndReconcile()
     }
 
     func resumeNow() {
+        guard !sessionInactive, !isTerminating else { return }
         machine.resume()
         publishAndReconcile()
     }
@@ -318,6 +332,7 @@ final class AppState: ObservableObject {
     // on the far side of 9 AM and pause until *tomorrow* after promising today
     // — a narrow window, but the dialog's promise is the one that must hold.
     func pauseUntilNextMorning(until promised: Date? = nil) {
+        guard !sessionInactive, !isTerminating else { return }
         guard let until = promised ?? nextMorningResumeDate() else { return }
         machine.suspend(until: until)
         logger.info("Paused until next morning")
@@ -443,6 +458,7 @@ final class AppState: ObservableObject {
             applyLaunchAtLoginPreference()
             refreshLoginStatus()
         }
+        tick()
         save()
     }
 
@@ -463,7 +479,7 @@ final class AppState: ObservableObject {
         }
         let answer = confirmHonestly(
             message: "Turn off Harder to skip breaks? 🛡️",
-            informative: "You switched this on knowing there would be a moment you wanted it gone, and this is that moment. Turning it off gives back every extension, every postponement, and the dimming — all at once. Be honest: has something actually changed, or is this the break you don't want to take?",
+            informative: "Turning this off removes the daily skip budget, the limit of one skip per cycle, and scheduled reminders. Has something changed, or is this a break you do not want to take?",
             confirmTitle: "Turn It Off",
             gate: SkipConfirmGate.disableHarderModeSeconds
         )
@@ -504,32 +520,43 @@ final class AppState: ObservableObject {
     // blinks for ten seconds is still the user leaving.
     func handleSleepOrInactive() {
         logger.info("Sleep or inactive session")
+        sessionInactive = true
+        callActivity = CallActivity()
+        machine.callHoldActive = false
+        callHoldWasEngaged = false
         machine.beginDowntimeBreak()
+        abortOpenConfirmation()
         notifications.cancelWarning()
+        overlayManager?.hideAll()
+        nudgeManager?.hideAll()
         publish()
         save()
     }
 
     func handleWakeOrActive() {
         logger.info("Wake or active session")
+        sessionInactive = false
         machine.restoreAfterSleep()
         // The wake just accounted for the downtime: reset the in-memory
         // heartbeat so the next tick does not bracket the same gap again, and
         // drop any idle bracket — the sleep path owned the state from here.
         lastTickAt = machine.clock.now
         idleSuspensionActive = false
-        publishAndReconcile()
+        tick()
     }
 
     private func startUITimer() {
         uiTimer?.invalidate()
-        uiTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+        let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.tick() }
         }
-        RunLoop.main.add(uiTimer!, forMode: .common)
+        RunLoop.main.add(timer, forMode: .common)
+        RunLoop.main.add(timer, forMode: .modalPanel)
+        uiTimer = timer
     }
 
-    private func tick() {
+    func tick() {
+        guard !sessionInactive, !isTerminating else { return }
         let now = machine.clock.now
         // A tick gap without a sleep signal is downtime no notification
         // bracketed — a wake nobody asked for, a missed willSleep. Bracket it
@@ -543,15 +570,23 @@ final class AppState: ObservableObject {
         }
         lastTickAt = now
 
+        // One fresh snapshot owns both idle detection and the hold. There is
+        // no independent timer or queued device callback that can strand an
+        // old true flag or re-enter tick() while settings are being published.
+        let activity = callActivityClient.read(includeMicrophone: machine.settings.holdBreaksWhileMicrophoneInUse)
+        if activity != callActivity {
+            logger.info("Media activity: camera=\(activity.cameraInUse, privacy: .public), microphone=\(activity.microphoneInUse, privacy: .public)")
+        }
+        callActivity = activity
         updateIdleSuspension(now: now)
-        machine.cameraHoldActive = cameraActive && machine.settings.holdBreaksWhileOnCamera
+        machine.callHoldActive = callActivity.selected(for: machine.settings).isActive
 
         let previous = machine.runtime.timerState
         let current = machine.tick()
         if current != previous {
             logger.info("State transition")
         }
-        reconcileCameraHoldWarning()
+        reconcileCallHoldWarning()
         publish()
         reconcileStateEffects()
         save()
@@ -563,20 +598,20 @@ final class AppState: ObservableObject {
     // when the hold engages (it would fire mid-call), re-armed when the hold
     // releases. A pinned .working re-arms through reconcileStateEffects(); a
     // pinned .warning has no scheduling path there, so it re-arms here.
-    private func reconcileCameraHoldWarning() {
-        let engaged = machine.isCameraHoldEngaged
-        defer { cameraHoldWasEngaged = engaged }
-        if engaged, !cameraHoldWasEngaged {
+    private func reconcileCallHoldWarning() {
+        let engaged = machine.isCallHoldEngaged
+        defer { callHoldWasEngaged = engaged }
+        if engaged, !callHoldWasEngaged {
             notifications.cancelWarning()
         }
-        if !engaged, cameraHoldWasEngaged, case .warning = machine.runtime.timerState {
+        if !engaged, callHoldWasEngaged, case let .warning(deadline) = machine.runtime.timerState {
             // The runway starts now; tell the user the break is coming, and
             // say so in terms of the runway rather than the configured lead —
             // the hold pinned the deadline there, so that is the time the user
             // actually has.
             notifications.scheduleWarning(
                 at: machine.clock.now.addingTimeInterval(1),
-                breakAt: machine.clock.now.addingTimeInterval(machine.cameraHoldRunway),
+                breakAt: deadline,
                 settings: machine.settings
             )
         }
@@ -587,14 +622,16 @@ final class AppState: ObservableObject {
     // back-dated to the last input, so the silent span never counts as focus.
     private func updateIdleSuspension(now: Date) {
         // A call is presence without input; never treat it as absence.
-        if cameraActive {
+        if callActivity.cameraInUse || (callActivity.microphoneInUse && machine.settings.holdBreaksWhileMicrophoneInUse) {
+            lastCallActivityAt = now
             if idleSuspensionActive {
                 machine.restoreAfterSleep()
                 idleSuspensionActive = false
             }
             return
         }
-        let idle = Self.systemIdleSeconds()
+        let inputIdle = idleSeconds()
+        let idle = min(inputIdle, lastCallActivityAt.map { max(0, now.timeIntervalSince($0)) } ?? inputIdle)
         if idleSuspensionActive {
             if idle < IdleAway.threshold {
                 logger.info("Input returned — restoring from idle suspension")
@@ -614,24 +651,16 @@ final class AppState: ObservableObject {
     // Seconds since the last user input, taken as the freshest across the
     // event types real input produces. kCGAnyInputEventType is not exposed to
     // Swift, and a per-type minimum is just as cheap at once per second.
-    private static let idleEventTypes: [CGEventType] = [
+    nonisolated private static let idleEventTypes: [CGEventType] = [
         .leftMouseDown, .rightMouseDown, .otherMouseDown,
         .mouseMoved, .leftMouseDragged, .rightMouseDragged,
         .scrollWheel, .keyDown, .flagsChanged
     ]
 
-    private static func systemIdleSeconds() -> TimeInterval {
+    nonisolated private static func systemIdleSeconds() -> TimeInterval {
         idleEventTypes
             .map { CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: $0) }
             .min() ?? 0
-    }
-
-    // Called by CameraUsageMonitor; the hold itself is applied on the next
-    // tick, at most a second away.
-    func setCameraActive(_ active: Bool) {
-        guard cameraActive != active else { return }
-        cameraActive = active
-        logger.info("Camera \(active ? "in use" : "released", privacy: .public)")
     }
 
     private func publishAndReconcile() {
@@ -649,11 +678,13 @@ final class AppState: ObservableObject {
         setIfChanged(\.canPostpone, machine.canPostpone)
         setIfChanged(\.postponeHoldTier, machine.postponeHoldTier)
         setIfChanged(\.canExtendFocus, machine.canExtendFocus)
+        setIfChanged(\.dailySkipsRemaining, machine.dailySkipsRemaining)
         setIfChanged(\.taperedFocusSeconds, machine.runtime.taperedFocusSeconds)
         setIfChanged(\.canUseEmergencyOverride, machine.canUseEmergencyOverride)
         setIfChanged(\.canSpendOverrideOnPressure, machine.canSpendOverrideOnPressure)
         setIfChanged(\.emergencyOverrideAvailableAt, machine.emergencyOverrideAvailableAt)
-        setIfChanged(\.isCameraHoldActive, machine.isCameraHoldEngaged)
+        setIfChanged(\.callHoldActivity, machine.isCallHoldEngaged
+                     ? callActivity.selected(for: machine.settings) : CallActivity())
         // The disclosure belongs to one break: collapse it once that break is
         // over so the next overlay opens closed on every screen.
         switch timerState {
@@ -678,13 +709,14 @@ final class AppState: ObservableObject {
     }
 
     private func reconcileStateEffects() {
+        guard !sessionInactive, !isTerminating else { return }
         switch timerState {
         case let .working(deadline, warningDeadline):
             overlayManager?.hideAll()
-            // While the camera hold pins the countdown, the warning deadline
+            // While the call hold pins the countdown, the warning deadline
             // advances every tick; rescheduling against it would fire a
             // notification every second into the call.
-            if !isCameraHoldActive {
+            if !isCallHoldActive {
                 notifications.scheduleWarning(at: warningDeadline, breakAt: deadline, settings: settings)
             }
         case .warning:
@@ -738,22 +770,17 @@ final class AppState: ObservableObject {
             // A dismissal belongs to the episode it was made in. Once the
             // pressure lifts — a break, a call, the end of the window — the
             // next one starts with the card up rather than serving out the
-            // remainder of a two-minute silence nobody remembers asking for.
-            nudgeCardHiddenUntil = nil
+            // remainder of a minute of silence nobody remembers asking for.
+            pressureReminder.update(reason: nil)
             nudgeManager?.hideAll()
             return
         }
         setIfChanged(\.pressureReason, reason)
-        if let hiddenUntil = nudgeCardHiddenUntil, now >= hiddenUntil {
-            nudgeCardHiddenUntil = nil
-        }
+        pressureReminder.update(reason: reason)
         nudgeManager?.show(
             makeNudgePresentation(reason: reason, windowEnd: window?.end),
-            // The card sits at `.screenSaver` and, unlike the veil, takes its
-            // clicks rather than passing them through — so while a
-            // confirmation is up it would eat the ones meant for the alert
-            // underneath. The veil stays: dimming an alert is harmless.
-            showCard: nudgeCardHiddenUntil == nil && !isConfirmationOpen
+            // Keep the card clear of a modal confirmation's clicks.
+            showCard: pressureReminder.shouldShowCard(at: now) && !isConfirmationOpen
         )
     }
 

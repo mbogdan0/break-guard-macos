@@ -33,6 +33,15 @@ struct GeneralSettingsView: View {
 
             Section {
                 Toggle("Harder to skip breaks", isOn: harderToSkipBreaksBinding)
+                Stepper(
+                    "Daily skip budget: \(appState.settings.dailySkipLimit)",
+                    value: appState.settingBinding(\.dailySkipLimit),
+                    in: SettingsRange.dailySkipLimit
+                )
+                .disabled(!appState.settings.harderToSkipBreaks)
+                if appState.settings.harderToSkipBreaks {
+                    LabeledContent("Skips left today", value: "\(appState.dailySkipsRemaining)")
+                }
                 SettingsStatusRow(
                     title: "Emergency override",
                     systemImage: "exclamationmark.shield",
@@ -41,16 +50,18 @@ struct GeneralSettingsView: View {
             } header: {
                 Text("Skipping Breaks")
             } footer: {
-                Text("Every skip sits through a confirmation whose button stays disabled for a moment first — \(Int(SkipConfirmGate.extendShortSeconds / 2))–\(Int(SkipConfirmGate.extendLongSeconds / 2)) seconds for Extend Focus, \(formatDurationPhrase(SkipConfirmGate.pauseUntilMorningSeconds / 2)) for Pause Until 9 AM and for quitting. Harder mode doubles every one of those, allows only one Extend Focus or postponement per cycle, and turns on the scheduled break and after-hours dimming set up on the Schedule tab. It also asks before it can be switched back off (\(formatDurationPhrase(SkipConfirmGate.disableHarderModeSeconds))), and once when you close this window having given yourself more room than you arrived with (\(formatDurationPhrase(SkipConfirmGate.loosenSettingsSeconds))). The override, at the foot of a break overlay or on a dimming reminder, buys \(formatDurationPhrase(EmergencyOverride.focusGrant)) once every 7 days.")
+                Text("Harder mode allows one Extend Focus or postponement per cycle, within a shared daily budget. The budget resets at local midnight and survives restarting the app and resetting statistics. Setting it to 0 disables regular skips. Skips in normal mode also count if you turn harder mode on later that day. Harder mode doubles confirmation waits and enables the recurring reminders set up on the Schedule tab. Increasing the budget is a loosening of the guard. Keeping looser settings when you close this window requires a \(formatDurationPhrase(SkipConfirmGate.loosenSettingsSeconds)) confirmation. The separate emergency override still buys \(formatDurationPhrase(EmergencyOverride.focusGrant)) once every 7 days.")
                     .foregroundStyle(.secondary)
             }
 
             Section {
                 Toggle("Hold breaks during camera calls", isOn: appState.settingBinding(\.holdBreaksWhileOnCamera))
+                Toggle("Hold breaks while microphone is in use", isOn: appState.settingBinding(\.holdBreaksWhileMicrophoneInUse))
+                    .disabled(!MicrophoneUsageReader.isSupported)
             } header: {
                 Text("Calls")
             } footer: {
-                Text("While any app uses the camera, the countdown freezes just above the warning window so a break never interrupts a call. The held time still counts as focus, and the full warning lead runs after the call ends.")
+                Text("While the selected device is in use, the countdown holds just above the warning window. The held time counts as focus, and you get at least 2 minutes after the call ends. Microphone detection requires macOS 14.2 or later. It also reacts to recording and dictation; a muted call is detected only while its app keeps audio input active. Screen sharing is covered while a selected camera or microphone is in use. No sound is recorded.")
                     .foregroundStyle(.secondary)
             }
 

@@ -1,8 +1,7 @@
 import Foundation
 
-// Why the app is currently leaning on the user to stop. Both reasons dim the
-// screen and float a card; neither ever blocks it — everything underneath
-// stays visible and clickable. The whole feature is gated on
+// Why the app is currently reminding the user to stop. A recurring card leaves
+// the screen clear between reminders. The whole feature is gated on
 // `harderToSkipBreaks`: without it the app stays as polite as it has been.
 enum PressureReason: Equatable {
     // Inside the weekday rest window.
@@ -14,22 +13,37 @@ enum PressureReason: Equatable {
 // Fixed, not settings. A pressure valve the user can weaken from the settings
 // pane is not a pressure valve — the same reasoning as EmergencyOverride.
 enum BreakPressure {
-    // Enough that a bright editor stops looking normal and staying at it feels
-    // like a choice, still far short of hiding content or making text
-    // unreadable — the veil is pressure, never a block.
-    static let veilOpacity = 0.28
     // How long closing the card buys. The card is the part with a dismiss, so
     // it is the part that has to come back.
-    static let cardReturnInterval: TimeInterval = 2 * 60
+    static let cardReturnInterval: TimeInterval = 60
+    static let dismissHoldDuration: TimeInterval = 3
+}
+
+struct PressureReminderState {
+    private(set) var reason: PressureReason?
+    private var hiddenUntil: Date?
+
+    mutating func update(reason: PressureReason?) {
+        guard self.reason != reason else { return }
+        self.reason = reason
+        hiddenUntil = nil
+    }
+
+    mutating func dismiss(at now: Date) {
+        guard reason != nil else { return }
+        hiddenUntil = now.addingTimeInterval(BreakPressure.cardReturnInterval)
+    }
+
+    func shouldShowCard(at now: Date) -> Bool {
+        reason != nil && (hiddenUntil.map { now >= $0 } ?? true)
+    }
 }
 
 // What the nudge card says. Derived rather than stored so the card can be
 // rebuilt from the reason alone.
 //
-// The card offers exactly one action, deliberately: it is the action that
-// answers the pressure. Stopping for the day is a bigger decision than a card
-// in the corner should take, and it already lives in the menu behind its own
-// confirmation.
+// The main action starts a break. A separate disclosure offers the weekly
+// override; pausing until morning remains in the menu behind its confirmation.
 struct NudgePresentation: Equatable {
     let title: String
     let message: String
@@ -46,7 +60,7 @@ func makeNudgePresentation(
         let until = windowEnd.map { " until \(timeFormatter.string(from: $0))" } ?? ""
         return NudgePresentation(
             title: "Break time",
-            message: "Your scheduled break runs\(until). Step away from the screen — the display stays dimmed while you keep working.",
+            message: "Your scheduled break runs\(until). Step away from the screen. This reminder returns every minute while you keep working.",
             primaryTitle: "Take a Break Now"
         )
     case .outsideWorkingHours:
@@ -66,7 +80,7 @@ func makeNudgePresentation(
             possible tomorrow. Step away from the screen, look at something far away for a \
             while, and let your eyes reset.
 
-            The display stays dimmed while you keep working.
+            This reminder returns every minute while you keep working.
             """,
             primaryTitle: "Take a Break Now"
         )

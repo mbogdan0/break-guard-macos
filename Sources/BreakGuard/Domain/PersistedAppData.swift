@@ -24,7 +24,6 @@ struct RuntimeState: Codable, Equatable {
     var focusExtended: Bool
     var cycleStartDate: Date
     var preservedAt: Date?
-    var preservedRemaining: TimeInterval?
     // Working time of the current cycle, captured when the break starts.
     var cycleFocusDuration: TimeInterval?
     // When the current/most recent break started; drives the completion count-up.
@@ -49,6 +48,7 @@ struct RuntimeState: Codable, Equatable {
     // reset gap against them lets an unattended night carry tapering into
     // the next morning.
     var lastFocusAt: Date?
+    var dailySkipUsage = DailySkipUsage()
 }
 
 // Fields are added after schema 3 shipped without bumping the version. Older
@@ -59,9 +59,9 @@ extension RuntimeState {
     private enum CodingKeys: String, CodingKey {
         case timerState, cycleViolated, cyclePostponements,
              cycleRegularPostponements, focusExtended,
-             cycleStartDate, preservedAt, preservedRemaining,
+             cycleStartDate, preservedAt,
              cycleFocusDuration, breakStartedAt, manualBreakOrigin,
-             taperedFocusSeconds, emergencyOverrideUsedAt, lastTickAt, lastFocusAt
+             taperedFocusSeconds, emergencyOverrideUsedAt, lastTickAt, lastFocusAt, dailySkipUsage
     }
 
     init(from decoder: Decoder) throws {
@@ -74,7 +74,6 @@ extension RuntimeState {
         let decodedCycleStartDate = try container.decode(Date.self, forKey: .cycleStartDate)
         cycleStartDate = decodedCycleStartDate
         preservedAt = try container.decodeIfPresent(Date.self, forKey: .preservedAt)
-        preservedRemaining = try container.decodeIfPresent(TimeInterval.self, forKey: .preservedRemaining)
         cycleFocusDuration = try container.decodeIfPresent(TimeInterval.self, forKey: .cycleFocusDuration)
         breakStartedAt = try container.decodeIfPresent(Date.self, forKey: .breakStartedAt)
         manualBreakOrigin = try container.decodeIfPresent(ManualBreakOrigin.self, forKey: .manualBreakOrigin)
@@ -83,6 +82,7 @@ extension RuntimeState {
         emergencyOverrideUsedAt = decodedOverrideUsedAt
         lastTickAt = try container.decodeIfPresent(Date.self, forKey: .lastTickAt)
         lastFocusAt = try container.decodeIfPresent(Date.self, forKey: .lastFocusAt)
+        dailySkipUsage = try container.decodeIfPresent(DailySkipUsage.self, forKey: .dailySkipUsage) ?? DailySkipUsage()
 
         // Older builds counted an emergency override in cyclePostponements.
         // Infer the regular count once for an in-progress legacy cycle; after

@@ -72,7 +72,7 @@ func makeMenuPresentation(
     warningLeadTime: TimeInterval = 0,
     focusExtended: Bool = false,
     outsideWorkingHours: Bool = false,
-    cameraHold: Bool = false,
+    callHoldActivity: CallActivity = CallActivity(),
     now: Date = Date(),
     timeFormatter: DateFormatter = .breakGuardTime
 ) -> MenuPresentation {
@@ -145,14 +145,20 @@ func makeMenuPresentation(
         base = MenuPresentation(menuBarTitle: "PAUSED", statusTitle: statusTitle, primaryAction: .resume)
     }
 
-    // While the camera hold pins the countdown, say so — a frozen number with
+    // While the call hold pins the countdown, say so — a frozen number with
     // no explanation reads as a bug. Always the caution color, even for a
     // pinned warning state: the break is deliberately held, and a red pill
     // for the length of a call would cry wolf.
-    if cameraHold, base.primaryAction == .takeBreak {
+    if callHoldActivity.isActive, base.primaryAction == .takeBreak {
+        let source: String
+        switch (callHoldActivity.cameraInUse, callHoldActivity.microphoneInUse) {
+        case (true, true): source = "Camera and microphone in use"
+        case (true, false): source = "Camera in use"
+        default: source = "Microphone in use"
+        }
         return MenuPresentation(
             menuBarTitle: "◉ \(base.menuBarTitle)",
-            statusTitle: "On a call — break held · \(base.statusTitle)",
+            statusTitle: "\(source) — break held · \(base.statusTitle)",
             primaryAction: base.primaryAction,
             emphasis: .caution
         )

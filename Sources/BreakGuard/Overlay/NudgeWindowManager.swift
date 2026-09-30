@@ -2,31 +2,14 @@ import AppKit
 import SwiftUI
 import os
 
-// The non-blocking half of the break enforcement: a light click-through veil
-// over every screen plus a card that keeps coming back. Nothing here ever
-// takes a click away from the app underneath, and nothing here ever holds the
-// display awake — that is a break's job, not a nudge's.
-//
-// Structured like OverlayScreenManager on purpose: the same per-screen
-// dictionary, the same applied-frame guard, the same slow re-assert cadence.
-// This is re-entered on every one-second tick for as long as the pressure
-// runs, which can be hours, so every step has to cost nothing when nothing
-// changed.
+// A recurring card without a screen veil. It never holds the display awake
+// or takes activation away from the app the user is working in.
 @MainActor
 final class NudgeWindowManager {
     private weak var appState: AppState?
-    private var veils: [String: NudgeVeilWindow] = [:]
-    // Compared against instead of the live frame for the same reason the break
-    // overlay does it: AppKit may hand back an adjusted rect.
-    private var appliedFrames: [String: NSRect] = [:]
     private var cardWindow: NudgeCardWindow?
-    // What the card currently renders. A change rebuilds its content; equal
-    // values leave the hosting view alone.
     private var cardPresentation: NudgePresentation?
-    // Whether the window has been resized to fit the current content.
-    private var cardSized = false
-    // Ticks until window order is re-asserted even though nothing looks
-    // displaced. Same reasoning and cadence as the break overlay's.
+    private var appliedSize: NSSize?
     private var reassertCountdown = 0
     private static let reassertInterval = 10
     private let logger = Logger(subsystem: "local.bohdan.BreakGuard", category: "Nudge")
@@ -42,182 +25,59 @@ final class NudgeWindowManager {
     }
 
     func show(_ presentation: NudgePresentation, showCard: Bool) {
-        // The veils go first and the card follows, because they share a window
-        // level: a veil ordered front on a re-assert tick lands on top of the
-        // card, and the card is the half that has to stay readable.
-        let reasserted = showVeils()
-        if showCard {
-            presentCard(presentation, reassert: reasserted)
-        } else {
+        guard showCard else {
             hideCard()
+            return
         }
-    }
-
-    func hideAll() {
-        if !veils.isEmpty {
-            logger.info("Pressure veil dismissed")
-        }
-        for window in veils.values {
-            window.orderOut(nil)
-        }
-        veils.removeAll()
-        appliedFrames.removeAll()
-        reassertCountdown = 0
-        hideCard()
-        // The card window is kept across a dismissal — it comes back every two
-        // minutes and rebuilding it each time would be waste — but not across
-        // the end of a pressure window. Its content view holds the root
-        // SwiftUI view, which holds AppState, which holds this manager: a
-        // retain cycle that is harmless while AppState lives for the life of
-        // the app, and pointless to keep for a window nothing is going to ask
-        // for again soon.
-        cardWindow?.close()
-        cardWindow = nil
-        cardPresentation = nil
-        cardSized = false
-    }
-
-    @objc private func updateForScreenChanges() {
-        guard !veils.isEmpty else { return }
-        showVeils()
-        // The card is placed once, when it becomes visible. Unplugging the
-        // display it was placed on would otherwise leave it parked off-screen
-        // until the next time it is dismissed and returns.
-        if let cardWindow, cardWindow.isVisible {
-            cardWindow.positionOnMainScreen()
-        }
-    }
-
-    // Returns whether window order was re-asserted on this tick, so the card
-    // can follow the veils back to the front.
-    @discardableResult
-    private func showVeils() -> Bool {
-        var ordered = false
-        for screen in NSScreen.screens {
-            let key = screenKey(screen)
-            if veils[key] == nil {
-                veils[key] = NudgeVeilWindow(screen: screen)
-                logger.info("Pressure veil window created")
-            }
-            guard let window = veils[key] else { continue }
-            if appliedFrames[key] != screen.frame {
-                window.setFrame(screen.frame, display: true)
-                appliedFrames[key] = screen.frame
-            }
-            if !window.isVisible {
-                window.orderFrontRegardless()
-                ordered = true
-            }
-        }
-        removeVeilsForDisconnectedScreens()
-        return reassertOrderIfDue() || ordered
-    }
-
-    // The veil sits at .screenSaver so a full-screen app cannot hide it, which
-    // means anything else parked at that level can cover it instead. Re-assert
-    // on a slow cadence rather than every tick: ordering a window front is a
-    // synchronous window-server round trip per window, and the veil draws
-    // nothing that could have changed in the meantime.
-    @discardableResult
-    private func reassertOrderIfDue() -> Bool {
-        reassertCountdown -= 1
-        let reassert = reassertCountdown <= 0
-        if reassert {
-            reassertCountdown = Self.reassertInterval
-        }
-        var ordered = false
-        for window in veils.values {
-            var displaced = false
-            if window.level != .screenSaver {
-                window.level = .screenSaver
-                displaced = true
-            }
-            if displaced || reassert {
-                window.orderFrontRegardless()
-                ordered = true
-            }
-        }
-        return ordered
-    }
-
-    private func presentCard(_ presentation: NudgePresentation, reassert: Bool) {
         guard let appState else { return }
-        if cardWindow == nil {
-            cardWindow = NudgeCardWindow()
-        }
+        if cardWindow == nil { cardWindow = NudgeCardWindow() }
         guard let window = cardWindow else { return }
         if cardPresentation != presentation {
             cardPresentation = presentation
-            cardSized = false
+            appliedSize = nil
             window.contentView = NudgeCardHostingView(
                 rootView: NudgeCardView(appState: appState, presentation: presentation)
             )
         }
-        // The card's height depends on the length of its message, so it is
-        // measured rather than fixed. A hosting view that has not laid out yet
-        // reports zero, and committing that would leave the panel at its
-        // placeholder size with the message clipped — so a zero measurement
-        // leaves cardSized false and the next tick asks again.
-        if !cardSized, let fitting = window.contentView?.fittingSize, fitting.height > 0 {
+        // Re-measure after a disclosure changes too. A zero size means the
+        // hosting view has not laid out yet, so the next tick retries.
+        if let fitting = window.contentView?.fittingSize,
+           fitting.height > 0, fitting != appliedSize {
             window.setContentSize(fitting)
-            cardSized = true
+            appliedSize = fitting
         }
-        // Logged here rather than at window creation: the window outlives each
-        // dismissal, so creation happens once while the card comes back every
-        // BreakPressure.cardReturnInterval, and only the latter is observable.
+        reassertCountdown -= 1
+        let reassert = reassertCountdown <= 0
+        if reassert { reassertCountdown = Self.reassertInterval }
         if !window.isVisible {
             window.positionOnMainScreen()
             window.orderFrontRegardless()
             logger.info("Nudge card shown")
         } else if reassert {
+            window.level = .screenSaver
             window.orderFrontRegardless()
         }
     }
 
+    func hideAll() {
+        hideCard()
+        cardWindow?.close()
+        cardWindow = nil
+        cardPresentation = nil
+        appliedSize = nil
+    }
+
+    @objc private func updateForScreenChanges() {
+        guard let cardWindow, cardWindow.isVisible else { return }
+        cardWindow.positionOnMainScreen()
+    }
+
     private func hideCard() {
+        reassertCountdown = 0
         guard let cardWindow, cardWindow.isVisible else { return }
         cardWindow.orderOut(nil)
         logger.info("Nudge card hidden")
     }
-
-    private func removeVeilsForDisconnectedScreens() {
-        let liveKeys = Set(NSScreen.screens.map(screenKey))
-        for (key, window) in veils where !liveKeys.contains(key) {
-            window.close()
-            veils.removeValue(forKey: key)
-            appliedFrames.removeValue(forKey: key)
-        }
-    }
-
-    private func screenKey(_ screen: NSScreen) -> String {
-        let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber
-        return number?.stringValue ?? NSStringFromRect(screen.frame)
-    }
-}
-
-// Draws nothing but a wash of black. `ignoresMouseEvents` is what makes this a
-// nudge rather than a block: every click, drag, and scroll goes straight
-// through to whatever is underneath.
-final class NudgeVeilWindow: NSPanel {
-    init(screen: NSScreen) {
-        super.init(
-            contentRect: screen.frame,
-            styleMask: [.borderless, .nonactivatingPanel],
-            backing: .buffered,
-            defer: false
-        )
-        isReleasedWhenClosed = false
-        isOpaque = false
-        hasShadow = false
-        backgroundColor = NSColor.black.withAlphaComponent(BreakPressure.veilOpacity)
-        ignoresMouseEvents = true
-        level = .screenSaver
-        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
-        hidesOnDeactivate = false
-    }
-
-    override var canBecomeKey: Bool { false }
-    override var canBecomeMain: Bool { false }
 }
 
 // The card does take clicks — but never the app's activation. A
@@ -278,22 +138,8 @@ struct NudgeCardView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(presentation.title)
-                    .font(.system(size: 17, weight: .semibold))
-                Spacer(minLength: 12)
-                Button {
-                    appState.dismissNudgeCard()
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(.white.opacity(0.45))
-                        .padding(4)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .help("Hide for \(formatDurationCompact(BreakPressure.cardReturnInterval))")
-            }
+            Text(presentation.title)
+                .font(.system(size: 17, weight: .semibold))
 
             Text(presentation.message)
                 .font(.system(size: 13))
@@ -305,10 +151,22 @@ struct NudgeCardView: View {
                 appState.takeBreakNow()
             } label: {
                 Text(presentation.primaryTitle)
-                    .frame(maxWidth: .infinity, minHeight: 30)
+                    .font(.system(size: 13, weight: .medium))
+                    .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
+            .controlSize(.large)
             .padding(.top, 18)
+
+            HoldToConfirmButton(
+                title: "Dismiss for 1 min",
+                subtitle: postponeHoldHint(BreakPressure.dismissHoldDuration),
+                holdDuration: BreakPressure.dismissHoldDuration
+            ) {
+                appState.dismissNudgeCard()
+            }
+            .controlSize(.small)
+            .padding(.top, 10)
 
             overrideSection
                 .padding(.top, 14)
@@ -350,14 +208,15 @@ struct NudgeCardView: View {
             if overrideExpanded {
                 if appState.canSpendOverrideOnPressure {
                     HoldToConfirmButton(
-                        title: "Work Unguarded — \(formatDurationCompact(EmergencyOverride.focusGrant))",
+                        title: "Pause Reminders — \(formatDurationCompact(EmergencyOverride.focusGrant))",
                         subtitle: postponeHoldHint(EmergencyOverride.holdDuration),
                         holdDuration: EmergencyOverride.holdDuration
                     ) {
                         appState.spendPressureOverride()
                     }
+                    .controlSize(.small)
                     .padding(.top, 10)
-                    Text("Once every 7 days, shared with the override on the break screen. Your breaks keep running — only the dimming stops.")
+                    Text("Once every 7 days, shared with the override on the break screen. Your breaks keep running; these reminders pause.")
                         .font(.system(size: 11))
                         .foregroundStyle(.white.opacity(0.45))
                         .fixedSize(horizontal: false, vertical: true)

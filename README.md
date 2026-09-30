@@ -43,7 +43,10 @@ Line Tools. Approve it, wait for the installation to finish, and run the same co
 - Honesty-first confirmations for every action that skips or silences rest
 - Streaks, daily focus history, and focused-minute statistics
 - Optional working hours that turn the menu bar yellow outside them
-- A weekday scheduled break, and a Harder mode that dims the screen without ever blocking it
+- A shared daily skip budget in Harder mode, with a separate weekly emergency override
+- A weekday scheduled break and recurring reminder cards without screen dimming
+- Camera call holds, plus optional microphone activity holds on macOS 14.2 or newer
+- Automatic sleep prevention while the break countdown or completion screen is visible
 - Sleep and inactivity detection that avoids counting time away as work
 - Local notifications with capability-aware Time Sensitive delivery
 - Local-only, schema-versioned persistence
@@ -94,8 +97,12 @@ Use **Take a Break Now** for an early break, **Extend Focus** when a break must 
 advance, and **Pause Until 9 AM** when you are done for the day — reminders stay silent until the
 next morning and **Resume Now** ends the pause early. Extending, pausing, and quitting each ask for
 confirmation. When a scheduled break truly cannot happen, the overlay hides an **Emergency
-override** behind a disclosure that buys 1 hour 30 minutes of focus, once every 7 days. Settings
-control timing, working hours, notifications, launch at login, and statistics.
+override** behind a disclosure that buys 1 hour 30 minutes of focus, once every 7 days. Harder mode
+also allows one regular skip per cycle within a daily budget, defaulting to three uses. Schedule
+cards return one minute after dismissal, which requires a three-second hold; they never dim the
+screen. Settings control timing, call holds, working hours, notifications, launch at login, and
+statistics. Screen sharing is covered while a selected camera or microphone is active; sharing
+alone is not detected.
 
 ## Commands
 

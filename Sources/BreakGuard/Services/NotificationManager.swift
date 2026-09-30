@@ -98,13 +98,21 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
         let handler: TestEventHandler
     }
 
+    private struct WarningSchedule: Equatable {
+        let date: Date
+        let deadline: Date
+        let sound: Bool
+    }
+
     private let logger = Logger(subsystem: "local.bohdan.BreakGuard", category: "Notifications")
     private let warningIdentifier = "breakguard.warning"
     private let testIdentifier = "breakguard.test"
     private let client: UserNotificationCenterClient
     private let scheduleAfter: DelayScheduler
-    private let lock = NSLock()
-    private var scheduledWarningDate: Date?
+    // Client callbacks may be synchronous. Keep submitting and cancelling a
+    // warning in one ordered operation without deadlocking those callbacks.
+    private let lock = NSRecursiveLock()
+    private var scheduledWarning: WarningSchedule?
     private var warningGeneration = 0
     private var activeTest: ActiveTest?
     private var testGeneration = 0
@@ -145,16 +153,20 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
     // gap between this notification and that moment. Taking it as a date
     // rather than a duration is deliberate: the lead a cycle runs is not
     // settings.warningLeadTime — effectiveWarningLeadTime caps it at half the
-    // window, and a camera hold arms the warning against its own runway — and
+    // window, and a call hold arms the warning against its own runway — and
     // a caller cannot pass a lead that disagrees with the schedule it just
     // asked for.
     func scheduleWarning(at date: Date, breakAt deadline: Date, settings: AppSettings) {
-        guard settings.warningLeadTime > 0, date > Date(), let generation = beginWarningSchedule(at: date) else {
-            return
-        }
+        guard settings.warningLeadTime > 0 else { cancelWarning(); return }
+        guard date > Date() else { return }
+        let schedule = WarningSchedule(date: date, deadline: deadline, sound: settings.notificationSound)
+        guard let generation = beginWarningSchedule(schedule) else { return }
 
         client.getCapabilities { [weak self] capabilities in
-            guard let self, self.isCurrentWarning(generation: generation, date: date) else { return }
+            guard let self else { return }
+            self.lock.lock()
+            defer { self.lock.unlock() }
+            guard self.isCurrentWarning(generation: generation, schedule: schedule) else { return }
             let content = Self.warningContent(
                 leadTime: deadline.timeIntervalSince(date),
                 settings: settings,
@@ -172,13 +184,14 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
             self.client.add(request) { [weak self, logger = self.logger] error in
                 guard let self else { return }
                 if let error {
-                    self.clearWarningIfCurrent(generation: generation, date: date)
+                    self.clearWarningIfCurrent(generation: generation, schedule: schedule)
                     logger.error("Warning scheduling failed: \(error.localizedDescription)")
-                } else if self.isCurrentWarning(generation: generation, date: date) {
+                } else if self.isCurrentWarning(generation: generation, schedule: schedule) {
                     logger.info("Warning notification scheduled")
-                } else {
-                    self.client.removePendingNotificationRequests(withIdentifiers: [self.warningIdentifier])
                 }
+                // A stale completion must not remove a newer request using
+                // the same identifier. Cancellation already ordered its
+                // removal after submission under the lock above.
             }
         }
     }
@@ -213,9 +226,9 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
 
     func cancelWarning() {
         lock.lock()
-        scheduledWarningDate = nil
+        defer { lock.unlock() }
+        scheduledWarning = nil
         warningGeneration += 1
-        lock.unlock()
         client.removePendingNotificationRequests(withIdentifiers: [warningIdentifier])
     }
 
@@ -257,28 +270,27 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
         finishActiveTest(with: .success(.delivered))
     }
 
-    private func beginWarningSchedule(at date: Date) -> Int? {
+    private func beginWarningSchedule(_ schedule: WarningSchedule) -> Int? {
         lock.lock()
         defer { lock.unlock() }
-        if let scheduledWarningDate, abs(scheduledWarningDate.timeIntervalSince(date)) < 1 {
-            return nil
-        }
-        scheduledWarningDate = date
+        if scheduledWarning == schedule { return nil }
+        scheduledWarning = schedule
         warningGeneration += 1
+        client.removePendingNotificationRequests(withIdentifiers: [warningIdentifier])
         return warningGeneration
     }
 
-    private func isCurrentWarning(generation: Int, date: Date) -> Bool {
+    private func isCurrentWarning(generation: Int, schedule: WarningSchedule) -> Bool {
         lock.lock()
         defer { lock.unlock() }
-        return warningGeneration == generation && scheduledWarningDate == date
+        return warningGeneration == generation && scheduledWarning == schedule
     }
 
-    private func clearWarningIfCurrent(generation: Int, date: Date) {
+    private func clearWarningIfCurrent(generation: Int, schedule: WarningSchedule) {
         lock.lock()
         defer { lock.unlock() }
-        guard warningGeneration == generation, scheduledWarningDate == date else { return }
-        scheduledWarningDate = nil
+        guard warningGeneration == generation, scheduledWarning == schedule else { return }
+        scheduledWarning = nil
     }
 
     private func scheduleTestNotification(settings: AppSettings, eventHandler: @escaping TestEventHandler) {

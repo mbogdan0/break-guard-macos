@@ -508,8 +508,8 @@ final class DowntimeAndCameraHoldTests: XCTestCase {
     func testCameraHoldPinsCountdownAtTheRunway() {
         let start = Date(timeIntervalSince1970: 900_000)
         var machine = makeMachine(at: start)
-        machine.cameraHoldActive = true
-        let runway = machine.cameraHoldRunway
+        machine.callHoldActive = true
+        let runway = machine.callHoldRunway
         XCTAssertEqual(runway, 2 * 60)
 
         // One minute short of the deadline: without the hold this is deep in
@@ -518,20 +518,20 @@ final class DowntimeAndCameraHoldTests: XCTestCase {
         var now = start.addingTimeInterval(29 * 60)
         machine.clock = FakeClock(now: now)
         XCTAssertEqual(machine.tick(), .warning(deadline: now.addingTimeInterval(runway)))
-        XCTAssertTrue(machine.isCameraHoldEngaged)
+        XCTAssertTrue(machine.isCallHoldEngaged)
 
         // An hour of call later the break still has not fired.
         now = start.addingTimeInterval(90 * 60)
         machine.clock = FakeClock(now: now)
         XCTAssertEqual(machine.tick(), .warning(deadline: now.addingTimeInterval(runway)))
-        XCTAssertTrue(machine.isCameraHoldEngaged)
+        XCTAssertTrue(machine.isCallHoldEngaged)
     }
 
     func testCameraHoldKeepsWorkingStateWhenLeadIsShorterThanRunway() {
         let start = Date(timeIntervalSince1970: 950_000)
         var machine = makeMachine(at: start) { $0.warningLeadTime = 60 }
-        machine.cameraHoldActive = true
-        let runway = machine.cameraHoldRunway
+        machine.callHoldActive = true
+        let runway = machine.callHoldRunway
         XCTAssertEqual(runway, 2 * 60)
 
         // Pinned above the warning boundary: the warning fires only after the
@@ -542,7 +542,7 @@ final class DowntimeAndCameraHoldTests: XCTestCase {
             deadline: now.addingTimeInterval(runway),
             warningDeadline: now.addingTimeInterval(runway - 60)
         ))
-        XCTAssertTrue(machine.isCameraHoldEngaged)
+        XCTAssertTrue(machine.isCallHoldEngaged)
     }
 
     func testCameraHoldPinsAnActiveWarningDeadline() {
@@ -556,24 +556,24 @@ final class DowntimeAndCameraHoldTests: XCTestCase {
             return XCTFail("Expected to be in the warning window")
         }
 
-        machine.cameraHoldActive = true
+        machine.callHoldActive = true
         XCTAssertEqual(
             machine.tick(),
-            .warning(deadline: warningTime.addingTimeInterval(machine.cameraHoldRunway))
+            .warning(deadline: warningTime.addingTimeInterval(machine.callHoldRunway))
         )
     }
 
     func testEndingCallRunsFullWarningLeadBeforeBreakAndCountsHeldTimeAsFocus() {
         let start = Date(timeIntervalSince1970: 1_100_000)
         var machine = makeMachine(at: start)
-        machine.cameraHoldActive = true
-        let runway = machine.cameraHoldRunway
+        machine.callHoldActive = true
+        let runway = machine.callHoldRunway
 
         // Long call across what would have been the break.
         let callEnd = start.addingTimeInterval(60 * 60)
         machine.clock = FakeClock(now: callEnd)
         _ = machine.tick()
-        machine.cameraHoldActive = false
+        machine.callHoldActive = false
 
         // The full warning lead still stands between the call and the break.
         let dueAt = callEnd.addingTimeInterval(runway)
@@ -597,12 +597,12 @@ final class DowntimeAndCameraHoldTests: XCTestCase {
         _ = machine.tick()
         machine.postpone(by: 4 * 60)
 
-        machine.cameraHoldActive = true
-        let runway = machine.cameraHoldRunway
+        machine.callHoldActive = true
+        let runway = machine.callHoldRunway
         let now = start.addingTimeInterval(40 * 60) // past the postponed deadline
         machine.clock = FakeClock(now: now)
         XCTAssertEqual(machine.tick(), .postponed(deadline: now.addingTimeInterval(runway)))
-        XCTAssertTrue(machine.isCameraHoldEngaged)
+        XCTAssertTrue(machine.isCallHoldEngaged)
     }
 
     func testCameraHoldNeverDismissesAnImposedBreak() {
@@ -613,9 +613,9 @@ final class DowntimeAndCameraHoldTests: XCTestCase {
         machine.clock = FakeClock(now: due)
         XCTAssertEqual(machine.tick(), .breakDue)
 
-        machine.cameraHoldActive = true
+        machine.callHoldActive = true
         XCTAssertEqual(machine.tick(), .breakDue)
-        XCTAssertFalse(machine.isCameraHoldEngaged)
+        XCTAssertFalse(machine.isCallHoldEngaged)
 
         machine.startBreak()
         machine.clock = FakeClock(now: due.addingTimeInterval(machine.settings.breakDuration))
@@ -625,7 +625,7 @@ final class DowntimeAndCameraHoldTests: XCTestCase {
     func testCameraHoldIsInertFarFromTheDeadline() {
         let start = Date(timeIntervalSince1970: 1_400_000)
         var machine = makeMachine(at: start)
-        machine.cameraHoldActive = true
+        machine.callHoldActive = true
 
         let now = start.addingTimeInterval(5 * 60)
         machine.clock = FakeClock(now: now)
@@ -633,6 +633,6 @@ final class DowntimeAndCameraHoldTests: XCTestCase {
             deadline: start.addingTimeInterval(30 * 60),
             warningDeadline: start.addingTimeInterval(28 * 60)
         ))
-        XCTAssertFalse(machine.isCameraHoldEngaged)
+        XCTAssertFalse(machine.isCallHoldEngaged)
     }
 }

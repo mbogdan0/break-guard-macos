@@ -17,8 +17,13 @@ private final class FakeNotificationCenterClient: UserNotificationCenterClient {
     var removedPendingIdentifiers: [[String]] = []
     var removedDeliveredIdentifiers: [[String]] = []
     var deliveredNotifications: [UNNotification] = []
+    var deferCapabilities = false
+    var deferAdds = false
+    var capabilityCallbacks: [(NotificationCapabilities) -> Void] = []
+    var addCallbacks: [(Error?) -> Void] = []
 
     func getCapabilities(_ completion: @escaping (NotificationCapabilities) -> Void) {
+        if deferCapabilities { capabilityCallbacks.append(completion); return }
         completion(capabilities)
     }
 
@@ -31,6 +36,7 @@ private final class FakeNotificationCenterClient: UserNotificationCenterClient {
 
     func add(_ request: UNNotificationRequest, completion: @escaping (Error?) -> Void) {
         requests.append(request)
+        if deferAdds { addCallbacks.append(completion); return }
         completion(addResults.isEmpty ? nil : addResults.removeFirst())
     }
 
@@ -48,6 +54,49 @@ private final class FakeNotificationCenterClient: UserNotificationCenterClient {
 }
 
 final class NotificationManagerTests: XCTestCase {
+    func testLateAddCompletionCannotRemoveANewerWarning() {
+        let client = FakeNotificationCenterClient()
+        client.deferAdds = true
+        let manager = NotificationManager(client: client)
+        let first = Date().addingTimeInterval(120)
+        manager.scheduleWarning(at: first, breakAt: first.addingTimeInterval(60), settings: .defaults)
+        manager.cancelWarning()
+        let second = first.addingTimeInterval(60)
+        manager.scheduleWarning(at: second, breakAt: second.addingTimeInterval(60), settings: .defaults)
+        let removals = client.removedPendingIdentifiers.count
+        client.addCallbacks[1](nil)
+        client.addCallbacks[0](nil)
+        XCTAssertEqual(client.removedPendingIdentifiers.count, removals)
+        XCTAssertEqual(client.requests.count, 2)
+    }
+
+    func testCancelledCapabilityCallbackCannotSubmitAWarningDuringACall() {
+        let client = FakeNotificationCenterClient()
+        client.deferCapabilities = true
+        let manager = NotificationManager(client: client)
+        let date = Date().addingTimeInterval(120)
+        manager.scheduleWarning(at: date, breakAt: date.addingTimeInterval(60), settings: .defaults)
+        manager.cancelWarning()
+        client.capabilityCallbacks[0](client.capabilities)
+        XCTAssertTrue(client.requests.isEmpty)
+    }
+
+    func testSoundChangesRescheduleAndDisablingWarningCancelsThePendingRequest() {
+        let client = FakeNotificationCenterClient()
+        let manager = NotificationManager(client: client)
+        let date = Date().addingTimeInterval(120)
+        var settings = AppSettings.defaults
+        manager.scheduleWarning(at: date, breakAt: date.addingTimeInterval(60), settings: settings)
+        settings.notificationSound = false
+        manager.scheduleWarning(at: date, breakAt: date.addingTimeInterval(60), settings: settings)
+        XCTAssertEqual(client.requests.count, 2)
+        XCTAssertNil(client.requests.last?.content.sound)
+        let removals = client.removedPendingIdentifiers.count
+        settings.warningLeadTime = 0
+        manager.scheduleWarning(at: date, breakAt: date.addingTimeInterval(60), settings: settings)
+        XCTAssertEqual(client.removedPendingIdentifiers.count, removals + 1)
+    }
+
     func testWarningTitleReflectsLeadTime() {
         XCTAssertEqual(NotificationManager.warningTitle(leadTime: 60), "Break in 1 minute")
         XCTAssertEqual(NotificationManager.warningTitle(leadTime: 5 * 60), "Break in 5 minutes")
@@ -71,7 +120,7 @@ final class NotificationManagerTests: XCTestCase {
 
     // The title is the gap between the notification and the break, not the
     // configured lead: effectiveWarningLeadTime caps the setting at half the
-    // window, and a camera hold arms the warning against its own runway.
+    // window, and a call hold arms the warning against its own runway.
     func testWarningTitleFollowsTheScheduleNotTheSetting() {
         let client = FakeNotificationCenterClient()
         let manager = NotificationManager(client: client)

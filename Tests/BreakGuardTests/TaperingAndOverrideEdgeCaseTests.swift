@@ -45,7 +45,7 @@ final class TaperingAndOverrideEdgeCaseTests: XCTestCase {
         // Ten more minutes of real work, then close the cycle.
         clock.now = clock.now.addingTimeInterval(10 * 60)
         machine.clock = clock
-        machine.markBreakTaken()
+        machine.startWorkCycle()
 
         // 20 minutes worked, not the 23 minutes of wall clock.
         XCTAssertEqual(machine.runtime.taperedFocusSeconds, 20 * 60, accuracy: 0.001)
@@ -91,7 +91,7 @@ final class TaperingAndOverrideEdgeCaseTests: XCTestCase {
         machine.postpone(by: 2 * 60)
         clock.now = clock.now.addingTimeInterval(2 * 60)
         machine.clock = clock
-        machine.markBreakTaken()
+        machine.startWorkCycle()
 
         XCTAssertEqual(machine.runtime.taperedFocusSeconds, 34 * 60, accuracy: 0.001)
     }
@@ -108,13 +108,13 @@ final class TaperingAndOverrideEdgeCaseTests: XCTestCase {
 
         clock.now = start.addingTimeInterval(4 * 3600)
         machine.clock = clock
-        machine.markBreakTaken()
+        machine.startWorkCycle()
         XCTAssertEqual(machine.runtime.taperedFocusSeconds, 4 * 3600, accuracy: 0.001)
 
         machine.settings.focusPace = .tapering
         clock.now = clock.now.addingTimeInterval(10 * 60)
         machine.clock = clock
-        machine.markBreakTaken()
+        machine.startWorkCycle()
 
         // 4h10m banked costs 300 seconds off the next window.
         guard case let .working(deadline, _) = machine.runtime.timerState else {
@@ -168,7 +168,7 @@ final class TaperingAndOverrideEdgeCaseTests: XCTestCase {
 
         clock.now = start.addingTimeInterval(-3600)
         machine.clock = clock
-        machine.markBreakTaken()
+        machine.startWorkCycle()
 
         XCTAssertGreaterThanOrEqual(machine.runtime.taperedFocusSeconds, 20 * 60)
         guard case let .working(deadline, _) = machine.runtime.timerState else {
@@ -190,7 +190,7 @@ final class TaperingAndOverrideEdgeCaseTests: XCTestCase {
             machine.runtime.taperedFocusSeconds = poison
             clock.now = clock.now.addingTimeInterval(60)
             machine.clock = clock
-            machine.markBreakTaken()
+            machine.startWorkCycle()
 
             XCTAssertTrue(
                 machine.runtime.taperedFocusSeconds.isFinite,
@@ -348,7 +348,7 @@ final class TaperingAndOverrideEdgeCaseTests: XCTestCase {
     }
 
     // One stamp, one grant: an override spent to skip a break also buys quiet
-    // from the dimming for as long as its focus grant runs.
+    // from reminders for as long as its focus grant runs.
     func testSpendingTheOverrideAtABreakAlsoSilencesThePressure() {
         let start = Date(timeIntervalSince1970: 230_000)
         var clock = FakeClock(now: start)

@@ -165,7 +165,7 @@ final class BreakPressureTests: XCTestCase {
 
     func testCameraHoldSuppressesThePressure() {
         var machine = machine(at: date(monday, 15, 45), settings: settings)
-        machine.cameraHoldActive = true
+        machine.callHoldActive = true
         XCTAssertTrue(machine.isPressureSuppressed())
     }
 

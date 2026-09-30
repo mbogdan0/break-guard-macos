@@ -297,8 +297,16 @@ struct BreakOverlayView: View {
                         postponeButton(second, comparedTo: first)
                     }
                     .padding(.top, 48)
+                    if appState.settings.harderToSkipBreaks {
+                        Text("\(appState.dailySkipsRemaining) of \(appState.settings.dailySkipLimit) skips left today")
+                            .font(.system(size: 13))
+                            .foregroundStyle(.white.opacity(0.5))
+                            .padding(.top, 8)
+                    }
                 } else {
-                    Text("Postponement was already used this cycle. Complete this break to reset it.")
+                    Text(appState.dailySkipsRemaining == 0
+                         ? "Today's skip budget is used up. It resets at midnight."
+                         : "A skip was already used this cycle. Complete this break to reset it.")
                         .font(.system(size: 15))
                         .foregroundStyle(.white.opacity(0.6))
                         .multilineTextAlignment(.center)

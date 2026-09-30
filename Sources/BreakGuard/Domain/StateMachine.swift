@@ -5,10 +5,10 @@ struct StateMachine {
     var statistics: Statistics
     var runtime: RuntimeState
     var clock: TimeProvider
-    // True while a camera is in use and the hold setting is on. Deliberately
+    // True while a selected call device is in use. Deliberately
     // transient — set by the owner before each tick(), never persisted: a
     // stale flag restored from disk could hold breaks with no call running.
-    var cameraHoldActive = false
+    var callHoldActive = false
 
     init(settings: AppSettings = .defaults, statistics: Statistics = .empty, clock: TimeProvider = SystemClock()) {
         var validated = settings
@@ -29,7 +29,6 @@ struct StateMachine {
             focusExtended: false,
             cycleStartDate: clock.now,
             preservedAt: nil,
-            preservedRemaining: nil,
             cycleFocusDuration: nil,
             breakStartedAt: nil,
             manualBreakOrigin: nil,
@@ -56,13 +55,17 @@ struct StateMachine {
         runtime.cyclePostponements > 0 || runtime.focusExtended
     }
 
+    var dailySkipsRemaining: Int {
+        runtime.dailySkipUsage.remaining(limit: settings.dailySkipLimit, at: clock.now)
+    }
+
     // Harder mode allows either one extension or one regular postponement.
     var canExtendFocus: Bool {
-        !settings.harderToSkipBreaks || !normalSkipUsed
+        !settings.harderToSkipBreaks || (!normalSkipUsed && dailySkipsRemaining > 0)
     }
 
     var canPostpone: Bool {
-        !settings.harderToSkipBreaks || !normalSkipUsed
+        !settings.harderToSkipBreaks || (!normalSkipUsed && dailySkipsRemaining > 0)
     }
 
     var postponeHoldTier: PostponeHoldTier {
@@ -82,6 +85,7 @@ struct StateMachine {
     var canUseEmergencyOverride: Bool {
         guard runtime.manualBreakOrigin == nil,
               isBreakingOrDue(runtime.timerState) else { return false }
+        if case let .breaking(deadline, _, _) = runtime.timerState, clock.now >= deadline { return false }
         guard let availableAt = emergencyOverrideAvailableAt else { return true }
         return clock.now >= availableAt
     }
@@ -90,7 +94,7 @@ struct StateMachine {
     // overlay. Deliberately asymmetric with useEmergencyOverride(): no break
     // is being skipped here — the countdown goes on exactly as it was — so
     // nothing is recorded as a violation and no skip allowance is consumed.
-    // All it buys is quiet: the veil and card stay down for the grant.
+    // All it buys is quiet: the card stays down for the grant.
     var canSpendOverrideOnPressure: Bool {
         guard let availableAt = emergencyOverrideAvailableAt else { return true }
         return clock.now >= availableAt
@@ -109,13 +113,13 @@ struct StateMachine {
         return clock.now < usedAt.addingTimeInterval(EmergencyOverride.focusGrant)
     }
 
-    // Whether the veil and card must stay down regardless of the clock.
+    // Whether the card must stay down regardless of the clock.
     // `satisfiedWindow` is the scheduled break window the user already took a
     // break inside — nagging someone who complied would teach them to ignore
     // it. Outside working hours has no such window and never passes one: a
     // two-minute break is not "stopped working for the day".
     func isPressureSuppressed(satisfiedWindow: (start: Date, end: Date)? = nil) -> Bool {
-        if cameraHoldActive { return true }
+        if callHoldActive { return true }
         if isPressureOverrideActive { return true }
         switch runtime.timerState {
         case .breakDue, .breaking, .breakCompleted:
@@ -139,11 +143,8 @@ struct StateMachine {
     // Skipping a required break is a violation and is recorded as one.
     mutating func useEmergencyOverride() {
         guard canUseEmergencyOverride else { return }
-        if !runtime.cycleViolated {
-            runtime.cycleViolated = true
-            statistics.currentCleanStreak = 0
-            statistics.violatedCycles += 1
-        }
+        leaveBreakWithoutCompleting()
+        recordCycleViolation()
         runtime.cyclePostponements += 1
         runtime.focusExtended = true
         runtime.emergencyOverrideUsedAt = clock.now
@@ -163,8 +164,8 @@ struct StateMachine {
 
     mutating func tick() -> TimerState {
         stampHeartbeat()
-        if cameraHoldActive {
-            applyCameraHold()
+        if callHoldActive {
+            applyCallHold()
         }
         switch runtime.timerState {
         case let .working(deadline, warningDeadline):
@@ -226,32 +227,32 @@ struct StateMachine {
     // The remaining time the hold pins the countdown at: never less than the
     // warning lead and never less than the fixed runway, so ending a call
     // always leaves that much between the user and the break.
-    var cameraHoldRunway: TimeInterval {
-        max(currentWarningLeadTime, CameraHold.minimumRunway)
+    var callHoldRunway: TimeInterval {
+        max(currentWarningLeadTime, CallHold.minimumRunway)
     }
 
     // True when the hold is what is currently keeping the countdown still —
     // drives the menu bar's on-call indication and the warning-notification
     // suppression. The margin is two ticks so the owner can cancel a pending
     // warning before the pinned remaining time reaches its fire date.
-    var isCameraHoldEngaged: Bool {
-        guard cameraHoldActive else { return false }
+    var isCallHoldEngaged: Bool {
+        guard callHoldActive else { return false }
         switch runtime.timerState {
         case let .working(deadline, _), let .warning(deadline), let .postponed(deadline):
-            return deadline.timeIntervalSince(clock.now) <= cameraHoldRunway + 2
+            return deadline.timeIntervalSince(clock.now) <= callHoldRunway + 2
         case .breakDue, .breaking, .breakCompleted, .suspended:
             return false
         }
     }
 
-    // While a camera runs, no countdown may fall below the runway: the
+    // While a selected call device runs, no countdown may fall below the runway: the
     // deadline is pushed ahead of now each tick, freezing the remaining time
     // there. cycleStartDate is deliberately untouched, so the whole call keeps
     // counting as focus. A warning state stays a warning — only its deadline
     // is pinned. States at or past .breakDue are left alone — turning a
-    // camera on must not dismiss a break already imposed.
-    private mutating func applyCameraHold() {
-        let floor = clock.now.addingTimeInterval(cameraHoldRunway)
+    // call device on must not dismiss a break already imposed.
+    private mutating func applyCallHold() {
+        let floor = clock.now.addingTimeInterval(callHoldRunway)
         switch runtime.timerState {
         case let .working(deadline, _) where deadline < floor:
             runtime.timerState = .working(
@@ -273,6 +274,10 @@ struct StateMachine {
     // the countdown is pure wall clock — time asleep inside a break counts
     // toward it, exactly as it would if the user had simply walked away.
     mutating func startBreak(at start: Date? = nil) {
+        switch runtime.timerState {
+        case .working, .warning, .postponed, .breakDue: break
+        case .breaking, .breakCompleted, .suspended: return
+        }
         let begin = min(start ?? clock.now, clock.now)
         let duration = settings.breakDuration
         runtime.cycleFocusDuration = max(0, begin.timeIntervalSince(runtime.cycleStartDate))
@@ -288,14 +293,7 @@ struct StateMachine {
         guard runtime.timerState == .breakCompleted else { return }
 
         creditFocus(minutes: creditedFocusMinutes(), on: clock.now)
-        statistics.completedBreaks += 1
-        statistics.lastCompletedBreakDate = clock.now
-        if runtime.cycleViolated {
-            statistics.currentCleanStreak = 0
-        } else {
-            statistics.currentCleanStreak += 1
-            statistics.bestCleanStreak = max(statistics.bestCleanStreak, statistics.currentCleanStreak)
-        }
+        recordCompletedBreak()
         startWorkCycle()
     }
 
@@ -341,7 +339,6 @@ struct StateMachine {
             focusExtended: false,
             cycleStartDate: clock.now,
             preservedAt: nil,
-            preservedRemaining: nil,
             cycleFocusDuration: nil,
             breakStartedAt: nil,
             manualBreakOrigin: nil,
@@ -350,7 +347,8 @@ struct StateMachine {
             emergencyOverrideUsedAt: runtime.emergencyOverrideUsedAt,
             // Liveness is orthogonal to cycles.
             lastTickAt: runtime.lastTickAt,
-            lastFocusAt: runtime.lastFocusAt
+            lastFocusAt: runtime.lastFocusAt,
+            dailySkipUsage: runtime.dailySkipUsage
         )
     }
 
@@ -392,31 +390,17 @@ struct StateMachine {
     }
 
     mutating func postpone(by delay: TimeInterval) {
-        let canPostponeInCurrentState: Bool
-        if case .breakDue = runtime.timerState {
-            canPostponeInCurrentState = true
-        } else {
-            canPostponeInCurrentState = isBreakingOrCompleted(runtime.timerState)
-        }
-        guard canPostpone, canPostponeInCurrentState else { return }
-        if !runtime.cycleViolated {
-            runtime.cycleViolated = true
-            statistics.currentCleanStreak = 0
-            statistics.violatedCycles += 1
-        }
+        guard delay.isFinite, delay > 0, canPostpone,
+              isBreakingOrDue(runtime.timerState) else { return }
+        // A hold can finish after the countdown elapsed but before the next
+        // tick renders the completion screen. Rest already won that race.
+        if case let .breaking(deadline, _, _) = runtime.timerState, clock.now >= deadline { return }
+        runtime.dailySkipUsage.spend(at: clock.now)
+        leaveBreakWithoutCompleting()
+        recordCycleViolation()
         runtime.cyclePostponements += 1
         runtime.cycleRegularPostponements += 1
         statistics.totalPostponements += 1
-        // Postponing a manual break opts into the standard postpone contract;
-        // the penalty-free exit is cancelManualBreak().
-        runtime.manualBreakOrigin = nil
-        // Postponing ends the break these describe, so the capture startBreak()
-        // took must not outlive it — the next break re-takes it. Left behind,
-        // it would understate the cycle's focus for anything that closes the
-        // cycle from a break state without a fresh startBreak(), such as
-        // sleeping through the moment the postponed break falls due.
-        runtime.cycleFocusDuration = nil
-        runtime.breakStartedAt = nil
         runtime.timerState = .postponed(deadline: clock.now.addingTimeInterval(delay))
     }
 
@@ -424,30 +408,31 @@ struct StateMachine {
     // its completion screen, or a pause, so a stray caller cannot restart an
     // in-progress break or silently destroy a suspension.
     mutating func takeBreakNow() {
-        // Remember what the break interrupted so it can be cancelled from the
-        // overlay. Scheduled breaks (tick reaching the deadline) never set
-        // this, which is what distinguishes manual from scheduled breaks.
+        let previous: SuspendedState
+        let deadline: Date
         switch runtime.timerState {
-        case let .working(deadline, _):
-            runtime.manualBreakOrigin = ManualBreakOrigin(
-                previous: .working,
-                remaining: max(1, deadline.timeIntervalSince(clock.now)),
-                capturedAt: clock.now
-            )
-        case let .warning(deadline):
-            runtime.manualBreakOrigin = ManualBreakOrigin(
-                previous: .warning,
-                remaining: max(1, deadline.timeIntervalSince(clock.now)),
-                capturedAt: clock.now
-            )
-        case let .postponed(deadline):
-            runtime.manualBreakOrigin = ManualBreakOrigin(
-                previous: .postponed,
-                remaining: max(1, deadline.timeIntervalSince(clock.now)),
-                capturedAt: clock.now
-            )
+        case let .working(end, _):
+            previous = .working
+            deadline = end
+        case let .warning(end):
+            previous = .warning
+            deadline = end
+        case let .postponed(end):
+            previous = .postponed
+            deadline = end
         case .breakDue, .breaking, .breakCompleted, .suspended:
             return
+        }
+        // A menu click may beat the tick that notices an elapsed deadline.
+        // The required break must not gain a penalty-free Cancel button.
+        if clock.now < deadline {
+            runtime.manualBreakOrigin = ManualBreakOrigin(
+                previous: previous,
+                remaining: max(1, deadline.timeIntervalSince(clock.now)),
+                capturedAt: clock.now
+            )
+        } else {
+            runtime.manualBreakOrigin = nil
         }
         runtime.timerState = .breakDue
     }
@@ -463,31 +448,23 @@ struct StateMachine {
         // Stale capture from startBreak(); re-captured when the next break starts.
         runtime.cycleFocusDuration = nil
         runtime.breakStartedAt = nil
-        switch origin.previous {
-        case .working, .warning:
-            let lead = currentWarningLeadTime
-            let deadline = clock.now.addingTimeInterval(origin.remaining)
-            let warning = deadline.addingTimeInterval(-lead)
-            runtime.timerState = clock.now >= warning && lead > 0
-                ? .warning(deadline: deadline)
-                : .working(deadline: deadline, warningDeadline: warning)
-        case .postponed:
-            runtime.timerState = .postponed(deadline: clock.now.addingTimeInterval(origin.remaining))
-        }
+        restoreCountdown(previous: origin.previous, remaining: origin.remaining)
         runtime.manualBreakOrigin = nil
     }
 
     // Planned-ahead extension of the current focus window. Unlike postponing
-    // at the overlay, this happens before the break is due and records nothing.
+    // at the overlay, this happens before the break is due and is not a violation.
     mutating func extendFocus(by delta: TimeInterval) {
-        guard canExtendFocus else { return }
+        guard delta.isFinite, delta > 0, canExtendFocus else { return }
         switch runtime.timerState {
         case let .working(deadline, warningDeadline):
+            guard clock.now < deadline else { return }
             runtime.timerState = .working(
                 deadline: deadline.addingTimeInterval(delta),
                 warningDeadline: warningDeadline.addingTimeInterval(delta)
             )
         case let .warning(deadline):
+            guard clock.now < deadline else { return }
             // Return to working and re-arm the warning for the new deadline.
             let newDeadline = deadline.addingTimeInterval(delta)
             runtime.timerState = .working(
@@ -495,22 +472,25 @@ struct StateMachine {
                 warningDeadline: newDeadline.addingTimeInterval(-currentWarningLeadTime)
             )
         case let .postponed(deadline):
+            guard clock.now < deadline else { return }
             runtime.timerState = .postponed(deadline: deadline.addingTimeInterval(delta))
         default:
             return
         }
         runtime.focusExtended = true
+        runtime.dailySkipUsage.spend(at: clock.now)
     }
 
-    // Honor-system reset: the user rested away from the screen, so the cycle
-    // restarts as if a break just ended. No statistics are recorded.
-    mutating func markBreakTaken() {
-        switch runtime.timerState {
-        case .working, .warning, .postponed:
-            startWorkCycle()
-        default:
-            break
+    // Time already spent resting must not turn into focus when the user
+    // postpones the rest that remains or spends the weekly override.
+    private mutating func leaveBreakWithoutCompleting() {
+        if let startedAt = runtime.breakStartedAt {
+            runtime.cycleStartDate = runtime.cycleStartDate
+                .addingTimeInterval(max(0, clock.now.timeIntervalSince(startedAt)))
         }
+        runtime.cycleFocusDuration = nil
+        runtime.breakStartedAt = nil
+        runtime.manualBreakOrigin = nil
     }
 
     mutating func suspend(until: Date?) {
@@ -540,7 +520,6 @@ struct StateMachine {
         }
         runtime.timerState = .suspended(previous: previous, remaining: max(1, remaining), until: until)
         runtime.preservedAt = at
-        runtime.preservedRemaining = max(1, remaining)
     }
 
     mutating func resume() {
@@ -562,19 +541,22 @@ struct StateMachine {
             runtime.cycleStartDate = runtime.cycleStartDate
                 .addingTimeInterval(max(0, clock.now.timeIntervalSince(preservedAt)))
         }
+        restoreCountdown(previous: previous, remaining: remaining)
+        runtime.preservedAt = nil
+    }
+
+    private mutating func restoreCountdown(previous: SuspendedState, remaining: TimeInterval) {
+        let deadline = clock.now.addingTimeInterval(remaining)
         switch previous {
         case .working, .warning:
             let lead = currentWarningLeadTime
-            let deadline = clock.now.addingTimeInterval(remaining)
             let warning = deadline.addingTimeInterval(-lead)
             runtime.timerState = clock.now >= warning && lead > 0
                 ? .warning(deadline: deadline)
                 : .working(deadline: deadline, warningDeadline: warning)
         case .postponed:
-            runtime.timerState = .postponed(deadline: clock.now.addingTimeInterval(remaining))
+            runtime.timerState = .postponed(deadline: deadline)
         }
-        runtime.preservedAt = nil
-        runtime.preservedRemaining = nil
     }
 
     // The screen going away — sleep, lock, screen saver, or a tick gap that
@@ -681,7 +663,6 @@ struct StateMachine {
             // break slept through has simply elapsed: tick() moves it to the
             // completion screen, which waits for the click like any other.
             runtime.preservedAt = nil
-            runtime.preservedRemaining = nil
         case .suspended:
             resume()
         case .working, .warning, .postponed:
@@ -748,14 +729,7 @@ struct StateMachine {
         let closed = closedCycleFocus()
         switch runtime.timerState {
         case .breaking, .breakDue, .breakCompleted:
-            statistics.completedBreaks += 1
-            statistics.lastCompletedBreakDate = clock.now
-            if runtime.cycleViolated {
-                statistics.currentCleanStreak = 0
-            } else {
-                statistics.currentCleanStreak += 1
-                statistics.bestCleanStreak = max(statistics.bestCleanStreak, statistics.currentCleanStreak)
-            }
+            recordCompletedBreak()
         case .suspended, .working, .warning, .postponed:
             break
         }
@@ -773,6 +747,24 @@ struct StateMachine {
         statistics.focusMinutesByDay[FocusDay.key(for: date), default: 0] += minutes
         statistics.totalFocusMinutes += minutes
         statistics.pruneFocusHistory(now: clock.now)
+    }
+
+    private mutating func recordCycleViolation() {
+        guard !runtime.cycleViolated else { return }
+        runtime.cycleViolated = true
+        statistics.currentCleanStreak = 0
+        statistics.violatedCycles += 1
+    }
+
+    private mutating func recordCompletedBreak() {
+        statistics.completedBreaks += 1
+        statistics.lastCompletedBreakDate = clock.now
+        if runtime.cycleViolated {
+            statistics.currentCleanStreak = 0
+        } else {
+            statistics.currentCleanStreak += 1
+            statistics.bestCleanStreak = max(statistics.bestCleanStreak, statistics.currentCleanStreak)
+        }
     }
 
     // The warning lead of the cycle in progress. Cycle construction caps the
@@ -798,12 +790,6 @@ struct StateMachine {
             ?? settings.effectiveWorkInterval(taperedFocus: runtime.taperedFocusSeconds)
         let capped = min(duration, StatisticsIntegrity.maxCreditablePerCycle)
         return max(0, Int((capped / 60).rounded()))
-    }
-
-    private func isBreakingOrCompleted(_ state: TimerState) -> Bool {
-        if case .breaking = state { return true }
-        if case .breakCompleted = state { return true }
-        return false
     }
 
     private func isBreakingOrDue(_ state: TimerState) -> Bool {

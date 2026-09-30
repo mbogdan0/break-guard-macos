@@ -324,10 +324,10 @@ final class StateMachineTests: XCTestCase {
         machine.completeBreak()
         XCTAssertFalse(machine.runtime.focusExtended)
 
-        // "Just Took a Break" clears it too.
+        // An internal cycle restart clears the flag too.
         machine.extendFocus(by: 5 * 60)
         XCTAssertTrue(machine.runtime.focusExtended)
-        machine.markBreakTaken()
+        machine.startWorkCycle()
         XCTAssertFalse(machine.runtime.focusExtended)
     }
 
@@ -354,7 +354,7 @@ final class StateMachineTests: XCTestCase {
         XCTAssertEqual(deadline, start.addingTimeInterval(45 * 60))
 
         // A fresh cycle restores the allowance.
-        machine.markBreakTaken()
+        machine.startWorkCycle()
         XCTAssertTrue(machine.canExtendFocus)
         XCTAssertTrue(machine.canPostpone)
     }
@@ -475,7 +475,7 @@ final class StateMachineTests: XCTestCase {
         XCTAssertEqual(machine.statistics.violatedCycles, 0)
     }
 
-    func testMarkBreakTakenRestartsCycleWithoutRecordingStatistics() {
+    func testStartingNewCycleClearsCycleFlagsWithoutChangingStatistics() {
         let start = Date(timeIntervalSince1970: 3_800)
         var clock = FakeClock(now: start)
         var settings = AppSettings.defaults
@@ -489,7 +489,7 @@ final class StateMachineTests: XCTestCase {
         machine.postpone(by: 5 * 60)
         let statisticsBefore = machine.statistics
 
-        machine.markBreakTaken()
+        machine.startWorkCycle()
 
         guard case let .working(deadline, _) = machine.runtime.timerState else {
             return XCTFail("Expected working state")
@@ -500,24 +500,6 @@ final class StateMachineTests: XCTestCase {
         XCTAssertEqual(machine.runtime.cyclePostponements, 0)
         XCTAssertEqual(machine.runtime.cycleRegularPostponements, 0)
         XCTAssertEqual(machine.runtime.cycleStartDate, clock.now)
-    }
-
-    func testMarkBreakTakenIsIgnoredDuringBreakAndSuspension() {
-        let start = Date(timeIntervalSince1970: 3_900)
-        let clock = FakeClock(now: start)
-        var machine = StateMachine(clock: clock)
-
-        machine.takeBreakNow()
-        machine.startBreak()
-        let breakingState = machine.runtime.timerState
-        machine.markBreakTaken()
-        XCTAssertEqual(machine.runtime.timerState, breakingState)
-
-        var suspendedMachine = StateMachine(clock: clock)
-        suspendedMachine.suspend(until: nil)
-        let suspendedState = suspendedMachine.runtime.timerState
-        suspendedMachine.markBreakTaken()
-        XCTAssertEqual(suspendedMachine.runtime.timerState, suspendedState)
     }
 
     func testCompletedBreaksCreditDailyMinutes() {
@@ -1176,9 +1158,7 @@ final class StateMachineTests: XCTestCase {
         )
     }
 
-    // postpone() leaves cycleFocusDuration and breakStartedAt behind stale, so
-    // reading them after a postponement would undercount the focus that
-    // followed it.
+    // Focus after a postponement must be included when the cycle closes.
     func testTaperingCountsFocusAfterAPostponement() {
         let start = Date(timeIntervalSince1970: 5_200)
         var clock = FakeClock(now: start)
@@ -1197,7 +1177,7 @@ final class StateMachineTests: XCTestCase {
         // Fifteen more minutes of work on the postponed window.
         clock.now = clock.now.addingTimeInterval(15 * 60)
         machine.clock = clock
-        machine.markBreakTaken()
+        machine.startWorkCycle()
 
         XCTAssertEqual(machine.runtime.taperedFocusSeconds, 45 * 60, accuracy: 0.001)
     }
@@ -1233,7 +1213,7 @@ final class StateMachineTests: XCTestCase {
         XCTAssertEqual(machine.runtime.taperedFocusSeconds, 45 * 60, accuracy: 0.001)
     }
 
-    func testTaperingCountsHonorSystemBreaks() {
+    func testStartingNewCycleBanksFocusedTimeForTapering() {
         let start = Date(timeIntervalSince1970: 5_500)
         var clock = FakeClock(now: start)
         var settings = AppSettings.defaults
@@ -1243,7 +1223,7 @@ final class StateMachineTests: XCTestCase {
 
         clock.now = start.addingTimeInterval(20 * 60)
         machine.clock = clock
-        machine.markBreakTaken()
+        machine.startWorkCycle()
 
         XCTAssertEqual(machine.runtime.taperedFocusSeconds, 20 * 60, accuracy: 0.001)
         guard case let .working(deadline, _) = machine.runtime.timerState else {
@@ -1552,6 +1532,8 @@ final class StateMachineTests: XCTestCase {
         // A moment before the seventh day it is still locked; on it, available.
         clock.now = usedAt.addingTimeInterval(EmergencyOverride.cooldown - 1)
         machine.clock = clock
+        machine.runtime.timerState = .breakDue
+        machine.startBreak()
         XCTAssertFalse(machine.canUseEmergencyOverride)
         clock.now = usedAt.addingTimeInterval(EmergencyOverride.cooldown)
         machine.clock = clock

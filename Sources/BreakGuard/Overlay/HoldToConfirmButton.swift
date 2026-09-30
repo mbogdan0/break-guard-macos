@@ -13,12 +13,15 @@ struct HoldToConfirmButton: View {
     let holdDuration: TimeInterval
     let action: () -> Void
 
+    @Environment(\.controlSize) private var controlSize
     @State private var isPressing = false
     @State private var progress: CGFloat = 0
 
     private var shape: RoundedRectangle {
         RoundedRectangle(cornerRadius: 8, style: .continuous)
     }
+
+    private var isCompact: Bool { controlSize == .small || controlSize == .mini }
 
     var body: some View {
         // With a caption the button reads as a row — label left, hold length
@@ -29,19 +32,19 @@ struct HoldToConfirmButton: View {
             if let subtitle {
                 HStack(spacing: 10) {
                     Text(title)
-                        .font(.system(size: 18, weight: .medium))
+                        .font(.system(size: isCompact ? 13 : 18, weight: .medium))
                     Spacer(minLength: 8)
                     Text(subtitle)
-                        .font(.system(size: 12))
+                        .font(.system(size: isCompact ? 11 : 12))
                         .foregroundStyle(.white.opacity(0.35))
                 }
-                .padding(.horizontal, 14)
+                .padding(.horizontal, isCompact ? 12 : 14)
             } else {
                 Text(title)
-                    .font(.system(size: 18, weight: .medium))
+                    .font(.system(size: isCompact ? 13 : 18, weight: .medium))
             }
         }
-            .frame(maxWidth: .infinity, minHeight: 40)
+            .frame(maxWidth: .infinity, minHeight: isCompact ? 34 : 40)
             .background(
                 // Both layers fill the button, so the fill's leading anchor —
                 // not stack alignment — is what makes it sweep left to right.

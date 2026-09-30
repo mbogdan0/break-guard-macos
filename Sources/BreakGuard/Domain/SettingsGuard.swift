@@ -20,6 +20,7 @@ extension AppSettings {
         // A bigger skip when one is taken.
         if firstPostponeDuration > baseline.firstPostponeDuration { return true }
         if secondPostponeDuration > baseline.secondPostponeDuration { return true }
+        if dailySkipLimit > baseline.dailySkipLimit { return true }
 
         // Tapering starting over sooner means full-length windows sooner — but
         // only while the pace is tapering; the gap is inert otherwise. Leaving
@@ -28,6 +29,7 @@ extension AppSettings {
 
         // A break that a call can postpone indefinitely.
         if holdBreaksWhileOnCamera && !baseline.holdBreaksWhileOnCamera { return true }
+        if holdBreaksWhileMicrophoneInUse && !baseline.holdBreaksWhileMicrophoneInUse { return true }
 
         // An app that does not come back after a restart guards nothing.
         if !launchAtLogin && baseline.launchAtLogin { return true }

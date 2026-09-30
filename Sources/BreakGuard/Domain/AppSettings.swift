@@ -58,7 +58,7 @@ enum FocusPace: String, Codable, CaseIterable {
     // about storage: the total is persisted as a JSON number, JSONEncoder
     // throws on infinity and NaN, and PersistenceStore.save() only logs that
     // throw — a poisoned value would silently freeze every future write.
-    static let taperingFocusCeiling = TimeInterval(SettingsRange.workInterval.upperBound) * 60
+    static let taperingFocusCeiling: TimeInterval = 240 * 60 * 60
 
     // Rejects NaN as well: every comparison against NaN is false, so it falls
     // to the zero branch rather than propagating.
@@ -87,6 +87,7 @@ enum SettingsRange {
     static let postponeDuration: ClosedRange<Int> = 30...(120 * 60)
     // Hours without focus after which the tapering day starts over.
     static let taperingResetGapHours: ClosedRange<Int> = 1...24
+    static let dailySkipLimit: ClosedRange<Int> = 0...10
 }
 
 // The once-a-week escape hatch offered at the bottom of a forced break's
@@ -114,10 +115,10 @@ enum IdleAway {
     static let threshold: TimeInterval = 10 * 60
 }
 
-// While a camera is in use the countdown never crosses into the warning
+// While a selected call device is in use the countdown stays above the warning
 // window, so a break cannot interrupt a call — and when the call ends the
 // full warning lead still stands between the user and the break.
-enum CameraHold {
+enum CallHold {
     // Floor for the guaranteed post-call runway when the warning lead is
     // configured shorter (or zero).
     static let minimumRunway: TimeInterval = 2 * 60
@@ -167,7 +168,7 @@ enum SkipConfirmGate {
     // Charged once per visit to the settings pane, on the net loosening. Also
     // never halved — the charge only exists when harder mode was on at one end
     // of the visit, so there is no normal-mode case to price.
-    static let loosenSettingsSeconds: TimeInterval = 60
+    static let loosenSettingsSeconds: TimeInterval = 5 * 60
 
     // Normal mode pays half of every count above. One rule instead of a
     // per-action table of exceptions, and the ordering survives the halving.
@@ -217,10 +218,13 @@ struct AppSettings: Codable, Equatable {
     // Harder mode allows one normal skip action per cycle: either extending
     // focus or postponing a break. The weekly override remains an exception.
     var harderToSkipBreaks: Bool = false
+    var dailySkipLimit: Int = 3
     // Freeze the countdown just above the warning window while any camera is
     // in use, so a break never lands mid-call. The held time still counts as
     // focus.
     var holdBreaksWhileOnCamera: Bool = true
+    // Opt-in: microphone use also includes recording and dictation.
+    var holdBreaksWhileMicrophoneInUse: Bool = false
 
     static let defaults = AppSettings()
 
@@ -229,7 +233,7 @@ struct AppSettings: Codable, Equatable {
         workInterval * focusPace.workIntervalMultiplier
     }
 
-    // Fatigue-aware variant: in tapering mode the interval shrinks by 1.1
+    // Fatigue-aware variant: in tapering mode the interval shrinks by 1.2
     // seconds for every focus minute accumulated since the last long rest.
     // The inner min() matters — an interval already shorter than the safety
     // bottom must not be lengthened by it.
@@ -262,6 +266,7 @@ struct AppSettings: Codable, Equatable {
         scheduledBreak.clamp()
         let gapRange = (SettingsRange.taperingResetGapHours.lowerBound * 3600)...(SettingsRange.taperingResetGapHours.upperBound * 3600)
         taperingResetGap = clampSeconds(taperingResetGap, to: gapRange)
+        dailySkipLimit = min(max(dailySkipLimit, SettingsRange.dailySkipLimit.lowerBound), SettingsRange.dailySkipLimit.upperBound)
     }
 }
 
@@ -277,7 +282,7 @@ extension AppSettings {
              launchAtLogin, showSecondsInMenuBar, coarseSecondsInMenuBar,
              workingHoursEnabled, weekdayWorkingHours, weekendWorkingHours,
              scheduledBreak, taperingResetGap, harderToSkipBreaks,
-             holdBreaksWhileOnCamera
+             holdBreaksWhileOnCamera, holdBreaksWhileMicrophoneInUse, dailySkipLimit
     }
 
     init(from decoder: Decoder) throws {
@@ -300,6 +305,8 @@ extension AppSettings {
         taperingResetGap = try container.decodeIfPresent(TimeInterval.self, forKey: .taperingResetGap) ?? defaults.taperingResetGap
         harderToSkipBreaks = try container.decodeIfPresent(Bool.self, forKey: .harderToSkipBreaks) ?? defaults.harderToSkipBreaks
         holdBreaksWhileOnCamera = try container.decodeIfPresent(Bool.self, forKey: .holdBreaksWhileOnCamera) ?? defaults.holdBreaksWhileOnCamera
+        holdBreaksWhileMicrophoneInUse = try container.decodeIfPresent(Bool.self, forKey: .holdBreaksWhileMicrophoneInUse) ?? defaults.holdBreaksWhileMicrophoneInUse
+        dailySkipLimit = try container.decodeIfPresent(Int.self, forKey: .dailySkipLimit) ?? defaults.dailySkipLimit
     }
 }
 

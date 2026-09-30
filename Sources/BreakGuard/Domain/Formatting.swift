@@ -109,12 +109,14 @@ func parseDurationField(_ text: String) -> Int? {
     let parts = trimmed.split(separator: ":", omittingEmptySubsequences: false)
     switch parts.count {
     case 1:
-        guard let minutes = Int(parts[0]), minutes >= 0 else { return nil }
+        guard let minutes = Int(parts[0]), minutes >= 0,
+              minutes <= Int.max / 60 else { return nil }
         return minutes * 60
     case 2:
         guard let minutes = Int(parts[0]), minutes >= 0,
               parts[1].count <= 2, let seconds = Int(parts[1]),
-              (0...59).contains(seconds)
+              (0...59).contains(seconds),
+              minutes <= (Int.max - seconds) / 60
         else { return nil }
         return minutes * 60 + seconds
     default:

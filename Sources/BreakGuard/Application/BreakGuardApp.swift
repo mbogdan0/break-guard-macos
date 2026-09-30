@@ -7,7 +7,6 @@ final class BreakGuardApp: NSObject, NSApplicationDelegate {
     private var appState: AppState!
     private var menuBarController: MenuBarController!
     private var sleepWakeManager: SleepWakeManager!
-    private var cameraUsageMonitor: CameraUsageMonitor!
     private let logger = Logger(subsystem: "local.bohdan.BreakGuard", category: "Lifecycle")
 
     static func main() {
@@ -31,7 +30,6 @@ final class BreakGuardApp: NSObject, NSApplicationDelegate {
         )
         menuBarController = MenuBarController(appState: appState)
         sleepWakeManager = SleepWakeManager(appState: appState)
-        cameraUsageMonitor = CameraUsageMonitor(appState: appState)
         appState.start()
     }
 

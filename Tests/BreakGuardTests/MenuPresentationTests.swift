@@ -15,6 +15,33 @@ final class MenuPresentationTests: XCTestCase {
         return formatter
     }()
 
+    func testHoldNamesTheObservedDeviceInsteadOfClaimingACall() {
+        let cases: [(CallActivity, String)] = [
+            (CallActivity(cameraInUse: true), "Camera in use"),
+            (CallActivity(microphoneInUse: true), "Microphone in use"),
+            (CallActivity(cameraInUse: true, microphoneInUse: true), "Camera and microphone in use")
+        ]
+        for (activity, source) in cases {
+            let presentation = makeMenuPresentation(
+                for: .working(deadline: now.addingTimeInterval(120), warningDeadline: now.addingTimeInterval(60)),
+                showSeconds: true, callHoldActivity: activity, now: now, timeFormatter: timeFormatter
+            )
+            XCTAssertEqual(presentation.menuBarTitle, "◉ 02:00")
+            XCTAssertEqual(presentation.statusTitle, "\(source) — break held · Next break at 02:48")
+            XCTAssertEqual(presentation.emphasis, .caution)
+        }
+    }
+
+    func testImposedBreakNeverShowsMediaHold() {
+        let presentation = makeMenuPresentation(
+            for: .breaking(deadline: now.addingTimeInterval(120), startedAt: now, duration: 120), showSeconds: true,
+            callHoldActivity: CallActivity(cameraInUse: true, microphoneInUse: true), now: now,
+            timeFormatter: timeFormatter
+        )
+        XCTAssertFalse(presentation.menuBarTitle.contains("◉"))
+        XCTAssertFalse(presentation.statusTitle.contains("held"))
+    }
+
     func testCountdownIncludesSecondsWhenEnabled() {
         let presentation = makeMenuPresentation(
             for: .working(
@@ -404,16 +431,21 @@ final class MenuPresentationTests: XCTestCase {
         )
     }
 
-    // One ladder, priced by how much rest the action removes. A change that
-    // reorders any two rungs has to come here and say so.
+    func testKeepingLooserSettingsRequiresFiveMinutes() {
+        XCTAssertEqual(SkipConfirmGate.loosenSettingsSeconds, 300)
+        XCTAssertGreaterThan(SkipConfirmGate.loosenSettingsSeconds, SkipConfirmGate.pauseUntilMorningSeconds)
+    }
+
+    // Keeping looser settings has the longest gate because it changes future
+    // cycles, while the other actions change one window or end the workday.
     func testTheLadderRisesWithWhatTheActionCosts() {
         let ladder: [TimeInterval] = [
             postponeHoldDuration(for: 2 * 60, comparedTo: 15 * 60, tier: .harder),
             postponeHoldDuration(for: 15 * 60, comparedTo: 2 * 60, tier: .harder),
             SkipConfirmGate.extendLongSeconds,
-            SkipConfirmGate.loosenSettingsSeconds,
             SkipConfirmGate.disableHarderModeSeconds,
-            SkipConfirmGate.pauseUntilMorningSeconds
+            SkipConfirmGate.pauseUntilMorningSeconds,
+            SkipConfirmGate.loosenSettingsSeconds
         ]
         XCTAssertEqual(ladder, ladder.sorted(), "the ladder must rise")
         XCTAssertEqual(Set(ladder).count, ladder.count, "no two rungs should tie")

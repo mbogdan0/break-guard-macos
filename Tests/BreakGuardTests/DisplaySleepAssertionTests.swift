@@ -47,3 +47,67 @@ final class DisplaySleepAssertionTests: XCTestCase {
         XCTAssertGreaterThan(covered, 30 * 60)
     }
 }
+
+@MainActor
+private final class FakeSleepAssertionClient: SleepAssertionClient {
+    var created: [(type: String, id: UInt32)] = []
+    var released: [UInt32] = []
+    var failType: String?
+    var nextID: UInt32 = 1
+
+    func create(type: String, timeout: TimeInterval) -> UInt32? {
+        guard type != failType else { return nil }
+        let id = nextID
+        nextID += 1
+        created.append((type, id))
+        return id
+    }
+
+    func release(_ id: UInt32) { released.append(id) }
+}
+
+extension DisplaySleepAssertionTests {
+    @MainActor
+    func testHoldsDisplayAndSystemSleepWithoutPerTickChurn() {
+        let client = FakeSleepAssertionClient()
+        let assertion = DisplaySleepAssertion(client: client)
+        assertion.hold(timeout: 60, now: 0)
+        XCTAssertEqual(Set(client.created.map(\.type)), ["PreventUserIdleDisplaySleep", "PreventUserIdleSystemSleep"])
+        for second in 1..<30 { assertion.hold(timeout: 60, now: Double(second)) }
+        XCTAssertEqual(client.created.count, 2)
+        assertion.hold(timeout: 60, now: 30)
+        XCTAssertEqual(client.created.count, 4)
+        XCTAssertEqual(Set(client.released), [1, 2])
+        assertion.release()
+        XCTAssertEqual(Set(client.released), [1, 2, 3, 4])
+        assertion.release()
+        XCTAssertEqual(client.released.count, 4)
+    }
+
+    @MainActor
+    func testFailedRenewalKeepsOldCoverageAndRetriesNextTick() {
+        let client = FakeSleepAssertionClient()
+        let assertion = DisplaySleepAssertion(client: client)
+        assertion.hold(timeout: 60, now: 0)
+        client.failType = "PreventUserIdleDisplaySleep"
+        assertion.hold(timeout: 60, now: 30)
+        XCTAssertFalse(client.released.contains(1))
+        client.failType = nil
+        assertion.hold(timeout: 60, now: 31)
+        XCTAssertTrue(client.released.contains(1))
+        XCTAssertEqual(client.created.count, 5)
+        assertion.release()
+        XCTAssertEqual(Set(client.released), Set(client.created.map(\.id)))
+    }
+
+    @MainActor
+    func testReleaseAllowsANewOverlayToAcquireImmediately() {
+        let client = FakeSleepAssertionClient()
+        let assertion = DisplaySleepAssertion(client: client)
+        assertion.hold(timeout: 600, now: 0)
+        assertion.release()
+        assertion.hold(timeout: 600, now: 1)
+        XCTAssertEqual(client.created.count, 4)
+        assertion.release()
+    }
+}
