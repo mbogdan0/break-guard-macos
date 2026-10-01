@@ -547,12 +547,19 @@ final class AppState: ObservableObject {
 
     private func startUITimer() {
         uiTimer?.invalidate()
-        let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.tick() }
-        }
+        let timer = makeUITimer()
         RunLoop.main.add(timer, forMode: .common)
         RunLoop.main.add(timer, forMode: .modalPanel)
         uiTimer = timer
+    }
+
+    func makeUITimer() -> Timer {
+        Timer(timeInterval: 1, repeats: true) { [weak self] _ in
+            // The timer runs on the main run loop. A queued MainActor task
+            // waits for a synchronous modal confirmation to return, turning
+            // its waiting time into a false monitoring gap.
+            MainActor.assumeIsolated { self?.tick() }
+        }
     }
 
     func tick() {

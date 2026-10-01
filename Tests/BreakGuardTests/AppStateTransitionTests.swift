@@ -1,3 +1,4 @@
+import AppKit
 import UserNotifications
 import XCTest
 @testable import BreakGuard
@@ -62,6 +63,66 @@ final class AppStateTransitionTests: XCTestCase {
             clock.now = min(clock.now.addingTimeInterval(60), end)
             app.tick()
         }
+    }
+
+    private func fireModalTicks(_ timer: Timer, clock: TransitionClock, seconds: Int) {
+        var fired = false
+        let fireTicks: @MainActor @Sendable () -> Void = {
+            for _ in 0..<seconds {
+                clock.now = clock.now.addingTimeInterval(1)
+                timer.fire()
+            }
+            fired = true
+        }
+        let modalTimer = Timer(timeInterval: 0, repeats: false) { _ in
+            MainActor.assumeIsolated { fireTicks() }
+        }
+        defer { modalTimer.invalidate() }
+        RunLoop.main.add(modalTimer, forMode: .modalPanel)
+        RunLoop.main.run(mode: .modalPanel, before: Date().addingTimeInterval(1))
+        XCTAssertTrue(fired, "The timer callbacks must run inside the modal run loop")
+    }
+
+    func testSettingsConfirmationWaitDoesNotBecomeCompletedRest() async {
+        let clock = TransitionClock(now: start)
+        let activity = TransitionCallActivity()
+        let app = app(clock: clock, activity: activity)
+        var settings = app.settings
+        settings.harderToSkipBreaks = true
+        settings.workingHoursEnabled = true
+        app.updateSettings(settings)
+        let timer = app.makeUITimer()
+        defer { timer.invalidate() }
+
+        fireModalTicks(timer, clock: clock, seconds: 302)
+        XCTAssertEqual(activity.reads, 303, "Ticks must not wait for the modal dialog to close")
+        settings.weekdayWorkingHours.endMinutes += 30
+        app.updateSettings(settings)
+
+        guard case let .working(deadline, _) = app.timerState else {
+            return XCTFail("Waiting for settings confirmation must not create a break")
+        }
+        XCTAssertEqual(deadline.timeIntervalSince(clock.now), settings.workInterval - 302)
+        XCTAssertEqual(app.statistics.completedBreaks, 0)
+        XCTAssertEqual(app.totalRestTime(at: clock.now), 0)
+    }
+
+    func testRequiredBreakStillStartsOnTimeDuringModalConfirmation() async {
+        let clock = TransitionClock(now: start)
+        let app = app(clock: clock)
+        clock.now = start.addingTimeInterval(29 * 60)
+        app.tick()
+        let timer = app.makeUITimer()
+        defer { timer.invalidate() }
+
+        fireModalTicks(timer, clock: clock, seconds: 70)
+
+        guard case let .breaking(deadline, startedAt, _) = app.timerState else {
+            return XCTFail("A due break must start while the modal run loop is running")
+        }
+        XCTAssertEqual(startedAt, start.addingTimeInterval(app.settings.workInterval))
+        XCTAssertEqual(deadline.timeIntervalSince(clock.now), app.settings.breakDuration - 10)
+        XCTAssertEqual(app.statistics.completedBreaks, 0)
     }
 
     func testCameraAndMicrophoneOverlapKeepsBreakHeldUntilBothEnd() {

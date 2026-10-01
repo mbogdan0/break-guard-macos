@@ -11,7 +11,7 @@ final class NudgeWindowManager {
     private var cardPresentation: NudgePresentation?
     private var appliedSize: NSSize?
     private var reassertCountdown = 0
-    private static let reassertInterval = 10
+    private static let reassertInterval = 2
     private let logger = Logger(subsystem: "local.bohdan.BreakGuard", category: "Nudge")
 
     init(appState: AppState) {
@@ -20,6 +20,19 @@ final class NudgeWindowManager {
             self,
             selector: #selector(updateForScreenChanges),
             name: NSApplication.didChangeScreenParametersNotification,
+            object: nil
+        )
+        let workspaceCenter = NSWorkspace.shared.notificationCenter
+        workspaceCenter.addObserver(
+            self,
+            selector: #selector(bringCardToFront),
+            name: NSWorkspace.didActivateApplicationNotification,
+            object: nil
+        )
+        workspaceCenter.addObserver(
+            self,
+            selector: #selector(bringCardToFront),
+            name: NSWorkspace.activeSpaceDidChangeNotification,
             object: nil
         )
     }
@@ -45,17 +58,18 @@ final class NudgeWindowManager {
            fitting.height > 0, fitting != appliedSize {
             window.setContentSize(fitting)
             appliedSize = fitting
+            if window.isVisible { window.positionOnMainScreen() }
         }
         reassertCountdown -= 1
-        let reassert = reassertCountdown <= 0
-        if reassert { reassertCountdown = Self.reassertInterval }
+        let displaced = window.level != NudgeCardWindow.frontLevel
+        if displaced { window.level = NudgeCardWindow.frontLevel }
         if !window.isVisible {
             window.positionOnMainScreen()
             window.orderFrontRegardless()
+            reassertCountdown = Self.reassertInterval
             logger.info("Nudge card shown")
-        } else if reassert {
-            window.level = .screenSaver
-            window.orderFrontRegardless()
+        } else if displaced || reassertCountdown <= 0 {
+            bringCardToFront()
         }
     }
 
@@ -70,6 +84,18 @@ final class NudgeWindowManager {
     @objc private func updateForScreenChanges() {
         guard let cardWindow, cardWindow.isVisible else { return }
         cardWindow.positionOnMainScreen()
+        bringCardToFront()
+    }
+
+    // Restore order immediately after app or Space changes, with the tick as
+    // a backstop for other windows appearing at the same level.
+    @objc private func bringCardToFront() {
+        guard !isConfirmationOpen, let cardWindow, cardWindow.isVisible else { return }
+        if cardWindow.level != NudgeCardWindow.frontLevel {
+            cardWindow.level = NudgeCardWindow.frontLevel
+        }
+        cardWindow.orderFrontRegardless()
+        reassertCountdown = Self.reassertInterval
     }
 
     private func hideCard() {
@@ -84,6 +110,8 @@ final class NudgeWindowManager {
 // `.nonactivatingPanel` lets its buttons work while the keystrokes keep going
 // to whatever the user was typing in.
 final class NudgeCardWindow: NSPanel {
+    static let frontLevel = NSWindow.Level(rawValue: NSWindow.Level.screenSaver.rawValue + 1)
+
     init() {
         super.init(
             contentRect: NSRect(x: 0, y: 0, width: NudgeCardStyle.width, height: 200),
@@ -95,12 +123,12 @@ final class NudgeCardWindow: NSPanel {
         isOpaque = false
         hasShadow = true
         backgroundColor = .clear
-        level = .screenSaver
+        level = Self.frontLevel
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
         hidesOnDeactivate = false
         becomesKeyOnlyIfNeeded = true
-        // Draggable, so it can be pushed aside without being dismissed.
-        isMovableByWindowBackground = true
+        isMovable = false
+        isMovableByWindowBackground = false
     }
 
     override var canBecomeKey: Bool { true }
@@ -131,6 +159,17 @@ enum NudgeCardStyle {
     static let width: CGFloat = 420
 }
 
+private struct NudgePrimaryButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .frame(maxWidth: .infinity, minHeight: OverlayStyle.compactButtonHeight)
+            .background(OverlayStyle.buttonShape.fill(.tint))
+            .overlay(OverlayStyle.buttonShape.strokeBorder(.white.opacity(0.25)))
+            .contentShape(OverlayStyle.buttonShape)
+            .opacity(configuration.isPressed ? 0.8 : 1)
+    }
+}
+
 struct NudgeCardView: View {
     @ObservedObject var appState: AppState
     let presentation: NudgePresentation
@@ -152,10 +191,8 @@ struct NudgeCardView: View {
             } label: {
                 Text(presentation.primaryTitle)
                     .font(.system(size: 13, weight: .medium))
-                    .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
+            .buttonStyle(NudgePrimaryButtonStyle())
             .padding(.top, 18)
 
             HoldToConfirmButton(

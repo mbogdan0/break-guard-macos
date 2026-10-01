@@ -51,7 +51,7 @@ struct WorkingHoursSettingsView: View {
 
     private func pressureFootnote(subject: String) -> String {
         appState.settings.harderToSkipBreaks
-            ? "With Harder to skip breaks on, a reminder returns every minute \(subject). Hold its dismiss button for 3 seconds to hide it for a minute."
+            ? "With Harder to skip breaks on, a reminder returns every minute \(subject). Hold its dismiss button for \(formatDurationPhrase(BreakPressure.dismissHoldDuration)) to hide it for a minute."
             : "Turn on Harder to skip breaks (General) to show a recurring reminder \(subject)."
     }
 

@@ -11,7 +11,7 @@ final class PressureReminderTests: XCTestCase {
         reminder.dismiss(at: now)
         XCTAssertFalse(reminder.shouldShowCard(at: now.addingTimeInterval(59.999)))
         XCTAssertTrue(reminder.shouldShowCard(at: now.addingTimeInterval(60)))
-        XCTAssertEqual(BreakPressure.dismissHoldDuration, 3)
+        XCTAssertEqual(BreakPressure.dismissHoldDuration, 2)
     }
 
     func testUnchangedPressureDoesNotResetDismissalOnEachTick() {

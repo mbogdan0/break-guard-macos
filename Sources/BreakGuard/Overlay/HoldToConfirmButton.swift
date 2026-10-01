@@ -18,7 +18,7 @@ struct HoldToConfirmButton: View {
     @State private var progress: CGFloat = 0
 
     private var shape: RoundedRectangle {
-        RoundedRectangle(cornerRadius: 8, style: .continuous)
+        OverlayStyle.buttonShape
     }
 
     private var isCompact: Bool { controlSize == .small || controlSize == .mini }
@@ -44,7 +44,7 @@ struct HoldToConfirmButton: View {
                     .font(.system(size: isCompact ? 13 : 18, weight: .medium))
             }
         }
-            .frame(maxWidth: .infinity, minHeight: isCompact ? 34 : 40)
+            .frame(maxWidth: .infinity, minHeight: isCompact ? OverlayStyle.compactButtonHeight : 40)
             .background(
                 // Both layers fill the button, so the fill's leading anchor —
                 // not stack alignment — is what makes it sweep left to right.

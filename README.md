@@ -99,7 +99,7 @@ next morning and **Resume Now** ends the pause early. Extending, pausing, and qu
 confirmation. When a scheduled break truly cannot happen, the overlay hides an **Emergency
 override** behind a disclosure that buys 1 hour 30 minutes of focus, once every 7 days. Harder mode
 also allows one regular skip per cycle within a daily budget, defaulting to three uses. Schedule
-cards return one minute after dismissal, which requires a three-second hold; they never dim the
+cards return one minute after dismissal, which requires a two-second hold; they never dim the
 screen. Settings control timing, call holds, working hours, notifications, launch at login, and
 statistics. Screen sharing is covered while a selected camera or microphone is active; sharing
 alone is not detected.

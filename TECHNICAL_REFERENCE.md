@@ -82,13 +82,13 @@ Microphone detection reads CoreAudio's current process list and `IsRunningInput`
 
 Camera and selected microphone holds combine with OR: ending one does not release the other. Hold flags are transient and never restored from disk. Sleep or inactivity clears them, and wake samples current devices. Held time counts as focus. Already imposed breaks remain in force. Ending device activity leaves the held runway and rearms its warning. There is no maximum call duration or app-name heuristic. The menu identifies camera, microphone, or both as the reason for a hold. Screen sharing without selected device activity is not detected.
 
-The scheduled-break card takes priority over outside-hours pressure. Both require Harder mode. The single card is draggable, nonactivating, and has no full-screen dimming layer. A dismissal lasts sixty seconds from completion of its hold. Reason changes and suppression end that dismissal episode. Pressure is suppressed during breaks, suspensions, selected calls, and the ninety-minute emergency grant. A completed break inside the scheduled window suppresses that window's card; it does not satisfy outside-hours pressure.
+The scheduled-break card takes priority over outside-hours pressure. Both require Harder mode. The single card is fixed in place, nonactivating, and has no full-screen dimming layer. It sits just above the screen-saver window level and restores its front position on application or Space changes, with a two-second periodic backstop. It stays clear of the app's modal confirmations. Its action buttons share one rounded shape and height. A dismissal lasts sixty seconds from completion of its hold. Reason changes and suppression end that dismissal episode. Pressure is suppressed during breaks, suspensions, selected calls, and the ninety-minute emergency grant. A completed break inside the scheduled window suppresses that window's card; it does not satisfy outside-hours pressure.
 
 Sources: `Services/CallActivityReader.swift`, `Services/CameraUsageReader.swift`, `Services/MicrophoneUsageReader.swift`, `Services/HardwarePropertyClient.swift`, `Domain/BreakPressure.swift`, `Overlay/NudgeWindowManager.swift`.
 
 ## Sleep, Idle, and Recovery
 
-The UI timer runs each second in common and modal-panel modes. An in-memory tick gap of at least ninety seconds begins downtime from the last observed tick. Persisted heartbeats are minute-coarse; recovery treats a gap of at least 150 seconds as unmonitored time. Missing heartbeat data is handled as a relaunch gap.
+The UI timer runs each second in common and modal-panel modes. Its callback ticks synchronously on the main run loop so modal confirmations cannot defer ticks and create false downtime. An in-memory tick gap of at least ninety seconds begins downtime from the last observed tick. Persisted heartbeats are minute-coarse; recovery treats a gap of at least 150 seconds as unmonitored time. Missing heartbeat data is handled as a relaunch gap.
 
 Sleep, inactive session, screen lock, and screen saver are tracked as separate reasons. Effects resume only when all reasons clear. System absence starts a wall-clock break from a running countdown. Existing breaks retain their deadline; timed pauses retain their end time. Short absence returns to the remaining break or completion screen. A verified absence satisfying the tapering reset rule can automatically close the cycle and credit the rest. An expired timed pause starts a new cycle through the same resolution on both tick and wake paths.
 
@@ -120,7 +120,7 @@ Run `swift test` after source changes and `./scripts/build.sh` to verify packagi
 
 Manual checks on a Mac:
 
-- Dismiss a schedule card, verify a three-second hold and a sixty-second return, and switch its reason.
+- Dismiss a schedule card, verify a two-second hold and a sixty-second return, and switch its reason.
 - Spend regular skips across cycles, restart the app, and check midnight rollover and a zero budget.
 - End camera and microphone activity separately; verify runway, warning delivery, and muted-call limitations.
 - Let a break finish, lock and unlock, and check overlapping sleep/lock/saver events.

@@ -179,6 +179,10 @@ enum OverlayStyle {
     )
     static let background = Color(nsColor: backgroundNSColor)
     static let contentWidth: CGFloat = 620
+    static let compactButtonHeight: CGFloat = 34
+    static var buttonShape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: 8, style: .continuous)
+    }
 }
 
 final class BreakOverlayWindow: NSPanel {

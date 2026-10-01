@@ -16,7 +16,7 @@ enum BreakPressure {
     // How long closing the card buys. The card is the part with a dismiss, so
     // it is the part that has to come back.
     static let cardReturnInterval: TimeInterval = 60
-    static let dismissHoldDuration: TimeInterval = 3
+    static let dismissHoldDuration: TimeInterval = 2
 }
 
 struct PressureReminderState {
