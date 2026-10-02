@@ -58,7 +58,7 @@ Schedule contains optional working hours and a daily scheduled break. Working ho
 
 With Harder mode off, working hours only change the menu-bar color. With Harder mode on, working outside the selected hours or during the scheduled break shows a reminder card. The scheduled-break reminder takes priority when both apply.
 
-The card does not dim the screen. It stays fixed in place and keeps returning above other app windows, including when you switch apps or Spaces. Hold **Dismiss for 1 min** for two seconds to hide it; it returns sixty seconds later while the same pressure remains. You can also start a break. A new reminder episode starts with the card visible.
+The card does not dim the screen. It stays fixed in place and keeps returning above other app windows, including when you switch apps or Spaces. Hold **Dismiss for 1m 30s** for three seconds to hide it; it returns ninety seconds later while the same pressure remains. You can also start a break. A new reminder episode starts with the card visible.
 
 Cards stay hidden during calls selected in General, pauses, real breaks, and the emergency override's ninety-minute grant. Completing a break inside the scheduled window satisfies that window. A short break does not remove outside-hours reminders for the rest of the day.
 

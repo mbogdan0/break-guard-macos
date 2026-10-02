@@ -278,7 +278,7 @@ final class AppState: ObservableObject {
         publishAndReconcile()
     }
 
-    // Holding the dismiss button buys a minute of quiet.
+    // Holding the dismiss button buys ninety seconds of quiet.
     func dismissNudgeCard() {
         guard !sessionInactive, !isTerminating else { return }
         pressureReminder.dismiss(at: machine.clock.now)
@@ -777,7 +777,7 @@ final class AppState: ObservableObject {
             // A dismissal belongs to the episode it was made in. Once the
             // pressure lifts — a break, a call, the end of the window — the
             // next one starts with the card up rather than serving out the
-            // remainder of a minute of silence nobody remembers asking for.
+            // remainder of a dismissal nobody remembers asking for.
             pressureReminder.update(reason: nil)
             nudgeManager?.hideAll()
             return

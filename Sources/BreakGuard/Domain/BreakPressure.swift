@@ -15,8 +15,8 @@ enum PressureReason: Equatable {
 enum BreakPressure {
     // How long closing the card buys. The card is the part with a dismiss, so
     // it is the part that has to come back.
-    static let cardReturnInterval: TimeInterval = 60
-    static let dismissHoldDuration: TimeInterval = 2
+    static let cardReturnInterval: TimeInterval = 90
+    static let dismissHoldDuration: TimeInterval = 3
 }
 
 struct PressureReminderState {
@@ -60,7 +60,7 @@ func makeNudgePresentation(
         let until = windowEnd.map { " until \(timeFormatter.string(from: $0))" } ?? ""
         return NudgePresentation(
             title: "Break time",
-            message: "Your scheduled break runs\(until). Step away from the screen. This reminder returns every minute while you keep working.",
+            message: "Your scheduled break runs\(until). Step away from the screen. This reminder returns \(formatDurationPhrase(BreakPressure.cardReturnInterval)) after dismissal while you keep working.",
             primaryTitle: "Take a Break Now"
         )
     case .outsideWorkingHours:
@@ -80,7 +80,7 @@ func makeNudgePresentation(
             possible tomorrow. Step away from the screen, look at something far away for a \
             while, and let your eyes reset.
 
-            This reminder returns every minute while you keep working.
+            This reminder returns \(formatDurationPhrase(BreakPressure.cardReturnInterval)) after dismissal while you keep working.
             """,
             primaryTitle: "Take a Break Now"
         )

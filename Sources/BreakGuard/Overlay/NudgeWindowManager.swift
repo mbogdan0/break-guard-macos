@@ -196,7 +196,7 @@ struct NudgeCardView: View {
             .padding(.top, 18)
 
             HoldToConfirmButton(
-                title: "Dismiss for 1 min",
+                title: "Dismiss for \(formatDurationCompact(BreakPressure.cardReturnInterval))",
                 subtitle: postponeHoldHint(BreakPressure.dismissHoldDuration),
                 holdDuration: BreakPressure.dismissHoldDuration
             ) {

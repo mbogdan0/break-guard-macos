@@ -4,21 +4,22 @@ import XCTest
 final class PressureReminderTests: XCTestCase {
     private let now = Date(timeIntervalSince1970: 1_790_700_000)
 
-    func testDismissedCardReturnsExactlyOneMinuteLater() {
+    func testDismissedCardReturnsExactlyNinetySecondsLater() {
         var reminder = PressureReminderState()
         reminder.update(reason: .outsideWorkingHours)
         XCTAssertTrue(reminder.shouldShowCard(at: now))
         reminder.dismiss(at: now)
-        XCTAssertFalse(reminder.shouldShowCard(at: now.addingTimeInterval(59.999)))
-        XCTAssertTrue(reminder.shouldShowCard(at: now.addingTimeInterval(60)))
-        XCTAssertEqual(BreakPressure.dismissHoldDuration, 2)
+        XCTAssertFalse(reminder.shouldShowCard(at: now.addingTimeInterval(60)))
+        XCTAssertFalse(reminder.shouldShowCard(at: now.addingTimeInterval(89.999)))
+        XCTAssertTrue(reminder.shouldShowCard(at: now.addingTimeInterval(90)))
+        XCTAssertEqual(BreakPressure.dismissHoldDuration, 3)
     }
 
     func testUnchangedPressureDoesNotResetDismissalOnEachTick() {
         var reminder = PressureReminderState()
         reminder.update(reason: .scheduledBreak)
         reminder.dismiss(at: now)
-        for second in 1..<60 {
+        for second in 1..<90 {
             reminder.update(reason: .scheduledBreak)
             XCTAssertFalse(reminder.shouldShowCard(at: now.addingTimeInterval(Double(second))))
         }

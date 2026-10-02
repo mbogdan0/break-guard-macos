@@ -60,7 +60,7 @@ Harder mode permits one regular skip per cycle within a shared daily budget. An 
 
 Camera and selected microphone activity share one transient call-hold flag. A hold pushes running deadlines forward to preserve the warning lead or two minutes, whichever is longer. Held time counts as focus. A device becoming active does not dismiss an imposed break. Warning notifications are cancelled during an engaged hold and rearmed when it ends.
 
-Schedule pressure uses a single nonactivating reminder card. Dismissal requires a two-second hold and hides the card for sixty seconds. There is no screen veil. `PressureReminderState` clears a dismissal when the pressure episode ends or its reason changes. The card is suppressed during calls, pauses, real breaks, and the emergency grant; a completed break inside the scheduled window satisfies that window.
+Schedule pressure uses a single nonactivating reminder card. Dismissal requires a three-second hold and hides the card for ninety seconds. There is no screen veil. `PressureReminderState` clears a dismissal when the pressure episode ends or its reason changes. The card is suppressed during calls, pauses, real breaks, and the emergency grant; a completed break inside the scheduled window satisfies that window.
 
 ## System Boundaries
 
