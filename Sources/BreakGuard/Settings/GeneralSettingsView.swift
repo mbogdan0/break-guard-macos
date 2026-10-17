@@ -17,6 +17,15 @@ struct GeneralSettingsView: View {
             }
 
             Section {
+                Toggle("Encourage longer breaks", isOn: appState.settingBinding(\.encourageLongBreaks))
+            } header: {
+                Text("Rest Encouragement")
+            } footer: {
+                Text("After the required break, encourage extra rest with changing messages and emoji. Small rewards arrive frequently at first, then gradually slow down. The progress bar grows smoothly toward a longer rest.")
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
                 Picker("Focus pace", selection: appState.settingBinding(\.focusPace)) {
                     ForEach(FocusPace.allCases, id: \.self) { pace in
                         Text(pace.title).tag(pace)

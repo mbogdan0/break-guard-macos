@@ -197,6 +197,7 @@ struct AppSettings: Codable, Equatable {
     var warningLeadTime: TimeInterval = 60
     var firstPostponeDuration: TimeInterval = 2 * 60
     var secondPostponeDuration: TimeInterval = 15 * 60
+    var encourageLongBreaks: Bool = false
     var notificationSound: Bool = true
     var launchAtLogin: Bool = true
     var showSecondsInMenuBar: Bool = true
@@ -277,7 +278,7 @@ struct AppSettings: Codable, Equatable {
 // the memberwise initializer.
 extension AppSettings {
     private enum CodingKeys: String, CodingKey {
-        case workInterval, focusPace, breakDuration, warningLeadTime,
+        case workInterval, focusPace, breakDuration, warningLeadTime, encourageLongBreaks,
              firstPostponeDuration, secondPostponeDuration, notificationSound,
              launchAtLogin, showSecondsInMenuBar, coarseSecondsInMenuBar,
              workingHoursEnabled, weekdayWorkingHours, weekendWorkingHours,
@@ -294,6 +295,7 @@ extension AppSettings {
         warningLeadTime = try container.decodeIfPresent(TimeInterval.self, forKey: .warningLeadTime) ?? defaults.warningLeadTime
         firstPostponeDuration = try container.decodeIfPresent(TimeInterval.self, forKey: .firstPostponeDuration) ?? defaults.firstPostponeDuration
         secondPostponeDuration = try container.decodeIfPresent(TimeInterval.self, forKey: .secondPostponeDuration) ?? defaults.secondPostponeDuration
+        encourageLongBreaks = try container.decodeIfPresent(Bool.self, forKey: .encourageLongBreaks) ?? defaults.encourageLongBreaks
         notificationSound = try container.decodeIfPresent(Bool.self, forKey: .notificationSound) ?? defaults.notificationSound
         launchAtLogin = try container.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? defaults.launchAtLogin
         showSecondsInMenuBar = try container.decodeIfPresent(Bool.self, forKey: .showSecondsInMenuBar) ?? defaults.showSecondsInMenuBar

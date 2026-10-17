@@ -83,6 +83,42 @@ final class AppStateTransitionTests: XCTestCase {
         XCTAssertTrue(fired, "The timer callbacks must run inside the modal run loop")
     }
 
+    func testRestTimeContinuesAcrossCompletionAndResetsForNextBreak() async {
+        let clock = TransitionClock(now: start)
+        let app = app(clock: clock)
+        app.takeBreakNow()
+        advance(app, clock: clock, by: 60)
+        XCTAssertEqual(app.totalRestTime(at: clock.now), 60)
+        advance(app, clock: clock, by: 60)
+        XCTAssertEqual(app.timerState, .breakCompleted)
+        XCTAssertEqual(app.totalRestTime(at: clock.now), 120)
+        advance(app, clock: clock, by: 60)
+        XCTAssertEqual(app.totalRestTime(at: clock.now), 180)
+        app.completeBreak()
+        XCTAssertEqual(app.totalRestTime(at: clock.now), 0)
+        app.takeBreakNow()
+        XCTAssertEqual(app.totalRestTime(at: clock.now), 0)
+    }
+
+    func testEncouragementUsesActualBreakDeadlineAfterSettingsChange() async {
+        let clock = TransitionClock(now: start)
+        let app = app(clock: clock)
+        var settings = app.settings
+        settings.breakDuration = 60
+        app.updateSettings(settings)
+        app.takeBreakNow()
+        advance(app, clock: clock, by: 30)
+        XCTAssertFalse(app.restEncouragement(at: clock.now).canFinish)
+        settings.breakDuration = 300
+        app.updateSettings(settings)
+        advance(app, clock: clock, by: 30)
+        XCTAssertTrue(app.restEncouragement(at: clock.now).canFinish)
+        XCTAssertEqual(app.restEncouragement(at: clock.now).extraRest, 0)
+        advance(app, clock: clock, by: 21)
+        XCTAssertEqual(app.restEncouragement(at: clock.now).extraRest, 21)
+        XCTAssertGreaterThan(app.restEncouragement(at: clock.now).messageIndex, 0)
+    }
+
     func testSettingsConfirmationWaitDoesNotBecomeCompletedRest() async {
         let clock = TransitionClock(now: start)
         let activity = TransitionCallActivity()

@@ -232,12 +232,29 @@ final class AppState: ObservableObject {
         publishAndReconcile()
     }
 
-    // Total rest so far on the completion screen (now − break start).
-    // publish() is equality-gated, so this count-up refreshes through the
-    // uiTick subject, which fires every second regardless.
+    // Use the original break start on both sides of the completion boundary.
     func totalRestTime(at now: Date = Date()) -> TimeInterval {
-        guard timerState == .breakCompleted, let start = machine.runtime.breakStartedAt else { return 0 }
+        switch timerState {
+        case .breaking, .breakCompleted: break
+        default: return 0
+        }
+        guard let start = machine.runtime.breakStartedAt else { return 0 }
         return max(0, now.timeIntervalSince(start))
+    }
+
+    func restEncouragement(at now: Date) -> RestEncouragement {
+        let requiredDuration: TimeInterval
+        if case let .breaking(_, _, duration) = timerState {
+            requiredDuration = duration
+        } else if let ready = machine.runtime.breakReadyAt,
+                  let start = machine.runtime.breakStartedAt {
+            requiredDuration = max(0, ready.timeIntervalSince(start))
+        } else {
+            requiredDuration = settings.breakDuration
+        }
+        return RestEncouragement(elapsed: totalRestTime(at: now),
+                                 requiredDuration: requiredDuration,
+                                 canFinish: isBreakCompleteAllowed())
     }
 
     func startBreakIfDue() {

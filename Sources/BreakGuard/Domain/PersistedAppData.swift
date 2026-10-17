@@ -27,6 +27,7 @@ struct RuntimeState: Codable, Equatable {
     // Working time of the current cycle, captured when the break starts.
     var cycleFocusDuration: TimeInterval?
     // When the current/most recent break started; drives the completion count-up.
+    var breakReadyAt: Date? = nil
     var breakStartedAt: Date?
     var manualBreakOrigin: ManualBreakOrigin?
     // Seconds actually focused since the last reset gap; drives the tapering
@@ -60,7 +61,7 @@ extension RuntimeState {
         case timerState, cycleViolated, cyclePostponements,
              cycleRegularPostponements, focusExtended,
              cycleStartDate, preservedAt,
-             cycleFocusDuration, breakStartedAt, manualBreakOrigin,
+             cycleFocusDuration, breakStartedAt, breakReadyAt, manualBreakOrigin,
              taperedFocusSeconds, emergencyOverrideUsedAt, lastTickAt, lastFocusAt, dailySkipUsage
     }
 
@@ -75,6 +76,7 @@ extension RuntimeState {
         cycleStartDate = decodedCycleStartDate
         preservedAt = try container.decodeIfPresent(Date.self, forKey: .preservedAt)
         cycleFocusDuration = try container.decodeIfPresent(TimeInterval.self, forKey: .cycleFocusDuration)
+        breakReadyAt = try container.decodeIfPresent(Date.self, forKey: .breakReadyAt)
         breakStartedAt = try container.decodeIfPresent(Date.self, forKey: .breakStartedAt)
         manualBreakOrigin = try container.decodeIfPresent(ManualBreakOrigin.self, forKey: .manualBreakOrigin)
         taperedFocusSeconds = try container.decodeIfPresent(TimeInterval.self, forKey: .taperedFocusSeconds) ?? 0

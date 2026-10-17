@@ -218,17 +218,24 @@ struct BreakOverlayView: View {
         ZStack {
             OverlayStyle.background
                 .ignoresSafeArea()
-            Group {
-                if appState.isBreakCompleteAllowed() {
-                    completionContent
-                } else {
-                    breakContent
+            GeometryReader { geometry in
+                ScrollView(.vertical) {
+                    Group {
+                        if appState.isBreakCompleteAllowed() {
+                            completionContent
+                        } else {
+                            breakContent
+                        }
+                    }
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: OverlayStyle.contentWidth)
+                    .padding(.horizontal, 32)
+                    .padding(.vertical, 64)
+                    .frame(maxWidth: .infinity, minHeight: geometry.size.height)
                 }
             }
-            .foregroundStyle(.white)
-            .frame(width: OverlayStyle.contentWidth)
-            .padding(64)
             wallClock
+                .allowsHitTesting(false)
         }
     }
 
@@ -270,6 +277,7 @@ struct BreakOverlayView: View {
                 .foregroundStyle(.white.opacity(0.7))
                 .multilineTextAlignment(.center)
                 .padding(.top, 16)
+            encouragement
             let actionSet = breakOverlayActionSet(
                 isManualBreak: appState.isManualBreak,
                 canPostpone: appState.canPostpone
@@ -400,7 +408,17 @@ struct BreakOverlayView: View {
                 .foregroundStyle(.white.opacity(0.6))
                 .padding(.top, 4)
 
+            encouragement
             continueWorkingContent
+        }
+    }
+
+    @ViewBuilder private var encouragement: some View {
+        if appState.settings.encourageLongBreaks {
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                RestEncouragementView(status: appState.restEncouragement(at: context.date))
+            }
+            .padding(.top, 24)
         }
     }
 

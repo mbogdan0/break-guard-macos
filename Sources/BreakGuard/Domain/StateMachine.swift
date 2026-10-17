@@ -184,6 +184,7 @@ struct StateMachine {
             }
         case let .breaking(deadline, _, _):
             if clock.now >= deadline {
+                runtime.breakReadyAt = deadline
                 runtime.timerState = .breakCompleted
             }
         case let .suspended(_, _, until):
@@ -281,6 +282,7 @@ struct StateMachine {
         let begin = min(start ?? clock.now, clock.now)
         let duration = settings.breakDuration
         runtime.cycleFocusDuration = max(0, begin.timeIntervalSince(runtime.cycleStartDate))
+        runtime.breakReadyAt = begin.addingTimeInterval(duration)
         runtime.breakStartedAt = begin
         runtime.timerState = .breaking(
             deadline: begin.addingTimeInterval(duration),
@@ -447,6 +449,7 @@ struct StateMachine {
             .addingTimeInterval(max(0, clock.now.timeIntervalSince(origin.capturedAt)))
         // Stale capture from startBreak(); re-captured when the next break starts.
         runtime.cycleFocusDuration = nil
+        runtime.breakReadyAt = nil
         runtime.breakStartedAt = nil
         restoreCountdown(previous: origin.previous, remaining: origin.remaining)
         runtime.manualBreakOrigin = nil
@@ -489,6 +492,7 @@ struct StateMachine {
                 .addingTimeInterval(max(0, clock.now.timeIntervalSince(startedAt)))
         }
         runtime.cycleFocusDuration = nil
+        runtime.breakReadyAt = nil
         runtime.breakStartedAt = nil
         runtime.manualBreakOrigin = nil
     }
