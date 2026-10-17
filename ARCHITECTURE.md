@@ -58,7 +58,7 @@ The tapering accumulator uses actual focus rather than cycle count. Shared helpe
 
 ## Skips, Calls, and Reminders
 
-Harder mode permits one regular skip per cycle within a shared daily budget. An extension and a postponement each spend one use. `DailySkipUsage` survives new cycles and settings changes; normal-mode uses are also counted. The weekly emergency timestamp remains separate from that budget.
+Harder mode permits one regular skip per cycle within a shared daily budget. An extension and a postponement each spend one use. `DailySkipUsage` survives new cycles and settings changes; normal-mode uses are also counted. The six-day emergency timestamp remains separate from that budget.
 
 Camera and selected microphone activity share one transient call-hold flag. A hold pushes running deadlines forward to preserve the warning lead or two minutes, whichever is longer. Held time counts as focus. A device becoming active does not dismiss an imposed break. Warning notifications are cancelled during an engaged hold and rearmed when it ends.
 

@@ -40,7 +40,7 @@ struct PressureReminderState {
 // What the nudge card says. Derived rather than stored so the card can be
 // rebuilt from the reason alone.
 //
-// The main action starts a break. A separate disclosure offers the weekly
+// The main action starts a break. A separate disclosure offers the six-day
 // override; pausing until morning remains in the menu behind its confirmation.
 struct NudgePresentation: Equatable {
     let title: String

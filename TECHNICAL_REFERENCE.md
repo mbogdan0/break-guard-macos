@@ -44,7 +44,7 @@ Sources: `Domain/AppSettings.swift`, `Domain/StateMachine.swift`.
 
 A regular skip is a successful focus extension or postponement. Harder mode allows one per cycle and requires a remaining daily use. Normal mode permits repeated skips, but counts them toward today's usage if Harder mode is enabled later. Cancelled dialogs, invalid actions, and manual-break cancellation spend nothing.
 
-The daily budget uses the local calendar day rather than a rolling 24 hours. A backwards clock change does not refill it. New cycles and relaunches retain usage. Changing the limit changes remaining allowance against existing usage. The weekly override has an independent rolling seven-day cooldown and grants ninety minutes.
+The daily budget uses the local calendar day rather than a rolling 24 hours. A backwards clock change does not refill it. New cycles and relaunches retain usage. Changing the limit changes remaining allowance against existing usage. The six-day override has an independent rolling six-day cooldown and grants ninety minutes.
 
 | Action | Normal mode | Harder mode |
 | --- | --- | --- |
@@ -54,7 +54,7 @@ The daily budget uses the local calendar day rather than a rolling 24 hours. A b
 | Quit | 90 s | 180 s |
 | First regular postponement | 2 s or 6 s hold | 4 s or 12 s hold |
 | Repeated regular postponement | 4 s or 12 s hold | Unavailable in the same cycle |
-| Weekly override | 3 s hold | 3 s hold |
+| Six-day override | 3 s hold | 3 s hold |
 | Dismiss schedule card | Card unavailable | 3 s hold; returns after 90 s |
 | Disable Harder mode | Not applicable | 90 s confirmation wait |
 | Net settings loosening on close | No charge | 5 min confirmation wait |

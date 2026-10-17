@@ -1430,7 +1430,8 @@ final class StateMachineTests: XCTestCase {
         XCTAssertNil(machine.runtime.emergencyOverrideUsedAt)
     }
 
-    func testEmergencyOverrideIsLimitedToOncePerWeek() {
+    func testEmergencyOverrideIsLimitedToOncePerSixDays() {
+        XCTAssertEqual(EmergencyOverride.cooldown, 6 * 24 * 60 * 60)
         let start = Date(timeIntervalSince1970: 8_200)
         var clock = FakeClock(now: start)
         var machine = makeMachineOnForcedBreak(at: start, clock: &clock)
@@ -1450,13 +1451,13 @@ final class StateMachineTests: XCTestCase {
         XCTAssertEqual(machine.runtime.timerState, before)
         XCTAssertEqual(machine.runtime.emergencyOverrideUsedAt, usedAt)
 
-        // A moment before the seventh day it is still locked; on it, available.
-        clock.now = usedAt.addingTimeInterval(EmergencyOverride.cooldown - 1)
+        // A moment before the sixth day it is still locked; on it, available.
+        clock.now = usedAt.addingTimeInterval(6 * 24 * 60 * 60 - 1)
         machine.clock = clock
         machine.runtime.timerState = .breakDue
         machine.startBreak()
         XCTAssertFalse(machine.canUseEmergencyOverride)
-        clock.now = usedAt.addingTimeInterval(EmergencyOverride.cooldown)
+        clock.now = usedAt.addingTimeInterval(6 * 24 * 60 * 60)
         machine.clock = clock
         XCTAssertTrue(machine.canUseEmergencyOverride)
     }

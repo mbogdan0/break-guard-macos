@@ -89,7 +89,7 @@ final class FormattingTests: XCTestCase {
         // The third unit is dropped, never rounded into the second.
         XCTAssertEqual(formatTimeUntilPhrase(3 * day + 5 * 3600 + 59 * 60), "3 days 5 hours")
         // The full cooldown, which is what the row reads the moment it is spent.
-        XCTAssertEqual(formatTimeUntilPhrase(EmergencyOverride.cooldown), "7 days")
+        XCTAssertEqual(formatTimeUntilPhrase(EmergencyOverride.cooldown), "6 days")
     }
 
     func testTimeUntilPhraseDropsAZeroSecondUnit() {

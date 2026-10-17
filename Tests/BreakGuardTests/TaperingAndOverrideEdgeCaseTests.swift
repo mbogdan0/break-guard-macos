@@ -5,7 +5,7 @@ private struct FakeClock: TimeProvider {
     var now: Date
 }
 
-// Edge cases for the focus-minute tapering accumulator and the weekly
+// Edge cases for the focus-minute tapering accumulator and the six-day
 // emergency override: the paths that are easy to get wrong and hard to notice
 // going wrong, because they fail silently rather than crashing.
 final class TaperingAndOverrideEdgeCaseTests: XCTestCase {
@@ -256,7 +256,7 @@ final class TaperingAndOverrideEdgeCaseTests: XCTestCase {
         )
     }
 
-    // Regular postponements remain separate from the weekly override.
+    // Regular postponements remain separate from the six-day override.
     func testOverrideThenPostponeKeepsIndependentCounters() {
         let start = Date(timeIntervalSince1970: 180_000)
         var clock = FakeClock(now: start)
@@ -338,7 +338,7 @@ final class TaperingAndOverrideEdgeCaseTests: XCTestCase {
         clock.now = start.addingTimeInterval(EmergencyOverride.focusGrant)
         machine.clock = clock
         XCTAssertFalse(machine.isPressureOverrideActive)
-        // The weekly cooldown outlives the grant by a long way.
+        // The six-day cooldown outlives the grant by a long way.
         XCTAssertFalse(machine.canSpendOverrideOnPressure)
     }
 

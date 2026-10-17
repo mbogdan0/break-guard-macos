@@ -166,7 +166,7 @@ struct BreakOverlayView: View {
             if appState.emergencyDisclosureExpanded {
                 if appState.canUseEmergencyOverride {
                     HoldToConfirmButton(
-                        title: "Skip This Break — +\(formatDurationCompact(EmergencyOverride.focusGrant))",
+                        title: "Skip Break · \(formatDurationCompact(EmergencyOverride.focusGrant))",
                         subtitle: postponeHoldHint(EmergencyOverride.holdDuration),
                         holdDuration: EmergencyOverride.holdDuration,
                         onPressingChanged: { appState.setOverlayHold($0, pressing: $1) }
@@ -175,7 +175,7 @@ struct BreakOverlayView: View {
                     }
                     .frame(width: 320)
                     .padding(.top, 14)
-                    Text("Once every 7 days, whatever else is switched on. Use it when a break cannot wait.")
+                    Text("Once every 6 days, whatever else is switched on. Use it when a break cannot wait.")
                         .font(.system(size: 12))
                         .foregroundStyle(.white.opacity(0.45))
                         .multilineTextAlignment(.center)
@@ -198,7 +198,7 @@ struct BreakOverlayView: View {
         // The wait, not the date it lands on: "in 3 days 5 hours" is the
         // question being asked, and a timestamp makes the reader do the
         // subtraction themselves.
-        return "Already used this week. Available again in "
+        return "Available again in "
             + formatTimeUntilPhrase(availableAt.timeIntervalSinceNow) + "."
     }
 

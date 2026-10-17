@@ -35,7 +35,7 @@ Breaks shows **Left today**. The menu and required-break screen also show the al
 
 Usage survives new cycles and restarts. Normal mode allows repeated skips, but those uses count if you enable Harder mode later that day. Cancelled or rejected actions spend nothing. Increasing the budget while Harder mode is active is treated as loosening settings.
 
-A required break also has an **Emergency override** disclosure. Hold its button for three seconds to trade the break for ninety minutes of focus. It works independently of the daily budget, once every rolling seven days. Manual breaks offer Cancel Break instead. The disclosure shows when the override is available again.
+A required break also has an **Emergency override** disclosure. Hold its button for three seconds to trade the break for ninety minutes of focus. It works independently of the daily budget, once every rolling six days. Manual breaks offer Cancel Break instead. The disclosure shows when the override is available again.
 
 Turning Harder mode off requires a ninety-second confirmation. Turning it on is immediate.
 
@@ -62,7 +62,7 @@ The card does not dim the screen. It stays fixed in place and keeps returning ab
 
 Cards stay hidden during calls selected in Breaks, pauses, real breaks, and the emergency override's ninety-minute grant. A short break does not remove outside-hours reminders for the rest of the day.
 
-The card's **Emergency override** disclosure contains **Pause Reminders**, which spends the same weekly override as the break screen. From the card it only buys ninety minutes of quiet: it leaves the countdown running and spends no daily skip use.
+The card's **Emergency override** disclosure contains **Pause · 1h 30m**, which spends the same six-day override as the break screen. From the card it only buys ninety minutes of quiet: it leaves the countdown running and spends no daily skip use.
 
 ## Settings
 
@@ -74,7 +74,7 @@ More Breaks uses 80% of the configured focus interval; Deep Focus uses 120%. Tap
 
 **App** controls notification sound, notification testing, Launch at Login, and menu-bar seconds. Application information is under **About BreakGuard**.
 
-Enable **Encourage a little more rest** to show gentle messages and rewards after the required pause. You can continue working at any time once the required rest is complete.
+Enable **Encourage a little more rest** to show gentle messages and rewards after the required pause. Each reward pairs an emoji, a title, and a message. Their order varies by weekday and break, stays stable during each stage, and gradually moves from gentle pauses to playful celebrations. Long rests end with a repeating set of calm messages. You can continue working at any time once the required rest is complete.
 
 Settings apply and save immediately. When you close Settings, a net loosening while Harder mode was active at either end of the visit requires one five-minute confirmation. Examples include a larger skip budget, longer focus window, shorter break, enabling call holds, or reducing schedule pressure. Cancel restores the visit except the Harder-mode toggle, which has its own confirmation. If a break interrupts the question, it returns after the break. There is no Restore Defaults button.
 

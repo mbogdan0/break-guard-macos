@@ -47,7 +47,7 @@ struct GeneralSettingsView: View {
                             Text("How skipping works").font(.headline)
                             Text("Harder mode allows one extension or postponement per cycle, within your daily limit. Zero disables regular skips. Skips made before enabling this mode count too.")
                             Text("The limit resets at midnight. Confirmation waits are longer, and reminders appear outside working hours.")
-                            Text("Turning this mode off or keeping weaker settings requires a timed confirmation. Emergency override remains available once every 7 days.")
+                            Text("Turning this mode off or keeping weaker settings requires a timed confirmation. Emergency override remains available once every 6 days.")
                         }
                         .font(.callout)
                         .padding(20)

@@ -47,7 +47,7 @@ final class DailySkipBudgetTests: XCTestCase {
         XCTAssertTrue(machine.canExtendFocus)
     }
 
-    func testZeroBudgetStillAllowsWeeklyEmergencyOverride() {
+    func testZeroBudgetStillAllowsEmergencyOverride() {
         var machine = machine(limit: 0)
         XCTAssertFalse(machine.canPostpone)
         XCTAssertFalse(machine.canExtendFocus)

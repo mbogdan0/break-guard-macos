@@ -21,9 +21,14 @@ final class RestEncouragementTests: XCTestCase {
     func testEveryRewardHasItsOwnBoundaryRelativeToRequiredDuration() {
         for required: TimeInterval in [30, 120, 300, 1800] {
             for (index, offset) in RestEncouragement.rewardOffsets.enumerated() {
-                XCTAssertEqual(status(extra: offset, required: required).messageIndex, index)
+                let current = status(extra: offset, required: required)
+                XCTAssertEqual(current.messageIndex, index)
+                XCTAssertEqual(current.title, current.message.title)
                 if index > 0 {
-                    XCTAssertEqual(status(extra: offset - 0.01, required: required).messageIndex, index - 1)
+                    let previous = status(extra: offset - 0.01, required: required)
+                    XCTAssertEqual(previous.messageIndex, index - 1)
+                    XCTAssertEqual(previous.title, previous.message.title)
+                    XCTAssertNotEqual(current.title, previous.title)
                 }
             }
         }
@@ -37,6 +42,7 @@ final class RestEncouragementTests: XCTestCase {
         XCTAssertLessThan(gaps.prefix(10).reduce(0, +), gaps.suffix(10).reduce(0, +))
         XCTAssertLessThanOrEqual(offsets[1], 10)
         XCTAssertEqual(offsets.count, RestEncouragement.messages.count)
+        XCTAssertEqual(Set(RestEncouragement.messages.map(\.title)).count, offsets.count)
         XCTAssertEqual(Set(RestEncouragement.messages.map(\.text)).count, offsets.count)
         XCTAssertEqual(Set(RestEncouragement.messages.map(\.emoji)).count, offsets.count)
     }
@@ -58,9 +64,9 @@ final class RestEncouragementTests: XCTestCase {
 
     func testLongRestContinuesWithCalmMessagesAndPositiveCountdown() {
         let last = RestEncouragement.rewardOffsets.last!
-        XCTAssertEqual(status(extra: last + 119).messageIndex, 47)
-        XCTAssertEqual(status(extra: last + 120).messageIndex, 40)
-        XCTAssertEqual(status(extra: last + 240).messageIndex, 41)
+        XCTAssertEqual(status(extra: last + 119).messageIndex, RestEncouragement.messages.count - 1)
+        XCTAssertEqual(status(extra: last + 120).messageIndex, RestEncouragement.messages.count - 8)
+        XCTAssertEqual(status(extra: last + 240).messageIndex, RestEncouragement.messages.count - 7)
         XCTAssertEqual(status(extra: last + 120).secondsToNextReward, 120)
         XCTAssertEqual(status(extra: last + 121).secondsToNextReward, 119)
     }
@@ -71,6 +77,32 @@ final class RestEncouragementTests: XCTestCase {
             XCTAssertEqual(current.progress, 0)
             XCTAssertEqual(current.extraRest, 0)
         }
+    }
+
+    func testEachBreakHasAStableVariedSequenceWithoutRepeats() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let start = Date(timeIntervalSince1970: 1_790_700_000)
+        var sequences: Set<[String]> = []
+        for day in 0..<7 {
+            for pause in 0..<2 {
+                let date = start.addingTimeInterval(Double(day * 86400 + pause * 3600))
+                let sequence = RestEncouragement.rewardOffsets.map { offset in
+                    let current = RestEncouragement(elapsed: 120 + offset, requiredDuration: 120,
+                                                    canFinish: true, breakStartedAt: date, calendar: calendar)
+                    let nextTick = RestEncouragement(elapsed: 121 + offset, requiredDuration: 120,
+                                                     canFinish: true, breakStartedAt: date, calendar: calendar)
+                    XCTAssertEqual(current.title, nextTick.title)
+                    XCTAssertEqual(current.message.emoji, nextTick.message.emoji)
+                    XCTAssertEqual(current.message.text, nextTick.message.text)
+                    XCTAssertEqual(current.title, current.message.title)
+                    return current.title
+                }
+                XCTAssertEqual(Set(sequence).count, RestEncouragement.messages.count)
+                sequences.insert(sequence)
+            }
+        }
+        XCTAssertEqual(sequences.count, 14)
     }
 
     func testSettingIsOptInAndPersists() throws {

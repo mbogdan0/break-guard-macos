@@ -32,7 +32,7 @@ struct RuntimeState: Codable, Equatable {
     // Seconds actually focused since the last reset gap; drives the tapering
     // pace. 0 means the next window runs at full length.
     var taperedFocusSeconds: TimeInterval
-    // When the weekly emergency override was last spent. Lives here rather
+    // When the six-day emergency override was last spent. Lives here rather
     // than in AppSettings so changing preferences never refills the quota.
     var emergencyOverrideUsedAt: Date?
     // Last time the app was observed alive, minute-coarse so persisting it

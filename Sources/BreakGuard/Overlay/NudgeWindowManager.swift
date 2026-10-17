@@ -222,7 +222,7 @@ struct NudgeCardView: View {
     }
 
     // The same understated disclosure the break overlay uses, spending the
-    // same weekly quota — see StateMachine.spendOverrideOnPressure().
+    // same six-day quota — see StateMachine.spendOverrideOnPressure().
     private var overrideSection: some View {
         VStack(alignment: .leading, spacing: 0) {
             Button {
@@ -245,7 +245,7 @@ struct NudgeCardView: View {
             if overrideExpanded {
                 if appState.canSpendOverrideOnPressure {
                     HoldToConfirmButton(
-                        title: "Pause Reminders — \(formatDurationCompact(EmergencyOverride.focusGrant))",
+                        title: "Pause · \(formatDurationCompact(EmergencyOverride.focusGrant))",
                         subtitle: postponeHoldHint(EmergencyOverride.holdDuration),
                         holdDuration: EmergencyOverride.holdDuration
                     ) {
@@ -253,7 +253,7 @@ struct NudgeCardView: View {
                     }
                     .controlSize(.small)
                     .padding(.top, 10)
-                    Text("Once every 7 days, shared with the override on the break screen. Your breaks keep running; these reminders pause.")
+                    Text("Once every 6 days, shared with the override on the break screen. Your breaks keep running; these reminders pause.")
                         .font(.system(size: 11))
                         .foregroundStyle(.white.opacity(0.45))
                         .fixedSize(horizontal: false, vertical: true)
@@ -274,7 +274,7 @@ struct NudgeCardView: View {
             return "Not available right now."
         }
         // The wait rather than the date — same wording as the break overlay's.
-        return "Already used this week. Available again in "
+        return "Available again in "
             + formatTimeUntilPhrase(availableAt.timeIntervalSinceNow) + "."
     }
 }

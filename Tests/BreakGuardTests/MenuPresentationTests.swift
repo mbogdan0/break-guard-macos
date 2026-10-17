@@ -348,7 +348,7 @@ final class MenuPresentationTests: XCTestCase {
         }
     }
 
-    // Off the ladder on purpose: the once-a-week quota is the real price, so
+    // Off the ladder on purpose: the six-day cooldown is the real price, so
     // the hold does not double in harder mode the way everything else does.
     func testEmergencyOverrideHoldIsFlat() {
         XCTAssertEqual(EmergencyOverride.holdDuration, 3)

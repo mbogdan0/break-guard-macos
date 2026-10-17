@@ -42,7 +42,7 @@ Line Tools. Approve it, wait for the installation to finish, and run the same co
 - Pause until 9 AM for the rest of the day, surviving sleep and relaunch
 - Honesty-first confirmations for every action that skips or silences rest
 - Optional working hours that turn the menu bar yellow outside them
-- A shared daily skip budget in Harder mode, with a separate weekly emergency override
+- A shared daily skip budget in Harder mode, with a separate six-day emergency override
 - Recurring reminders outside working hours without screen dimming
 - A fresh focus cycle after an hour of system sleep, without a completion screen
 - Optional rewards for extending a break beyond its required duration
@@ -98,7 +98,7 @@ Use **Take a Break Now** for an early break, **Extend Focus** when a break must 
 advance, and **Pause Until 9 AM** when you are done for the day — reminders stay silent until the
 next morning and **Resume Now** ends the pause early. Extending, pausing, and quitting each ask for
 confirmation. When a required break truly cannot happen, the overlay hides an **Emergency
-override** behind a disclosure that buys 1 hour 30 minutes of focus, once every 7 days. Harder mode
+override** behind a disclosure that buys 1 hour 30 minutes of focus, once every 6 days. Harder mode
 also allows one regular skip per cycle within a daily budget, defaulting to three uses. After-hours
 cards return ninety seconds after dismissal, which requires a three-second hold; they never dim the
 screen. Settings control timing, call holds, working hours, notifications, and launch at login. Screen sharing is covered while a selected camera or microphone is active; sharing

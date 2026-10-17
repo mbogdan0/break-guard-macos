@@ -77,11 +77,11 @@ final class AppState: ObservableObject {
     // Focus accumulated since the last tapering reset; the settings pane
     // derives the penalty from it with FocusPace.taperingPenalty(forFocus:).
     @Published var taperedFocusSeconds: TimeInterval = 0
-    // True while the weekly emergency override can be spent on this break.
+    // True while the six-day emergency override can be spent on this break.
     @Published var canUseEmergencyOverride = false
     // Why a recurring reminder is active. Nil means no pressure.
     @Published var pressureReason: PressureReason?
-    // Whether the same weekly quota can still be spent from the nudge card.
+    // Whether the same six-day quota can still be spent from the nudge card.
     @Published var canSpendOverrideOnPressure = true
     // When the override becomes available again; nil while never used.
     @Published var emergencyOverrideAvailableAt: Date?
@@ -266,7 +266,8 @@ final class AppState: ObservableObject {
         }
         return RestEncouragement(elapsed: totalRestTime(at: now),
                                  requiredDuration: requiredDuration,
-                                 canFinish: isBreakCompleteAllowed())
+                                 canFinish: isBreakCompleteAllowed(),
+                                 breakStartedAt: machine.runtime.breakStartedAt ?? Date(timeIntervalSince1970: 0))
     }
 
     func startBreakIfDue() {
@@ -293,17 +294,17 @@ final class AppState: ObservableObject {
     func useEmergencyOverride() {
         guard !sessionInactive, !isTerminating else { return }
         machine.useEmergencyOverride()
-        logger.info("Weekly emergency override spent")
+        logger.info("Six-day emergency override spent")
         publishAndReconcile()
     }
 
-    // Same weekly quota as the break overlay's override, spent from the nudge
+    // Same six-day quota as the break overlay's override, spent from the nudge
     // card instead. It buys quiet only: no break is skipped and the countdown
     // is untouched, so nothing is recorded against the streak.
     func spendPressureOverride() {
         guard !sessionInactive, !isTerminating else { return }
         machine.spendOverrideOnPressure()
-        logger.info("Weekly emergency override spent on break pressure")
+        logger.info("Six-day emergency override spent on break pressure")
         publishAndReconcile()
     }
 

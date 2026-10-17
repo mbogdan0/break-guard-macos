@@ -39,6 +39,7 @@ struct HoldToConfirmButton: View {
                     Text(subtitle)
                         .font(.system(size: isCompact ? 11 : 12))
                         .foregroundStyle(.white.opacity(0.35))
+                        .fixedSize()
                 }
                 .padding(.horizontal, isCompact ? 12 : 14)
             } else {
@@ -46,6 +47,8 @@ struct HoldToConfirmButton: View {
                     .font(.system(size: isCompact ? 13 : 18, weight: .medium))
             }
         }
+            .lineLimit(1)
+            .minimumScaleFactor(0.85)
             .frame(maxWidth: .infinity, minHeight: isCompact ? OverlayStyle.compactButtonHeight : 40)
             .background(
                 // Both layers fill the button, so the fill's leading anchor —

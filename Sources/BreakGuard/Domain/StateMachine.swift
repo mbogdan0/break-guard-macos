@@ -66,8 +66,8 @@ struct StateMachine {
         return runtime.cycleRegularPostponements > 0 ? .repeated : .standard
     }
 
-    // When the weekly emergency override can be spent again; nil while it has
-    // never been used. Rolling seven days from the last use, so it cannot be
+    // When the six-day emergency override can be spent again; nil while it has
+    // never been used. Rolling six days from the last use, so it cannot be
     // spent twice across a weekend the way a calendar week would allow.
     var emergencyOverrideAvailableAt: Date? {
         runtime.emergencyOverrideUsedAt?.addingTimeInterval(EmergencyOverride.cooldown)
@@ -82,7 +82,7 @@ struct StateMachine {
         return canSpendOverrideOnPressure
     }
 
-    // The same weekly hatch, spent from the nudge card instead of a break
+    // The same six-day hatch, spent from the nudge card instead of a break
     // overlay. Deliberately asymmetric with useEmergencyOverride(): no break
     // is being skipped here — the countdown goes on exactly as it was — so
     // no daily skip allowance is consumed.
@@ -122,7 +122,7 @@ struct StateMachine {
         return false
     }
 
-    // Once-a-week escape hatch: trades the break for a long focus window even
+    // Emergency override: trades the break for a long focus window even
     // in harder-to-skip mode. It ignores that mode's cost rather than handing
     // out extra allowance, so it spends both the extension and the free skip —
     // otherwise a 90-minute grant could immediately stack an extension on top.
@@ -325,7 +325,7 @@ struct StateMachine {
             breakStartedAt: nil,
             manualBreakOrigin: nil,
             taperedFocusSeconds: tapered,
-            // The weekly quota outlives the cycle that spent it.
+            // The six-day quota outlives the cycle that spent it.
             emergencyOverrideUsedAt: runtime.emergencyOverrideUsedAt,
             // Liveness is orthogonal to cycles.
             lastTickAt: runtime.lastTickAt,
@@ -462,7 +462,7 @@ struct StateMachine {
     }
 
     // Time already spent resting must not turn into focus when the user
-    // postpones the rest that remains or spends the weekly override.
+    // postpones the rest that remains or spends the six-day override.
     private mutating func leaveBreakWithoutCompleting() {
         if let startedAt = runtime.breakStartedAt {
             runtime.cycleStartDate = runtime.cycleStartDate

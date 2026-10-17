@@ -89,14 +89,14 @@ enum SettingsRange {
     static let dailySkipLimit: ClosedRange<Int> = 0...10
 }
 
-// The once-a-week escape hatch offered at the bottom of a forced break's
+// The emergency override offered every six days at the bottom of a forced break's
 // overlay. Fixed constants rather than settings: a configurable pressure
 // valve is not a pressure valve.
 enum EmergencyOverride {
     static let focusGrant: TimeInterval = 90 * 60
-    static let cooldown: TimeInterval = 7 * 24 * 60 * 60
+    static let cooldown: TimeInterval = 6 * 24 * 60 * 60
     // Short on purpose, and the one piece of friction that does not scale with
-    // harder mode. The weekly quota is what makes this hard to abuse, so the
+    // harder mode. The six-day quota is what makes this hard to abuse, so the
     // hold only has to be deliberate enough to not fire on a stray click —
     // pricing it off the ladder would charge twice for the same decision.
     static let holdDuration: TimeInterval = 3
@@ -201,7 +201,7 @@ struct AppSettings: Codable, Equatable {
     // starts over and sessions run at full length again.
     var taperingResetGap: TimeInterval = 6 * 60 * 60
     // Harder mode allows one normal skip action per cycle: either extending
-    // focus or postponing a break. The weekly override remains an exception.
+    // focus or postponing a break. The six-day override remains an exception.
     var harderToSkipBreaks: Bool = false
     var dailySkipLimit: Int = 3
     // Freeze the countdown just above the warning window while any camera is

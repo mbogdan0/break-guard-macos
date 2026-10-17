@@ -33,7 +33,7 @@ func formatDurationPhrase(_ interval: TimeInterval) -> String {
 
 // How long until something comes back, for the emergency override's cooldown:
 // "3 days 5 hours", "5 hours 12 minutes", "12 minutes". Days matter here where
-// they do not in formatDurationPhrase — the quota runs a week — and the two
+// they do not in formatDurationPhrase — the cooldown lasts six days — and the two
 // largest units are the whole answer, because nobody waiting three days needs
 // the seconds. Anything already elapsed reads as the arrival it is.
 func formatTimeUntilPhrase(_ interval: TimeInterval) -> String {

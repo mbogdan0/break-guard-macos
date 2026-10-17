@@ -38,9 +38,9 @@ struct RestEncouragementView: View {
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
                 }
-                .id("\(status.canFinish)-\(status.messageIndex)")
-                .transition(.opacity)
             }
+            .id("\(status.canFinish)-\(status.messageIndex)")
+            .transition(.opacity)
             if status.canFinish {
                 ProgressView(value: status.progress)
                     .tint(tint)
