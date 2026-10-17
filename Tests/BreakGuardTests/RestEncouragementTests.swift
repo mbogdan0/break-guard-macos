@@ -79,23 +79,29 @@ final class RestEncouragementTests: XCTestCase {
         XCTAssertEqual(initial.quote, initial.message.text)
     }
 
-    func testEachStageCompletesBeforeTheNextStageStarts() {
+    func testProgressUsesTheSameBoundaryAsTheStageTransition() {
         let starts = RestEncouragement.stageStarts
         XCTAssertEqual(starts, [0, 5, 10, 15])
         for (stage, first) in starts.enumerated() {
-            let last = stage + 1 < starts.count ? starts[stage + 1] - 1 : 20
+            let end = stage + 1 < starts.count ? starts[stage + 1] : 20
             let startTime = RestEncouragement.rewardOffsets[first]
-            let endTime = RestEncouragement.rewardOffsets[last]
+            let endTime = RestEncouragement.rewardOffsets[end]
             XCTAssertEqual(status(extra: startTime).stageIndex, stage)
             XCTAssertEqual(status(extra: startTime).progress, 0)
             XCTAssertEqual(status(extra: (startTime + endTime) / 2).progress, 0.5, accuracy: 0.0001)
-            XCTAssertEqual(status(extra: endTime).progress, 1)
+            // Check the entire stage, including the gap after its last emoji.
+            for second in Int(startTime)..<Int(endTime) {
+                let current = status(extra: Double(second))
+                XCTAssertEqual(current.stageIndex, stage)
+                XCTAssertLessThan(current.progress, 1)
+                XCTAssertEqual(current.progress, (Double(second) - startTime) / (endTime - startTime), accuracy: 0.0001)
+            }
+            XCTAssertLessThan(status(extra: endTime - 0.01).progress, 1)
             if stage + 1 < starts.count {
-                let next = RestEncouragement.rewardOffsets[starts[stage + 1]]
-                XCTAssertEqual(status(extra: next - 0.01).stageIndex, stage)
-                XCTAssertEqual(status(extra: next - 0.01).progress, 1)
-                XCTAssertEqual(status(extra: next).stageIndex, stage + 1)
-                XCTAssertEqual(status(extra: next).progress, 0)
+                XCTAssertEqual(status(extra: endTime).stageIndex, stage + 1)
+                XCTAssertEqual(status(extra: endTime).progress, 0)
+            } else {
+                XCTAssertEqual(status(extra: endTime).progress, 1)
             }
         }
     }

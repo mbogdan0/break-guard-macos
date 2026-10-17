@@ -69,8 +69,9 @@ struct RestEncouragement {
     var progress: Double {
         guard canFinish else { return 0 }
         let first = Self.stageStarts[stageIndex]
+        // Fill until the next stage starts, not until this stage's last emoji.
         let last = stageIndex + 1 < Self.stageStarts.count
-            ? Self.stageStarts[stageIndex + 1] - 1 : Self.rewardOffsets.count - 1
+            ? Self.stageStarts[stageIndex + 1] : Self.rewardOffsets.count - 1
         let start = Self.rewardOffsets[first]
         let end = Self.rewardOffsets[last]
         return min(1, max(0, (extraRest - start) / (end - start)))

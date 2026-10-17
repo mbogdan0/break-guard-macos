@@ -33,8 +33,8 @@ struct RestEncouragementView: View {
                     .transition(.opacity)
             }
         }
-        .padding(14)
-        .frame(maxWidth: 420)
+        .padding(16)
+        .frame(maxWidth: 483)
         .background {
             RoundedRectangle(cornerRadius: 16)
                 .fill(LinearGradient(colors: [tint.opacity(0.16), tint.opacity(0.04)],
@@ -51,20 +51,20 @@ struct RestEncouragementView: View {
     }
 
     private var statusContent: some View {
-        HStack(alignment: .center, spacing: 12) {
+        HStack(alignment: .center, spacing: 14) {
             Text(status.message.emoji)
-                .font(.system(size: 32))
-                .frame(width: 40)
+                .font(.system(size: 38))
+                .frame(width: 48)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 4) {
                 Text(status.title)
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(tint)
                 Text(status.quote)
-                    .font(.system(size: 14))
+                    .font(.system(size: 15.5))
                     .foregroundStyle(.white.opacity(0.85))
                     .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
+                    .frame(maxWidth: .infinity, minHeight: 38, alignment: .leading)
             }
         }
     }
