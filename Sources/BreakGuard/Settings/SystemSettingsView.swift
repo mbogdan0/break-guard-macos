@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SystemSettingsView: View {
     @ObservedObject var appState: AppState
+    @State private var aboutExpanded = false
 
     var body: some View {
         Form {
@@ -53,7 +54,8 @@ struct SystemSettingsView: View {
                 )
             }
             Section {
-                DisclosureGroup("About BreakGuard") {
+                SettingsDisclosureRow(title: "About BreakGuard", isExpanded: $aboutExpanded)
+                if aboutExpanded {
                     AboutSettingsView()
                 }
             }

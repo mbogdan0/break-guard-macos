@@ -1,9 +1,11 @@
 import AppKit
+import os
 
 @MainActor
 final class SleepWakeManager {
     private weak var appState: AppState?
     private var activity = SessionActivity()
+    private let logger = Logger(subsystem: "local.bohdan.BreakGuard", category: "SleepWake")
 
     init(appState: AppState) {
         self.appState = appState
@@ -28,7 +30,9 @@ final class SleepWakeManager {
     }
 
     private func set(_ reason: InactiveReason, inactive: Bool) {
-        guard activity.set(reason, inactive: inactive) else { return }
+        let changed = activity.set(reason, inactive: inactive)
+        logger.info("Session signal: reason=\(String(describing: reason), privacy: .public), inactive=\(inactive), edge=\(changed), sessionInactive=\(self.activity.isInactive), longestSleepSeconds=\(self.activity.longestSleepDuration)")
+        guard changed else { return }
         if activity.isInactive {
             appState?.handleSleepOrInactive()
         } else {

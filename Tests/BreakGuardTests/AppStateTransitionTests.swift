@@ -75,6 +75,31 @@ final class AppStateTransitionTests: XCTestCase {
         XCTAssertFalse(app.isHoldingOverlayAction)
     }
 
+    func testEndingAnotherButtonsHoldDoesNotReleaseTheActiveButton() {
+        let clock = TransitionClock(now: start)
+        let app = app(clock: clock)
+        app.takeBreakNow()
+        let activeButton = UUID()
+        let otherButton = UUID()
+        app.setOverlayHold(activeButton, pressing: true)
+        app.setOverlayHold(otherButton, pressing: false)
+        XCTAssertTrue(app.isHoldingOverlayAction)
+        app.setOverlayHold(activeButton, pressing: false)
+        XCTAssertFalse(app.isHoldingOverlayAction)
+    }
+
+    func testStoppingClearsHoldAndRejectsLateGestureCallbacks() {
+        let clock = TransitionClock(now: start)
+        let app = app(clock: clock)
+        app.takeBreakNow()
+        let button = UUID()
+        app.setOverlayHold(button, pressing: true)
+        app.stop()
+        XCTAssertFalse(app.isHoldingOverlayAction)
+        app.setOverlayHold(button, pressing: true)
+        XCTAssertFalse(app.isHoldingOverlayAction)
+    }
+
     func testHoldsClearOnCompletionCancellationAndSleep() {
         for exit in ["complete", "cancel", "sleep"] {
             let clock = TransitionClock(now: start)

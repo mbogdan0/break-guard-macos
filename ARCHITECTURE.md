@@ -16,6 +16,8 @@ BreakGuard is a local macOS menu-bar app built with Swift Package Manager, AppKi
 | `MenuBar/` and `Settings/` | AppKit menu presentation and SwiftUI settings |
 | `Persistence/PersistenceStore.swift` | Schema checks, JSON loading, and atomic replacement |
 
+`OverlayScreenManager` manages display windows, `BreakOverlayWindow` defines the panel, and `BreakOverlayView` renders its content. Shared visual values live in `OverlayStyle`. Each hold control owns its interaction ID, so removing one control cannot release another control's active hold.
+
 `BreakGuardApp` retains the app state and system monitors. AppKit owns lifecycle and windows; SwiftUI renders their contents. The app uses accessory activation and has no Dock icon.
 
 ## Timer and Effects

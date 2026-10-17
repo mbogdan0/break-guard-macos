@@ -11,10 +11,11 @@ struct HoldToConfirmButton: View {
     // fill's redraw path.
     var subtitle: String? = nil
     let holdDuration: TimeInterval
-    var onPressingChanged: (Bool) -> Void = { _ in }
+    var onPressingChanged: (UUID, Bool) -> Void = { _, _ in }
     let action: () -> Void
 
     @Environment(\.controlSize) private var controlSize
+    @State private var holdID = UUID()
     @State private var isPressing = false
     @State private var progress: CGFloat = 0
 
@@ -65,7 +66,7 @@ struct HoldToConfirmButton: View {
             .onLongPressGesture(minimumDuration: holdDuration, maximumDistance: 30) {
                 action()
             } onPressingChanged: { pressing in
-                onPressingChanged(pressing)
+                onPressingChanged(holdID, pressing)
                 isPressing = pressing
                 if pressing {
                     withAnimation(.linear(duration: holdDuration)) {
@@ -77,7 +78,7 @@ struct HoldToConfirmButton: View {
                     }
                 }
             }
-            .onDisappear { onPressingChanged(false) }
+            .onDisappear { onPressingChanged(holdID, false) }
             .accessibilityRepresentation {
                 Button(subtitle.map { "\(title), \($0)" } ?? title, action: action)
             }

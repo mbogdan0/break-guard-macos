@@ -59,6 +59,30 @@ final class LongSleepTests: XCTestCase {
         }
     }
 
+    func testRepeatedRecoveryAfterOvernightRestDoesNotCreateAnotherBreak() {
+        var machine = sleepingMachine()
+        machine.clock = SleepClock(now: machine.clock.now.addingTimeInterval(7 * 3600))
+        machine.restoreAfterSleep()
+        let restored = machine.runtime
+        guard case .working = restored.timerState else { return XCTFail("Expected a fresh cycle") }
+        machine.clock = SleepClock(now: machine.clock.now.addingTimeInterval(1))
+        machine.restoreAfterSleep()
+        XCTAssertEqual(machine.runtime, restored)
+    }
+
+    func testRepeatedRecoveryAfterExpiredPauseDoesNotCreateAnotherBreak() {
+        var machine = StateMachine(clock: SleepClock(now: start))
+        _ = machine.tick()
+        machine.suspend(until: start.addingTimeInterval(600))
+        machine.clock = SleepClock(now: start.addingTimeInterval(601))
+        machine.restoreAfterSleep()
+        let restored = machine.runtime
+        guard case .working = restored.timerState else { return XCTFail("Expected a fresh cycle") }
+        machine.clock = SleepClock(now: machine.clock.now.addingTimeInterval(1))
+        machine.restoreAfterSleep()
+        XCTAssertEqual(machine.runtime, restored)
+    }
+
     func testOneHourBoundary() {
         for duration: TimeInterval in [3599, 3600, 3601] {
             var machine = sleepingMachine()

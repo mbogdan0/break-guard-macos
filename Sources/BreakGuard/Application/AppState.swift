@@ -114,7 +114,7 @@ final class AppState: ObservableObject {
 
     func setOverlayHold(_ id: UUID, pressing: Bool) {
         if pressing {
-            guard !sessionInactive, case .breaking = timerState else { return }
+            guard !sessionInactive, !isTerminating, case .breaking = timerState else { return }
             activeHolds.insert(id)
         } else {
             activeHolds.remove(id)
@@ -207,6 +207,7 @@ final class AppState: ObservableObject {
     func stop() {
         logger.info("Application stopping")
         isTerminating = true
+        activeHolds.removeAll()
         uiTimer?.invalidate()
         // Deliberately nothing about breaks here. Quitting is not the screen
         // going away, and the heartbeat already records where watching stopped
@@ -701,8 +702,9 @@ final class AppState: ObservableObject {
     }
 
     private func publish() {
-        if case .breaking = machine.runtime.timerState {} else {
-            activeHolds.removeAll()
+        switch machine.runtime.timerState {
+        case .breaking: break
+        default: activeHolds.removeAll()
         }
         setIfChanged(\.settings, machine.settings)
         setIfChanged(\.timerState, machine.runtime.timerState)

@@ -53,14 +53,13 @@ struct StateMachine {
         runtime.dailySkipUsage.remaining(limit: settings.dailySkipLimit, at: clock.now)
     }
 
-    // Harder mode allows either one extension or one regular postponement.
-    var canExtendFocus: Bool {
+    // Extensions and postponements share the same regular skip budget.
+    private var hasRegularSkipAllowance: Bool {
         !settings.harderToSkipBreaks || (!normalSkipUsed && dailySkipsRemaining > 0)
     }
 
-    var canPostpone: Bool {
-        !settings.harderToSkipBreaks || (!normalSkipUsed && dailySkipsRemaining > 0)
-    }
+    var canExtendFocus: Bool { hasRegularSkipAllowance }
+    var canPostpone: Bool { hasRegularSkipAllowance }
 
     var postponeHoldTier: PostponeHoldTier {
         if settings.harderToSkipBreaks { return .harder }
@@ -80,8 +79,7 @@ struct StateMachine {
         guard runtime.manualBreakOrigin == nil,
               isBreakingOrDue(runtime.timerState) else { return false }
         if case let .breaking(deadline, _, _) = runtime.timerState, clock.now >= deadline { return false }
-        guard let availableAt = emergencyOverrideAvailableAt else { return true }
-        return clock.now >= availableAt
+        return canSpendOverrideOnPressure
     }
 
     // The same weekly hatch, spent from the nudge card instead of a break
@@ -511,7 +509,7 @@ struct StateMachine {
         // resolution restoreAfterSleep() applies — so the tick path and the
         // wake path cannot disagree about what an expired pause means.
         if let until, clock.now >= until {
-            startWorkCycle()
+            startWorkCycleAfterAbsence()
             return
         }
         // Deliberately no "a long enough pause counts as a break" branch here.
@@ -609,35 +607,18 @@ struct StateMachine {
         // passed, the whole pause counted as rest, so a fresh cycle starts.
         if case let .suspended(_, _, until) = runtime.timerState, let until {
             if clock.now < until { return }
-            startWorkCycle()
+            startWorkCycleAfterAbsence()
             return
         }
 
-        // Only a measured system sleep qualifies. A long break or lock alone
-        // must still wait for Continue. The caller waits for the active session.
-        if sleepDuration.isFinite, sleepDuration >= 60 * 60 {
-            switch runtime.timerState {
-            case let .breaking(deadline, _, _) where clock.now >= deadline:
-                startWorkCycle()
-                runtime.lastTickAt = clock.now
-                return
-            case .breakCompleted:
-                startWorkCycle()
-                runtime.lastTickAt = clock.now
-                return
-            default:
-                break
-            }
+        if shouldCompleteAfterSleep(duration: sleepDuration) {
+            startWorkCycleAfterAbsence()
+            return
         }
 
         // A longer absence also starts a fresh cycle without confirmation.
-        // This uses the same predicate that resets tapering: a night gives both a clean cycle
-        // and a clean accumulator, while a two-hour lunch gives neither — the
-        // user comes back to the completion screen and clicks.
-        //
-        // Anything shorter is left exactly as it is. A break in progress keeps
-        // its wall-clock deadline and waits for Continue; a countdown resumes
-        // where it stopped. Nothing else here may credit a break.
+        // The tapering reset rule still applies to verified absence without
+        // a measured sleep. Shorter absences keep the existing break or countdown.
         // downtimeStart is the evidence that the user was away at all; the last
         // monitored focus is what the length is measured from. They differ once
         // absences chain — an evening lock followed by a morning wake starts
@@ -646,12 +627,11 @@ struct StateMachine {
         if let awayFrom = downtimeStart,
            taperingDayStartedOver(since: runtime.lastFocusAt ?? awayFrom) {
             // Focus ended when the user left, not now. Without this the whole
-            // absence is measured as focus and charged to the tapering accumulator — a night away would arrive in the
-            // morning as eight hours of work.
+            // absence would be charged to tapering as focused time.
             if runtime.preservedAt == nil {
                 runtime.preservedAt = awayFrom
             }
-            startWorkCycle()
+            startWorkCycleAfterAbsence()
             return
         }
 
@@ -672,6 +652,24 @@ struct StateMachine {
                 beginDowntimeBreak(at: lastTick)
             }
         }
+    }
+
+    private func shouldCompleteAfterSleep(duration: TimeInterval) -> Bool {
+        // Only measured sleep qualifies; break age and lock time do not.
+        guard duration.isFinite, duration >= 60 * 60 else { return false }
+        switch runtime.timerState {
+        case let .breaking(deadline, _, _): return clock.now >= deadline
+        case .breakCompleted: return true
+        default: return false
+        }
+    }
+
+    private mutating func startWorkCycleAfterAbsence() {
+        startWorkCycle()
+        // Recovery has accounted for the gap. A second restore before the
+        // next tick must not treat the old heartbeat as another absence.
+        // Do not stamp lastFocusAt: no new work has happened yet.
+        runtime.lastTickAt = clock.now
     }
 
     // When the user stopped being at the machine, as far as anything here can

@@ -68,14 +68,19 @@ struct GeneralSettingsView: View {
             }
 
             Section {
-                DisclosureGroup("More options", isExpanded: $advancedExpanded) {
+                SettingsDisclosureRow(title: "More options", isExpanded: $advancedExpanded)
+                if advancedExpanded {
                     durationRow("Warn before", keyPath: \.warningLeadTime, range: SettingsRange.warningLeadTime)
                     durationRow("Short postponement", keyPath: \.firstPostponeDuration, range: SettingsRange.postponeDuration)
                     durationRow("Long postponement", keyPath: \.secondPostponeDuration, range: SettingsRange.postponeDuration)
                     if appState.settings.focusPace == .tapering {
-                        Stepper("Reset tapering after \(Int(appState.settings.taperingResetGap / 3600)) hours",
-                                value: appState.hoursBinding(\.taperingResetGap, range: SettingsRange.taperingResetGapHours),
-                                in: SettingsRange.taperingResetGapHours)
+                        Picker("Reset tapering after",
+                               selection: appState.hoursBinding(\.taperingResetGap, range: SettingsRange.taperingResetGapHours)) {
+                            ForEach(SettingsRange.taperingResetGapHours, id: \.self) { hours in
+                                Text(hours == 1 ? "1 hour" : "\(hours) hours").tag(hours)
+                            }
+                        }
+                        .frame(minHeight: 32)
                     }
                 }
             }
@@ -106,16 +111,6 @@ struct GeneralSettingsView: View {
 
     private func durationRow(_ title: String, keyPath: WritableKeyPath<AppSettings, TimeInterval>,
                              range: ClosedRange<Int>) -> some View {
-        let binding = appState.secondsBinding(keyPath, range: range)
-        return LabeledContent(title) {
-            HStack(spacing: 6) {
-                TextField(title, value: binding, format: DurationFieldStyle())
-                    .labelsHidden()
-                    .multilineTextAlignment(.trailing)
-                    .frame(width: 64)
-                    .help("Minutes and seconds (mm:ss). A plain number means minutes.")
-                Stepper(title, value: binding, in: range, step: 60).labelsHidden()
-            }
-        }
+        SettingsDurationRow(title: title, seconds: appState.secondsBinding(keyPath, range: range), range: range)
     }
 }
