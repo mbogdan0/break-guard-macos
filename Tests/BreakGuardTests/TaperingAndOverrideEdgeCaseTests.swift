@@ -72,7 +72,7 @@ final class TaperingAndOverrideEdgeCaseTests: XCTestCase {
         XCTAssertEqual(machine.runtime.taperedFocusSeconds, 10 * 60, accuracy: 0.001)
     }
 
-    // Postponed time counts as focus, matching how statistics credit it. Pinned
+    // Postponed time counts as focus. Pinned
     // because it is a deliberate choice, not an accident of the measurement.
     func testPostponedTimeCountsAsFocus() {
         let start = Date(timeIntervalSince1970: 120_000)
@@ -152,7 +152,6 @@ final class TaperingAndOverrideEdgeCaseTests: XCTestCase {
         machine.completeBreak()
 
         // 30 minutes before the break plus 15 on the postponed window.
-        XCTAssertEqual(machine.statistics.totalFocusMinutes, 45)
         XCTAssertEqual(machine.runtime.taperedFocusSeconds, 45 * 60, accuracy: 0.001)
     }
 
@@ -180,7 +179,7 @@ final class TaperingAndOverrideEdgeCaseTests: XCTestCase {
     // The accumulator is persisted as a Double. JSONEncoder throws on infinity
     // and NaN, and PersistenceStore.save() swallows that error, so a poisoned
     // value would silently stop every future write and freeze the user's
-    // statistics forever. The value must be kept finite at the source.
+    // state forever. The value must be kept finite at the source.
     func testAccumulatorStaysEncodableAfterAbsurdInput() throws {
         let start = Date(timeIntervalSince1970: 150_000)
         var clock = FakeClock(now: start)
@@ -257,8 +256,8 @@ final class TaperingAndOverrideEdgeCaseTests: XCTestCase {
         )
     }
 
-    // Overriding and then postponing inside one cycle is one violation, not two.
-    func testOverrideThenPostponeCountsOneViolatedCycle() {
+    // Regular postponements remain separate from the weekly override.
+    func testOverrideThenPostponeKeepsIndependentCounters() {
         let start = Date(timeIntervalSince1970: 180_000)
         var clock = FakeClock(now: start)
         var machine = taperingMachine(start: start, clock: clock)
@@ -274,9 +273,9 @@ final class TaperingAndOverrideEdgeCaseTests: XCTestCase {
         XCTAssertEqual(machine.tick(), .breakDue)
         machine.startBreak()
         machine.postpone(by: 2 * 60)
-
-        XCTAssertEqual(machine.statistics.violatedCycles, 1)
-        XCTAssertEqual(machine.statistics.currentCleanStreak, 0)
+        XCTAssertEqual(machine.runtime.cyclePostponements, 2)
+        XCTAssertEqual(machine.runtime.cycleRegularPostponements, 1)
+        XCTAssertEqual(machine.dailySkipsRemaining, machine.settings.dailySkipLimit - 1)
     }
 
     // The grant lands in .postponed, from which takeBreakNow is still legal;
@@ -312,7 +311,6 @@ final class TaperingAndOverrideEdgeCaseTests: XCTestCase {
         let start = Date(timeIntervalSince1970: 210_000)
         let clock = FakeClock(now: start)
         var machine = taperingMachine(start: start, clock: clock)
-        machine.statistics.currentCleanStreak = 4
 
         XCTAssertTrue(machine.canSpendOverrideOnPressure)
         machine.spendOverrideOnPressure()
@@ -320,11 +318,8 @@ final class TaperingAndOverrideEdgeCaseTests: XCTestCase {
         XCTAssertEqual(machine.runtime.emergencyOverrideUsedAt, start)
         XCTAssertTrue(machine.isPressureOverrideActive)
         XCTAssertFalse(machine.canSpendOverrideOnPressure)
-        // Nothing about the cycle or the statistics moved.
-        XCTAssertFalse(machine.runtime.cycleViolated)
+        // Nothing about the cycle moved.
         XCTAssertEqual(machine.runtime.cyclePostponements, 0)
-        XCTAssertEqual(machine.statistics.violatedCycles, 0)
-        XCTAssertEqual(machine.statistics.currentCleanStreak, 4)
         guard case .working = machine.runtime.timerState else {
             return XCTFail("The countdown must be left exactly as it was")
         }

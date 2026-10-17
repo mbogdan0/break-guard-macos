@@ -1,8 +1,7 @@
 import Foundation
 
 // A convenience scale on top of the configured work interval, so switching
-// between paces does not require editing the interval itself. Statistics
-// always record the actual elapsed focus time.
+// between paces does not require editing the interval itself.
 enum FocusPace: String, Codable, CaseIterable {
     case moreBreaks
     case normal
@@ -106,7 +105,7 @@ enum EmergencyOverride {
 // Absence inferred from input silence. Sleep and lock notifications cannot
 // see a machine that stays awake with nobody at it (insomnia with the lid
 // closed, a wake nobody asked for), so input idle is the backstop that keeps
-// unattended hours out of the focus statistics.
+// unattended hours out of the focus accumulator.
 enum IdleAway {
     // Long enough that reading or watching something rarely trips it, short
     // enough that an unattended machine cannot fabricate much focus. The
@@ -122,13 +121,6 @@ enum CallHold {
     // Floor for the guaranteed post-call runway when the warning lead is
     // configured shorter (or zero).
     static let minimumRunway: TimeInterval = 2 * 60
-}
-
-// Defense in depth for the statistics: no single cycle can legitimately run
-// anywhere near this long, so anything above it is a monitoring gap that
-// slipped through, not focus.
-enum StatisticsIntegrity {
-    static let maxCreditablePerCycle: TimeInterval = 4 * 60 * 60
 }
 
 enum PostponeHoldTier: Equatable {
@@ -205,14 +197,6 @@ struct AppSettings: Codable, Equatable {
     var workingHoursEnabled: Bool = false
     var weekdayWorkingHours = WorkingHoursRange(enabled: true)
     var weekendWorkingHours = WorkingHoursRange(enabled: false)
-    // The daily rest window. Weekdays only, deliberately not configurable:
-    // a scheduled break that can be moved to the weekend is a break nobody
-    // takes. Pressure only runs while harderToSkipBreaks is on.
-    var scheduledBreak = WorkingHoursRange(
-        enabled: false,
-        startMinutes: 15 * 60 + 30,
-        endMinutes: 16 * 60
-    )
     // A gap this long without focus means the workday ended: tapering
     // starts over and sessions run at full length again.
     var taperingResetGap: TimeInterval = 6 * 60 * 60
@@ -264,7 +248,6 @@ struct AppSettings: Codable, Equatable {
         warningLeadTime = min(warningLeadTime, workInterval)
         weekdayWorkingHours.clamp()
         weekendWorkingHours.clamp()
-        scheduledBreak.clamp()
         let gapRange = (SettingsRange.taperingResetGapHours.lowerBound * 3600)...(SettingsRange.taperingResetGapHours.upperBound * 3600)
         taperingResetGap = clampSeconds(taperingResetGap, to: gapRange)
         dailySkipLimit = min(max(dailySkipLimit, SettingsRange.dailySkipLimit.lowerBound), SettingsRange.dailySkipLimit.upperBound)
@@ -282,7 +265,7 @@ extension AppSettings {
              firstPostponeDuration, secondPostponeDuration, notificationSound,
              launchAtLogin, showSecondsInMenuBar, coarseSecondsInMenuBar,
              workingHoursEnabled, weekdayWorkingHours, weekendWorkingHours,
-             scheduledBreak, taperingResetGap, harderToSkipBreaks,
+             taperingResetGap, harderToSkipBreaks,
              holdBreaksWhileOnCamera, holdBreaksWhileMicrophoneInUse, dailySkipLimit
     }
 
@@ -303,7 +286,6 @@ extension AppSettings {
         workingHoursEnabled = try container.decodeIfPresent(Bool.self, forKey: .workingHoursEnabled) ?? defaults.workingHoursEnabled
         weekdayWorkingHours = try container.decodeIfPresent(WorkingHoursRange.self, forKey: .weekdayWorkingHours) ?? defaults.weekdayWorkingHours
         weekendWorkingHours = try container.decodeIfPresent(WorkingHoursRange.self, forKey: .weekendWorkingHours) ?? defaults.weekendWorkingHours
-        scheduledBreak = try container.decodeIfPresent(WorkingHoursRange.self, forKey: .scheduledBreak) ?? defaults.scheduledBreak
         taperingResetGap = try container.decodeIfPresent(TimeInterval.self, forKey: .taperingResetGap) ?? defaults.taperingResetGap
         harderToSkipBreaks = try container.decodeIfPresent(Bool.self, forKey: .harderToSkipBreaks) ?? defaults.harderToSkipBreaks
         holdBreaksWhileOnCamera = try container.decodeIfPresent(Bool.self, forKey: .holdBreaksWhileOnCamera) ?? defaults.holdBreaksWhileOnCamera

@@ -66,8 +66,10 @@ final class OverlayScreenManager {
             }
         }
         removeWindowsForDisconnectedScreens()
-        makeOverlayKeyIfNeeded()
-        activateIfNeeded()
+        if !appState.isHoldingOverlayAction {
+            makeOverlayKeyIfNeeded()
+            activateIfNeeded()
+        }
     }
 
     @objc func updateForScreenChanges() {
@@ -83,6 +85,9 @@ final class OverlayScreenManager {
     // was actually displaced, and re-assert on a slow cadence to stay above
     // anything else that parks itself at `.screenSaver` without hiding us.
     func bringToFront() {
+        // Reordering or changing focus during a gesture can interrupt tracking.
+        // Keep the pending reassertion until the pointer is released.
+        guard appState?.isHoldingOverlayAction != true else { return }
         reassertCountdown -= 1
         let reassert = reassertCountdown <= 0
         if reassert {
@@ -213,6 +218,7 @@ final class BreakOverlayWindow: NSPanel {
 struct BreakOverlayView: View {
     @ObservedObject var appState: AppState
     let breakPrompt: String
+    @State private var holdID = UUID()
 
     var body: some View {
         ZStack {
@@ -272,11 +278,13 @@ struct BreakOverlayView: View {
             .lineLimit(1)
             .minimumScaleFactor(0.7)
             .padding(.top, 12)
-            Text(breakPrompt)
-                .font(.system(size: 22))
-                .foregroundStyle(.white.opacity(0.7))
-                .multilineTextAlignment(.center)
-                .padding(.top, 16)
+            if !appState.settings.encourageLongBreaks {
+                Text(breakPrompt)
+                    .font(.system(size: 22))
+                    .foregroundStyle(.white.opacity(0.7))
+                    .multilineTextAlignment(.center)
+                    .padding(.top, 16)
+            }
             encouragement
             let actionSet = breakOverlayActionSet(
                 isManualBreak: appState.isManualBreak,
@@ -357,13 +365,14 @@ struct BreakOverlayView: View {
                     HoldToConfirmButton(
                         title: "Skip This Break — +\(formatDurationCompact(EmergencyOverride.focusGrant))",
                         subtitle: postponeHoldHint(EmergencyOverride.holdDuration),
-                        holdDuration: EmergencyOverride.holdDuration
+                        holdDuration: EmergencyOverride.holdDuration,
+                        onPressingChanged: { appState.setOverlayHold(holdID, pressing: $0) }
                     ) {
                         appState.useEmergencyOverride()
                     }
                     .frame(width: 320)
                     .padding(.top, 14)
-                    Text("Once every 7 days, whatever else is switched on. Spending it breaks your clean streak.")
+                    Text("Once every 7 days, whatever else is switched on. Use it when a break cannot wait.")
                         .font(.system(size: 12))
                         .foregroundStyle(.white.opacity(0.45))
                         .multilineTextAlignment(.center)
@@ -424,10 +433,12 @@ struct BreakOverlayView: View {
 
     private var continueWorkingContent: some View {
         VStack(spacing: 0) {
-            Text("Well rested. Ready when you are.")
-                .font(.system(size: 22))
-                .foregroundStyle(.white.opacity(0.7))
-                .padding(.top, 24)
+            if !appState.settings.encourageLongBreaks {
+                Text("Well rested. Ready when you are.")
+                    .font(.system(size: 22))
+                    .foregroundStyle(.white.opacity(0.7))
+                    .padding(.top, 24)
+            }
             Button {
                 appState.completeBreak()
             } label: {
@@ -451,7 +462,8 @@ struct BreakOverlayView: View {
         return HoldToConfirmButton(
             title: "Postpone for \(formatDurationCompact(duration))",
             subtitle: postponeHoldHint(hold),
-            holdDuration: hold
+            holdDuration: hold,
+            onPressingChanged: { appState.setOverlayHold(holdID, pressing: $0) }
         ) {
             appState.postpone(seconds: duration)
         }

@@ -62,27 +62,24 @@ final class StateMachineTests: XCTestCase {
         machine.clock = clock
         XCTAssertEqual(machine.tick(), .breakCompleted)
         machine.completeBreak()
-
-        XCTAssertEqual(machine.statistics.focusMinutesByDay[FocusDay.key(for: clock.now)], 36)
+        XCTAssertEqual(machine.runtime.taperedFocusSeconds, 36 * 60)
     }
 
-    func testFirstPostponementViolatesCycleOnce() {
+    func testEachPostponementSpendsOneDailyUse() {
         let start = Date(timeIntervalSince1970: 2_000)
         var clock = FakeClock(now: start)
         var machine = StateMachine(clock: clock)
 
         machine.takeBreakNow()
         machine.postpone(by: 120)
-        XCTAssertEqual(machine.statistics.currentCleanStreak, 0)
-        XCTAssertEqual(machine.statistics.violatedCycles, 1)
-        XCTAssertEqual(machine.statistics.totalPostponements, 1)
+        XCTAssertEqual(machine.runtime.dailySkipUsage.count, machine.runtime.cycleRegularPostponements)
 
         clock.now = start.addingTimeInterval(10)
         machine.clock = clock
         machine.runtime.timerState = .breakDue
         machine.postpone(by: 120)
-        XCTAssertEqual(machine.statistics.violatedCycles, 1)
-        XCTAssertEqual(machine.statistics.totalPostponements, 2)
+        XCTAssertEqual(machine.runtime.dailySkipUsage.count, 2)
+        XCTAssertEqual(machine.runtime.cycleRegularPostponements, 2)
     }
 
     func testTakeBreakNowDoesNotDestroySuspension() {
@@ -125,7 +122,7 @@ final class StateMachineTests: XCTestCase {
         XCTAssertEqual(machine.runtime.timerState, .breakCompleted)
     }
 
-    func testCleanBreakIncrementsStreakAndCreditsElapsedFocusMinutes() {
+    func testCompletedBreakBanksElapsedFocusForTapering() {
         let start = Date(timeIntervalSince1970: 3_000)
         var clock = FakeClock(now: start)
         var settings = AppSettings.defaults
@@ -140,11 +137,7 @@ final class StateMachineTests: XCTestCase {
         machine.clock = clock
         XCTAssertEqual(machine.tick(), .breakCompleted)
         machine.completeBreak()
-
-        XCTAssertEqual(machine.statistics.completedBreaks, 1)
-        XCTAssertEqual(machine.statistics.currentCleanStreak, 1)
-        XCTAssertEqual(machine.statistics.bestCleanStreak, 1)
-        XCTAssertEqual(machine.statistics.focusMinutesByDay[FocusDay.key(for: clock.now)], 7)
+        XCTAssertEqual(machine.runtime.taperedFocusSeconds, 7 * 60)
     }
 
     func testFullWorkIntervalCreditsIntervalMinutes() {
@@ -163,8 +156,7 @@ final class StateMachineTests: XCTestCase {
         machine.clock = clock
         XCTAssertEqual(machine.tick(), .breakCompleted)
         machine.completeBreak()
-
-        XCTAssertEqual(machine.statistics.focusMinutesByDay[FocusDay.key(for: clock.now)], 30)
+        XCTAssertEqual(machine.runtime.taperedFocusSeconds, 30 * 60)
     }
 
     func testPostponedTimeCountsTowardFocusMinutes() {
@@ -188,8 +180,7 @@ final class StateMachineTests: XCTestCase {
         machine.clock = clock
         XCTAssertEqual(machine.tick(), .breakCompleted)
         machine.completeBreak()
-
-        XCTAssertEqual(machine.statistics.focusMinutesByDay[FocusDay.key(for: clock.now)], 15)
+        XCTAssertEqual(machine.runtime.taperedFocusSeconds, 15 * 60)
     }
 
     func testSuspendedTimeIsExcludedFromFocusMinutes() {
@@ -218,11 +209,10 @@ final class StateMachineTests: XCTestCase {
         machine.clock = clock
         XCTAssertEqual(machine.tick(), .breakCompleted)
         machine.completeBreak()
-
-        XCTAssertEqual(machine.statistics.focusMinutesByDay[FocusDay.key(for: clock.now)], 30)
+        XCTAssertEqual(machine.runtime.taperedFocusSeconds, 30 * 60)
     }
 
-    func testExtendFocusShiftsWorkingDeadlinesWithoutRecordingStatistics() {
+    func testExtendFocusShiftsWorkingDeadlines() {
         let start = Date(timeIntervalSince1970: 6_000)
         var settings = AppSettings.defaults
         settings.workInterval = 30 * 60
@@ -237,8 +227,6 @@ final class StateMachineTests: XCTestCase {
         }
         XCTAssertEqual(deadline, start.addingTimeInterval(65 * 60))
         XCTAssertEqual(warningDeadline, start.addingTimeInterval(64 * 60))
-        XCTAssertEqual(machine.statistics, .empty)
-        XCTAssertFalse(machine.runtime.cycleViolated)
         XCTAssertTrue(machine.runtime.focusExtended)
     }
 
@@ -397,11 +385,9 @@ final class StateMachineTests: XCTestCase {
         XCTAssertEqual(machine.tick(), .breakDue)
         machine.startBreak()
         let stateBefore = machine.runtime.timerState
-        let statisticsBefore = machine.statistics
         machine.postpone(by: 15 * 60)
         machine.extendFocus(by: 15 * 60)
         XCTAssertEqual(machine.runtime.timerState, stateBefore)
-        XCTAssertEqual(machine.statistics, statisticsBefore)
     }
 
     func testNormalModeEscalatesOnlyAfterARegularPostponement() {
@@ -469,13 +455,10 @@ final class StateMachineTests: XCTestCase {
         machine.clock = clock
         XCTAssertEqual(machine.tick(), .breakCompleted)
         machine.completeBreak()
-
-        XCTAssertEqual(machine.statistics.focusMinutesByDay[FocusDay.key(for: clock.now)], 65)
-        XCTAssertEqual(machine.statistics.currentCleanStreak, 1)
-        XCTAssertEqual(machine.statistics.violatedCycles, 0)
+        XCTAssertEqual(machine.runtime.taperedFocusSeconds, 65 * 60)
     }
 
-    func testStartingNewCycleClearsCycleFlagsWithoutChangingStatistics() {
+    func testStartingNewCycleClearsCycleFlags() {
         let start = Date(timeIntervalSince1970: 3_800)
         var clock = FakeClock(now: start)
         var settings = AppSettings.defaults
@@ -487,7 +470,6 @@ final class StateMachineTests: XCTestCase {
         machine.clock = clock
         machine.takeBreakNow()
         machine.postpone(by: 5 * 60)
-        let statisticsBefore = machine.statistics
 
         machine.startWorkCycle()
 
@@ -495,41 +477,16 @@ final class StateMachineTests: XCTestCase {
             return XCTFail("Expected working state")
         }
         XCTAssertEqual(deadline.timeIntervalSince(clock.now), 30 * 60, accuracy: 0.1)
-        XCTAssertEqual(machine.statistics, statisticsBefore)
-        XCTAssertFalse(machine.runtime.cycleViolated)
         XCTAssertEqual(machine.runtime.cyclePostponements, 0)
         XCTAssertEqual(machine.runtime.cycleRegularPostponements, 0)
         XCTAssertEqual(machine.runtime.cycleStartDate, clock.now)
     }
 
-    func testCompletedBreaksCreditDailyMinutes() {
-        // Midday UTC keeps every event on one local calendar day in any zone.
-        let start = Date(timeIntervalSince1970: 50_000)
-        var clock = FakeClock(now: start)
-        var settings = AppSettings.defaults
-        settings.breakDuration = 60
-        var machine = StateMachine(settings: settings, clock: clock)
-
-        // Three same-day cycles, every completion counts.
-        for focusMinutes in [10, 5, 7] {
-            clock.now = clock.now.addingTimeInterval(TimeInterval(focusMinutes * 60))
-            machine.clock = clock
-            machine.takeBreakNow()
-            machine.startBreak()
-            clock.now = clock.now.addingTimeInterval(61)
-            machine.clock = clock
-            _ = machine.tick()
-            machine.completeBreak()
-        }
-
-        XCTAssertEqual(machine.statistics.focusMinutesByDay, [FocusDay.key(for: clock.now): 22])
-        XCTAssertEqual(machine.statistics.completedBreaks, 3)
-    }
-
     func testCompletionIsIgnoredOutsideCompletedState() {
         var machine = StateMachine()
+        let before = machine.runtime
         machine.completeBreak()
-        XCTAssertEqual(machine.statistics, .empty)
+        XCTAssertEqual(machine.runtime, before)
     }
 
     // MARK: - Downtime starts a break; only Continue ends one
@@ -562,7 +519,6 @@ final class StateMachineTests: XCTestCase {
         XCTAssertEqual(startedAt, away)
         XCTAssertEqual(deadline, away.addingTimeInterval(2 * 60))
         // Nothing is credited until the user clicks Continue.
-        XCTAssertEqual(machine.statistics, .empty)
     }
 
     func testShortPausePreservesRepeatedPostponementTier() {
@@ -612,7 +568,6 @@ final class StateMachineTests: XCTestCase {
         XCTAssertEqual(machine.tick(), .breakCompleted)
 
         // Still nothing credited — the user has not confirmed.
-        XCTAssertEqual(machine.statistics, .empty)
 
         machine.completeBreak()
         guard case let .working(deadline, _) = machine.runtime.timerState else {
@@ -623,10 +578,6 @@ final class StateMachineTests: XCTestCase {
         XCTAssertEqual(machine.runtime.cyclePostponements, 0)
         // The 5 minutes before the downtime land on the day they happened, and
         // the break the user sat out is counted once they confirm it.
-        let dayKey = FocusDay.key(for: away)
-        XCTAssertEqual(machine.statistics.focusMinutesByDay, [dayKey: 5])
-        XCTAssertEqual(machine.statistics.completedBreaks, 1)
-        XCTAssertEqual(machine.statistics.currentCleanStreak, 1)
     }
 
     // Sleeping through a break does not shorten it and does not finish it: the
@@ -653,7 +604,6 @@ final class StateMachineTests: XCTestCase {
         // The break it was already in is untouched by the downtime signal.
         XCTAssertEqual(machine.runtime.breakStartedAt, breakStart)
         XCTAssertEqual(machine.tick(), .breakCompleted)
-        XCTAssertEqual(machine.statistics, .empty)
 
         machine.completeBreak()
         guard case .working = machine.runtime.timerState else {
@@ -661,9 +611,6 @@ final class StateMachineTests: XCTestCase {
         }
         XCTAssertNil(machine.runtime.breakStartedAt)
         XCTAssertNil(machine.runtime.manualBreakOrigin)
-        XCTAssertEqual(machine.statistics.completedBreaks, 1)
-        XCTAssertEqual(machine.statistics.currentCleanStreak, 1)
-        XCTAssertEqual(machine.statistics.focusMinutesByDay, [FocusDay.key(for: breakStart): 10])
     }
 
     func testDowntimeWithBreakDueResetsOnlyAfterLongPause() {
@@ -691,14 +638,11 @@ final class StateMachineTests: XCTestCase {
         machine.clock = clock
         machine.restoreAfterSleep()
         XCTAssertEqual(machine.tick(), .breakCompleted)
-        XCTAssertEqual(machine.statistics.completedBreaks, 0)
 
         machine.completeBreak()
         guard case .working = machine.runtime.timerState else {
             return XCTFail("Expected working state after Continue")
         }
-        XCTAssertEqual(machine.statistics.completedBreaks, 1)
-        XCTAssertEqual(machine.statistics.focusMinutesByDay, [FocusDay.key(for: away): 10])
     }
 
     func testInitFromPersistedDataAppliesLongPauseReset() {
@@ -742,7 +686,6 @@ final class StateMachineTests: XCTestCase {
         machine.restoreAfterSleep()
 
         XCTAssertEqual(machine.tick(), .breakDue)
-        XCTAssertEqual(machine.statistics, .empty)
 
         // A deadline that is not yet stale is left untouched.
         var freshMachine = StateMachine(settings: settings, clock: FakeClock(now: start))
@@ -811,7 +754,6 @@ final class StateMachineTests: XCTestCase {
         XCTAssertNil(machine.runtime.manualBreakOrigin)
         XCTAssertNil(machine.runtime.breakStartedAt)
         XCTAssertNil(machine.runtime.cycleFocusDuration)
-        XCTAssertEqual(machine.statistics, .empty)
 
         // Finish the cycle: the 3 overlay minutes must not be credited.
         clock.now = clock.now.addingTimeInterval(12 * 60)
@@ -822,7 +764,6 @@ final class StateMachineTests: XCTestCase {
         machine.clock = clock
         XCTAssertEqual(machine.tick(), .breakCompleted)
         machine.completeBreak()
-        XCTAssertEqual(machine.statistics.focusMinutesByDay[FocusDay.key(for: clock.now)], 30)
     }
 
     func testCancelManualBreakLandsInWarningWhenInsideLeadTime() {
@@ -856,7 +797,7 @@ final class StateMachineTests: XCTestCase {
         XCTAssertEqual(machine.runtime.timerState, stateBefore)
     }
 
-    func testPostponeDuringManualBreakClearsOriginAndRecordsViolation() {
+    func testPostponeDuringManualBreakClearsOrigin() {
         let start = Date(timeIntervalSince1970: 8_400)
         let clock = FakeClock(now: start)
         var machine = StateMachine(clock: clock)
@@ -866,8 +807,6 @@ final class StateMachineTests: XCTestCase {
         machine.postpone(by: 2 * 60)
 
         XCTAssertNil(machine.runtime.manualBreakOrigin)
-        XCTAssertTrue(machine.runtime.cycleViolated)
-        XCTAssertEqual(machine.statistics.violatedCycles, 1)
         XCTAssertEqual(machine.runtime.timerState, .postponed(deadline: start.addingTimeInterval(2 * 60)))
     }
 
@@ -889,8 +828,6 @@ final class StateMachineTests: XCTestCase {
         XCTAssertEqual(machine.tick(), .breakCompleted)
         machine.completeBreak()
 
-        XCTAssertEqual(machine.statistics.completedBreaks, 1)
-        XCTAssertEqual(machine.statistics.focusMinutesByDay[FocusDay.key(for: clock.now)], 10)
         XCTAssertNil(machine.runtime.manualBreakOrigin)
         XCTAssertNil(machine.runtime.breakStartedAt)
     }
@@ -953,8 +890,6 @@ final class StateMachineTests: XCTestCase {
             machine.runtime.cycleStartDate,
             start.addingTimeInterval(clock.now.timeIntervalSince(paused))
         )
-        XCTAssertTrue(machine.statistics.focusMinutesByDay.isEmpty)
-        XCTAssertEqual(machine.statistics.completedBreaks, 0)
     }
 
     func testTimedPauseSurvivesSleepWakeWhileActive() {
@@ -996,7 +931,6 @@ final class StateMachineTests: XCTestCase {
         }
         XCTAssertEqual(deadline.timeIntervalSince(clock.now), 30 * 60, accuracy: 0.1)
         // The pause started with no focus accumulated, so nothing is credited.
-        XCTAssertEqual(machine.statistics, .empty)
     }
 
     // The reported bug: the user rested through the break, walked away, the
@@ -1004,7 +938,7 @@ final class StateMachineTests: XCTestCase {
     // used to discard the completion screen together with the whole cycle's
     // focus. The rest is system-verified, so the break must count and the
     // focus must be credited.
-    func testLongLockDuringBreakCompletedCountsBreakAndCreditsFocus() {
+    func testLongLockAfterCompletionStartsFreshCycle() {
         let start = Date(timeIntervalSince1970: 4_400)
         var clock = FakeClock(now: start)
         var settings = AppSettings.defaults
@@ -1029,21 +963,15 @@ final class StateMachineTests: XCTestCase {
         // …and unlocking changes nothing: the completion screen is still there,
         // still uncredited. Locking the screen is not clicking Continue.
         XCTAssertEqual(machine.runtime.timerState, .breakCompleted)
-        XCTAssertEqual(machine.statistics.completedBreaks, 0)
 
         machine.completeBreak()
         guard case .working = machine.runtime.timerState else {
             return XCTFail("Expected working state after Continue")
         }
         XCTAssertEqual(machine.runtime.cycleStartDate, clock.now)
-        XCTAssertEqual(machine.statistics.completedBreaks, 1)
-        XCTAssertEqual(machine.statistics.currentCleanStreak, 1)
-        XCTAssertEqual(machine.statistics.lastCompletedBreakDate, clock.now)
-        let dayKey = FocusDay.key(for: start.addingTimeInterval(30 * 60))
-        XCTAssertEqual(machine.statistics.focusMinutesByDay, [dayKey: 30])
     }
 
-    func testExpiredTimedPauseCreditsFocusToPauseStartDay() {
+    func testExpiredTimedPauseStartsFreshCycleWithoutCountingAbsence() {
         // Anchor to real local-calendar days so the pause spans midnight.
         let dayStart = Calendar.current.startOfDay(for: Date(timeIntervalSince1970: 200_000))
         let start = dayStart.addingTimeInterval(12 * 3600) // noon
@@ -1067,8 +995,6 @@ final class StateMachineTests: XCTestCase {
         guard case .working = machine.runtime.timerState else {
             return XCTFail("Expected working state")
         }
-        XCTAssertEqual(machine.statistics.focusMinutesByDay, [FocusDay.key(for: start): 25])
-        XCTAssertEqual(machine.statistics.completedBreaks, 0)
     }
 
     // Runs one full focus-break cycle on a machine whose deadline is due now.
@@ -1182,9 +1108,9 @@ final class StateMachineTests: XCTestCase {
         XCTAssertEqual(machine.runtime.taperedFocusSeconds, 45 * 60, accuracy: 0.001)
     }
 
-    // The same expression feeds the statistics credit and the tapering charge,
+    // The tapering charge must use only the focused part of a cycle,
     // so a postponement followed by a long sleep cannot make them disagree.
-    func testTaperingChargeAgreesWithStatisticsCredit() {
+    func testTaperingChargesOnlyFocusedTime() {
         let start = Date(timeIntervalSince1970: 5_300)
         var clock = FakeClock(now: start)
         var settings = AppSettings.defaults
@@ -1209,7 +1135,6 @@ final class StateMachineTests: XCTestCase {
         _ = machine.tick()
         machine.completeBreak()
 
-        XCTAssertEqual(machine.statistics.totalFocusMinutes, 45)
         XCTAssertEqual(machine.runtime.taperedFocusSeconds, 45 * 60, accuracy: 0.001)
     }
 
@@ -1426,7 +1351,7 @@ final class StateMachineTests: XCTestCase {
         return machine
     }
 
-    func testEmergencyOverrideGrantsFocusAndRecordsAViolation() {
+    func testEmergencyOverrideGrantsFocusAndUsesCycleAllowance() {
         let start = Date(timeIntervalSince1970: 8_000)
         var clock = FakeClock(now: start)
         var machine = makeMachineOnForcedBreak(at: start, clock: &clock, harderToSkip: true)
@@ -1441,11 +1366,7 @@ final class StateMachineTests: XCTestCase {
             .postponed(deadline: clock.now.addingTimeInterval(EmergencyOverride.focusGrant))
         )
         XCTAssertEqual(machine.runtime.emergencyOverrideUsedAt, clock.now)
-        XCTAssertTrue(machine.runtime.cycleViolated)
-        XCTAssertEqual(machine.statistics.currentCleanStreak, 0)
-        XCTAssertEqual(machine.statistics.violatedCycles, 1)
         // Not a postponement, so the postponement tally is untouched.
-        XCTAssertEqual(machine.statistics.totalPostponements, 0)
         // But it does spend the cycle's skip allowance, so a 90-minute grant
         // cannot be stacked with an extension.
         XCTAssertTrue(machine.runtime.focusExtended)
@@ -1562,16 +1483,15 @@ final class StateMachineTests: XCTestCase {
         XCTAssertFalse(machine.canUseEmergencyOverride)
     }
 
-    func testEmergencyOverrideQuotaSurvivesSettingsAndStatisticsResets() {
+    func testEmergencyOverrideQuotaSurvivesSettingsReset() {
         let start = Date(timeIntervalSince1970: 8_400)
         var clock = FakeClock(now: start)
         var machine = makeMachineOnForcedBreak(at: start, clock: &clock)
         machine.useEmergencyOverride()
         let usedAt = clock.now
 
-        // What "Restore Defaults" and "Reset Statistics" do to the machine.
+        // Replacing preferences must not refill the override quota.
         machine.settings = .defaults
-        machine.statistics = .empty
 
         XCTAssertEqual(machine.runtime.emergencyOverrideUsedAt, usedAt)
         XCTAssertEqual(machine.emergencyOverrideAvailableAt, usedAt.addingTimeInterval(EmergencyOverride.cooldown))

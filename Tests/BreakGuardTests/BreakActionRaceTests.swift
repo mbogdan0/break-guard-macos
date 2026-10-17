@@ -18,7 +18,6 @@ final class BreakActionRaceTests: XCTestCase {
         XCTAssertEqual(machine.runtime.timerState, .breakCompleted)
         machine.postpone(by: 60)
         XCTAssertEqual(machine.runtime.timerState, .breakCompleted)
-        XCTAssertEqual(machine.statistics.totalPostponements, 0)
     }
 
     func testLateExtensionCannotRescueAnElapsedFocusWindowBeforeTheNextTick() {
@@ -63,7 +62,6 @@ final class BreakActionRaceTests: XCTestCase {
         machine.clock = ActionClock(now: start.addingTimeInterval(38 * 60))
         _ = machine.tick()
         machine.completeBreak()
-        XCTAssertEqual(machine.statistics.totalFocusMinutes, 35)
         XCTAssertEqual(machine.runtime.taperedFocusSeconds, 35 * 60)
     }
 
@@ -79,7 +77,6 @@ final class BreakActionRaceTests: XCTestCase {
         machine.clock = ActionClock(now: start.addingTimeInterval(34 * 60))
         _ = machine.tick()
         machine.completeBreak()
-        XCTAssertEqual(machine.statistics.totalFocusMinutes, 31)
         XCTAssertEqual(machine.runtime.taperedFocusSeconds, 31 * 60)
     }
 }

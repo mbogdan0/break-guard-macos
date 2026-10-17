@@ -25,7 +25,7 @@ extension AppSettings {
     // enabled and `now` falls outside [start, end).
     func isOutsideWorkingHours(at now: Date, calendar: Calendar = .current) -> Bool {
         guard workingHoursEnabled else { return false }
-        let range = DayCategory(date: now, calendar: calendar) == .weekend
+        let range = calendar.isDateInWeekend(now)
             ? weekendWorkingHours
             : weekdayWorkingHours
         guard range.enabled else { return false }

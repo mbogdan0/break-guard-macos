@@ -70,13 +70,12 @@ final class DailySkipBudgetTests: XCTestCase {
         XCTAssertFalse(machine.canExtendFocus)
     }
 
-    func testRestartsAndResettingStatisticsOrSettingsDoNotRefillUsage() throws {
+    func testRestartsAndResettingSettingsDoNotRefillUsage() throws {
         var machine = machine()
         machine.extendFocus(by: 60)
         let encoded = try JSONEncoder.breakGuard.encode(machine.data)
         let restored = try JSONDecoder.breakGuard.decode(PersistedAppData.self, from: encoded)
         machine = StateMachine(data: restored, clock: BudgetClock(now: start))
-        machine.statistics = .empty
         machine.settings = .defaults
         machine.settings.harderToSkipBreaks = true
         machine.startWorkCycle()
@@ -95,7 +94,6 @@ final class DailySkipBudgetTests: XCTestCase {
             machine.postpone(by: duration)
         }
         XCTAssertEqual(machine.dailySkipsRemaining, 3)
-        XCTAssertEqual(machine.statistics.totalPostponements, 0)
     }
 
     func testManualBreakCancellationDoesNotConsumeBudget() {

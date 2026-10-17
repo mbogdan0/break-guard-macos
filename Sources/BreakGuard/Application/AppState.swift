@@ -61,7 +61,6 @@ enum NotificationAccessStatus: Equatable {
 @MainActor
 final class AppState: ObservableObject {
     @Published var settings: AppSettings
-    @Published var statistics: Statistics
     @Published var timerState: TimerState
     // True while a break started via "Take a Break Now" can still be cancelled.
     @Published var isManualBreak = false
@@ -109,6 +108,19 @@ final class AppState: ObservableObject {
     private let notifications: NotificationManager
     private let loginItems: LoginItemManager
     private var machine: StateMachine
+    // Interaction state does not publish: a press must not rebuild the overlay.
+    private var activeHolds: Set<UUID> = []
+    var isHoldingOverlayAction: Bool { !activeHolds.isEmpty }
+
+    func setOverlayHold(_ id: UUID, pressing: Bool) {
+        if pressing {
+            guard !sessionInactive, case .breaking = timerState else { return }
+            activeHolds.insert(id)
+        } else {
+            activeHolds.remove(id)
+        }
+    }
+
     private var uiTimer: Timer?
     private var overlayManager: OverlayScreenManager?
     private var nudgeManager: NudgeWindowManager?
@@ -167,7 +179,6 @@ final class AppState: ObservableObject {
             self.machine = StateMachine(clock: clock)
         }
         self.settings = machine.settings
-        self.statistics = machine.statistics
         self.timerState = machine.runtime.timerState
         self.isFocusExtended = machine.runtime.focusExtended
         self.canPostpone = machine.canPostpone
@@ -513,13 +524,6 @@ final class AppState: ObservableObject {
         updateSettings(updated)
     }
 
-    func resetStatistics() {
-        machine.statistics = .empty
-        statistics = .empty
-        save()
-    }
-
-
     func openNotificationSettings() {
         if let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension") {
             NSWorkspace.shared.open(url)
@@ -538,6 +542,7 @@ final class AppState: ObservableObject {
     func handleSleepOrInactive() {
         logger.info("Sleep or inactive session")
         sessionInactive = true
+        activeHolds.removeAll()
         callActivity = CallActivity()
         machine.callHoldActive = false
         callHoldWasEngaged = false
@@ -550,10 +555,11 @@ final class AppState: ObservableObject {
         save()
     }
 
-    func handleWakeOrActive() {
+    func handleWakeOrActive(sleepDuration: TimeInterval = 0) {
+        guard sessionInactive else { return }
         logger.info("Wake or active session")
         sessionInactive = false
-        machine.restoreAfterSleep()
+        machine.restoreAfterSleep(sleepDuration: sleepDuration)
         // The wake just accounted for the downtime: reset the in-memory
         // heartbeat so the next tick does not bracket the same gap again, and
         // drop any idle bracket — the sleep path owned the state from here.
@@ -597,7 +603,8 @@ final class AppState: ObservableObject {
         // One fresh snapshot owns both idle detection and the hold. There is
         // no independent timer or queued device callback that can strand an
         // old true flag or re-enter tick() while settings are being published.
-        let activity = callActivityClient.read(includeMicrophone: machine.settings.holdBreaksWhileMicrophoneInUse)
+        let activity = isHoldingOverlayAction ? callActivity
+            : callActivityClient.read(includeMicrophone: machine.settings.holdBreaksWhileMicrophoneInUse)
         if activity != callActivity {
             logger.info("Media activity: camera=\(activity.cameraInUse, privacy: .public), microphone=\(activity.microphoneInUse, privacy: .public)")
         }
@@ -694,8 +701,10 @@ final class AppState: ObservableObject {
     }
 
     private func publish() {
+        if case .breaking = machine.runtime.timerState {} else {
+            activeHolds.removeAll()
+        }
         setIfChanged(\.settings, machine.settings)
-        setIfChanged(\.statistics, machine.statistics)
         setIfChanged(\.timerState, machine.runtime.timerState)
         setIfChanged(\.isManualBreak, machine.runtime.manualBreakOrigin != nil)
         setIfChanged(\.isFocusExtended, machine.runtime.focusExtended)
@@ -783,13 +792,7 @@ final class AppState: ObservableObject {
     private func reconcilePressure() {
         let now = machine.clock.now
         let reason = settings.pressureReason(at: now)
-        // The satisfaction rule only exists for the scheduled break: a break
-        // taken inside the window is the window's whole purpose. Outside
-        // working hours a two-minute break settles nothing.
-        let window = reason == .scheduledBreak
-            ? settings.scheduledBreakWindow(containing: now)
-            : nil
-        guard let reason, !machine.isPressureSuppressed(satisfiedWindow: window) else {
+        guard let reason, !machine.isPressureSuppressed() else {
             setIfChanged(\.pressureReason, nil)
             // A dismissal belongs to the episode it was made in. Once the
             // pressure lifts — a break, a call, the end of the window — the
@@ -802,7 +805,7 @@ final class AppState: ObservableObject {
         setIfChanged(\.pressureReason, reason)
         pressureReminder.update(reason: reason)
         nudgeManager?.show(
-            makeNudgePresentation(reason: reason, windowEnd: window?.end),
+            makeNudgePresentation(reason: reason),
             // Keep the card clear of a modal confirmation's clicks.
             showCard: pressureReminder.shouldShowCard(at: now) && !isConfirmationOpen
         )

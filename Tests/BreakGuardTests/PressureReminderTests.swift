@@ -17,20 +17,17 @@ final class PressureReminderTests: XCTestCase {
 
     func testUnchangedPressureDoesNotResetDismissalOnEachTick() {
         var reminder = PressureReminderState()
-        reminder.update(reason: .scheduledBreak)
+        reminder.update(reason: .outsideWorkingHours)
         reminder.dismiss(at: now)
         for second in 1..<90 {
-            reminder.update(reason: .scheduledBreak)
+            reminder.update(reason: .outsideWorkingHours)
             XCTAssertFalse(reminder.shouldShowCard(at: now.addingTimeInterval(Double(second))))
         }
     }
 
-    func testEndingAnEpisodeOrChangingItsReasonShowsTheNextReminderImmediately() {
+    func testEndingAnEpisodeShowsTheNextReminderImmediately() {
         var reminder = PressureReminderState()
-        reminder.update(reason: .scheduledBreak)
-        reminder.dismiss(at: now)
         reminder.update(reason: .outsideWorkingHours)
-        XCTAssertTrue(reminder.shouldShowCard(at: now.addingTimeInterval(10)))
         reminder.dismiss(at: now)
         reminder.update(reason: nil)
         XCTAssertFalse(reminder.shouldShowCard(at: now.addingTimeInterval(100)))

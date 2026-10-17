@@ -32,7 +32,7 @@ final class SleepWakeManager {
         if activity.isInactive {
             appState?.handleSleepOrInactive()
         } else {
-            appState?.handleWakeOrActive()
+            appState?.handleWakeOrActive(sleepDuration: activity.longestSleepDuration)
         }
     }
 

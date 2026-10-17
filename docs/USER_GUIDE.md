@@ -1,12 +1,12 @@
 # BreakGuard User Guide
 
-BreakGuard runs in the macOS menu bar. It counts focus time, warns before a break, and shows a break countdown on every connected display. Settings and statistics stay on your Mac.
+BreakGuard runs in the macOS menu bar. It counts focus time, warns before a break, and shows a break countdown on every connected display. Settings and timer state stay on your Mac.
 
 ## First Launch
 
 Use the setup commands in the [README](../README.md#quick-start). After launch, open the eye-and-timer menu and choose **Settings**.
 
-Default timing is thirty minutes of focus and a two-minute break, with a one-minute warning. Camera call detection is on; microphone detection, Harder mode, working hours, and the scheduled break are off. Launch at Login is on by default and may need macOS approval. Notification permission is optional: the timer and break overlay work without it.
+Default timing is thirty minutes of focus and a two-minute break, with a one-minute warning. Camera call detection is on; microphone detection, Harder mode, and working hours are off. Launch at Login is on by default and may need macOS approval. Notification permission is optional: the timer and break overlay work without it.
 
 ## Breaks and the Menu
 
@@ -14,11 +14,11 @@ The menu-bar countdown turns red during the warning window. A yellow badge marks
 
 **Take a Break Now** starts an early break. Its **Cancel Break** button restores the remaining focus time without counting time on the overlay as work. Once the focus deadline has passed, the required break uses the normal skip rules instead.
 
-A required break offers two configured postponement durations. Hold a button for the time shown beside it to confirm. The default holds are two and six seconds; repeat postponements in the same cycle take four and twelve seconds. Harder mode uses four and twelve seconds from the first postponement. Postponing records a violated cycle and resets the clean streak. Time already spent resting before the skip does not become focus time.
+A required break offers two configured postponement durations. Hold a button for the time shown beside it to confirm. The default holds are two and six seconds; repeat postponements in the same cycle take four and twelve seconds. Harder mode uses four and twelve seconds from the first postponement. Time already spent resting before the skip does not become focus time.
 
-When the countdown reaches zero, the completion screen counts total rest time upward. Press **Continue Working** to record the break and start the next focus cycle. A completed break cannot be postponed or skipped by a hold that finishes late.
+When the countdown reaches zero, the completion screen counts total rest time upward. Press **Continue Working** to finish the break and start the next focus cycle. A completed break cannot be postponed or skipped by a hold that finishes late.
 
-**Extend Focus** offers fifteen, thirty-five, forty-five, or sixty-five extra minutes before a break is due. The menu shows the resulting end time. The confirmation waits six seconds for the shortest option and fifteen seconds for the others; Harder mode doubles those waits. Extensions count as focus and spend a regular skip use, but do not record a violation.
+**Extend Focus** offers fifteen, thirty-five, forty-five, or sixty-five extra minutes before a break is due. The menu shows the resulting end time. The confirmation waits six seconds for the shortest option and fifteen seconds for the others; Harder mode doubles those waits. Extensions count as focus and spend a regular skip use.
 
 **Pause Until 9 AM** silences reminders until the next local 9:00 AM, including across sleep and relaunch. Its confirmation waits ninety seconds, or three minutes in Harder mode. When the end time arrives, a fresh cycle starts. **Resume Now** ends the pause early and restores the saved remaining countdown; an early resume does not award a break just because the pause was long.
 
@@ -26,25 +26,25 @@ When the countdown reaches zero, the completion screen counts total rest time up
 
 ## Harder Mode and the Daily Budget
 
-Enable **Harder to skip breaks** on General to apply both limits:
+Enable **Harder to skip breaks** on Breaks to apply both limits:
 
 - One regular skip per focus cycle: either Extend Focus or a postponement.
 - A shared daily budget, defaulting to three uses and configurable from zero to ten.
 
-General shows **Skips left today**. The menu and required-break screen also show the allowance. At zero, regular skips are disabled; manual-break cancellation remains available. Local midnight restores the daily allowance but does not restore a skip already used in the current cycle.
+Breaks shows **Left today**. The menu and required-break screen also show the allowance. At zero, regular skips are disabled; manual-break cancellation remains available. Local midnight restores the daily allowance but does not restore a skip already used in the current cycle.
 
-Usage survives new cycles, restarts, and resetting statistics. Normal mode allows repeated skips, but those uses count if you enable Harder mode later that day. Cancelled or rejected actions spend nothing. Increasing the budget while Harder mode is active is treated as loosening settings.
+Usage survives new cycles and restarts. Normal mode allows repeated skips, but those uses count if you enable Harder mode later that day. Cancelled or rejected actions spend nothing. Increasing the budget while Harder mode is active is treated as loosening settings.
 
-A required break also has an **Emergency override** disclosure. Hold its button for three seconds to trade the break for ninety minutes of focus. It works independently of the daily budget, once every rolling seven days, and records a violation. Manual breaks offer Cancel Break instead. General shows when the override is available again.
+A required break also has an **Emergency override** disclosure. Hold its button for three seconds to trade the break for ninety minutes of focus. It works independently of the daily budget, once every rolling seven days. Manual breaks offer Cancel Break instead. The disclosure shows when the override is available again.
 
 Turning Harder mode off requires a ninety-second confirmation. Turning it on is immediate.
 
 ## Calls and Screen Sharing
 
-General has two separate options:
+Breaks has two separate options:
 
-- **Hold breaks during camera calls**, enabled by default.
-- **Hold breaks while microphone is in use**, disabled by default and available on macOS 14.2 or later.
+- **Wait while the camera is in use**, enabled by default.
+- **Wait while the microphone is in use**, disabled by default and available on macOS 14.2 or later.
 
 While a selected device is active, a running countdown stops shrinking near the warning window. The held time still counts as focus. After device activity ends, at least two minutes remain before the break, or the effective warning lead if it is longer. If both devices are active, ending one does not release the other. Starting device activity does not dismiss a break already on screen.
 
@@ -54,25 +54,27 @@ There is no separate automatic screen-sharing detector. A shared-screen call is 
 
 ## Schedule Reminders
 
-Schedule contains optional working hours and a daily scheduled break. Working hours use separate weekday and weekend ranges. A disabled day category has no outside-hours reminder. Ranges stay within one day. The scheduled break runs on weekdays only and defaults to 15:30–16:00.
+Schedule contains optional working hours. Working hours use separate weekday and weekend ranges. A disabled day category has no outside-hours reminder. Ranges stay within one day.
 
-With Harder mode off, working hours only change the menu-bar color. With Harder mode on, working outside the selected hours or during the scheduled break shows a reminder card. The scheduled-break reminder takes priority when both apply.
+With Harder mode off, working hours only change the menu-bar color. With Harder mode on, working outside the selected hours shows a reminder card.
 
 The card does not dim the screen. It stays fixed in place and keeps returning above other app windows, including when you switch apps or Spaces. Hold **Dismiss for 1m 30s** for three seconds to hide it; it returns ninety seconds later while the same pressure remains. You can also start a break. A new reminder episode starts with the card visible.
 
-Cards stay hidden during calls selected in General, pauses, real breaks, and the emergency override's ninety-minute grant. Completing a break inside the scheduled window satisfies that window. A short break does not remove outside-hours reminders for the rest of the day.
+Cards stay hidden during calls selected in Breaks, pauses, real breaks, and the emergency override's ninety-minute grant. A short break does not remove outside-hours reminders for the rest of the day.
 
-The card's **Emergency override** disclosure contains **Pause Reminders**, which spends the same weekly override as the break screen. From the card it only buys ninety minutes of quiet: it leaves the countdown running and records no violation or daily skip use.
+The card's **Emergency override** disclosure contains **Pause Reminders**, which spends the same weekly override as the break screen. From the card it only buys ninety minutes of quiet: it leaves the countdown running and spends no daily skip use.
 
-## Settings and Statistics
+## Settings
 
-Settings has five tabs: General, Schedule, System, Statistics, and About.
+Settings has three tabs: Breaks, Schedule, and App.
 
-**General** controls timing, focus pace, skip limits, calls, and advanced durations. Fields accept `minutes:seconds`; a plain number means minutes. A warning lead of zero disables warnings. The effective lead never exceeds half the focus window.
+**Breaks** controls timing, pace, skip limits, and calls. **More options** contains warning and postponement durations. The information button beside Skipping explains the detailed rules. Fields accept `minutes:seconds`; a plain number means minutes. A warning lead of zero disables warnings. The effective lead never exceeds half the focus window.
 
-More Breaks uses 80% of the configured focus interval; Deep Focus uses 120%. Tapering gradually shortens future windows as actual focus accumulates, with a maximum twelve-minute reduction. It resets after the configured focus-free gap, or after at least three hours away that cross into a new local day. General shows the current reduction and reset status.
+More Breaks uses 80% of the configured focus interval; Deep Focus uses 120%. Tapering gradually shortens future windows as actual focus accumulates, with a maximum twelve-minute reduction. It resets after the configured focus-free gap, or after at least three hours away that cross into a new local day. Breaks shows the current effective interval.
 
-**System** controls notification sound, notification testing, Launch at Login, and menu-bar seconds. **Statistics** shows streaks, completed breaks, focused minutes, and recent daily comparisons. Detailed daily history covers 28 days; the lifetime focus total is retained. Reset Statistics does not refill skip quotas. **About** shows application information.
+**App** controls notification sound, notification testing, Launch at Login, and menu-bar seconds. Application information is under **About BreakGuard**.
+
+Enable **Encourage a little more rest** to show gentle messages and rewards after the required pause. You can continue working at any time once the required rest is complete.
 
 Settings apply and save immediately. When you close Settings, a net loosening while Harder mode was active at either end of the visit requires one five-minute confirmation. Examples include a larger skip budget, longer focus window, shorter break, enabling call holds, or reducing schedule pressure. Cancel restores the visit except the Harder-mode toggle, which has its own confirmation. If a break interrupts the question, it returns after the break. There is no Restore Defaults button.
 
@@ -80,7 +82,7 @@ Settings apply and save immediately. When you close Settings, a net loosening wh
 
 While a break countdown or completion screen is visible, BreakGuard prevents automatic idle display and system sleep. This keeps the clock visible. Explicit sleep, lid closure, and screen lock still work.
 
-Sleep, lock, and screen saver count as rest. They start a break from a running countdown, and an existing break keeps its wall-clock deadline. Returning normally shows the remaining rest time or its completion screen. A long absence satisfying the tapering reset rule can complete the old cycle automatically. Sleep is never credited as focus.
+Sleep, lock, and screen saver count as rest. They start a break from a running countdown, and an existing break keeps its wall-clock deadline. Returning normally shows the remaining rest time or its completion screen. After a continuous system sleep of at least one hour, a finished break closes automatically and a new work interval starts when you return to the active session. Locking alone does not trigger the one-hour rule. A short sleep does not qualify just because the break began long ago. A long absence satisfying the tapering reset rule can complete the old cycle automatically. Sleep is never credited as focus.
 
 Ten minutes without input pauses a running countdown instead of proving a completed break. Input returning restores the remaining time and excludes the idle period from focus. Active camera use and selected microphone use prevent calls from being mistaken for input idle. Fully passive reading or viewing with no input can still pause the timer.
 
@@ -88,7 +90,7 @@ Relaunch restores saved deadlines and uses heartbeat gaps to account for time th
 
 ## Notifications, Data, and Limits
 
-BreakGuard asks for notification permission on first launch. System settings show permission, alert style, and delivery capability. The preview reports whether a request was queued and whether delivery was observed. macOS notification settings and Focus modes can affect presentation.
+BreakGuard asks for notification permission on first launch. The App tab shows permission, alert style, and delivery capability. The preview reports whether a request was queued and whether delivery was observed. macOS notification settings and Focus modes can affect presentation.
 
 The default ad-hoc signed bundle uses regular active notifications. Time Sensitive delivery needs an eligible Apple signing profile, the matching entitlement, and user permission.
 

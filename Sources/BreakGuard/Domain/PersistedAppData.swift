@@ -12,7 +12,6 @@ struct ManualBreakOrigin: Codable, Equatable {
 
 struct RuntimeState: Codable, Equatable {
     var timerState: TimerState
-    var cycleViolated: Bool
     // Legacy skip-action counter. Regular postponements and the emergency
     // override increment it; focusExtended accounts for an extension.
     var cyclePostponements: Int
@@ -34,8 +33,7 @@ struct RuntimeState: Codable, Equatable {
     // pace. 0 means the next window runs at full length.
     var taperedFocusSeconds: TimeInterval
     // When the weekly emergency override was last spent. Lives here rather
-    // than in AppSettings or Statistics because "Restore Defaults" and "Reset
-    // Statistics" replace those wholesale, which would refill the quota.
+    // than in AppSettings so changing preferences never refills the quota.
     var emergencyOverrideUsedAt: Date?
     // Last time the app was observed alive, minute-coarse so persisting it
     // costs at most one extra disk write per minute. After a crash or a sleep
@@ -54,11 +52,11 @@ struct RuntimeState: Codable, Equatable {
 
 // Fields are added after schema 3 shipped without bumping the version. Older
 // files lack the newer keys, and a plain synthesized decode would reject them
-// — discarding all user statistics — so the decoder falls back to defaults
+// — discarding the running timer — so the decoder falls back to defaults
 // instead. The init lives in an extension to keep the memberwise initializer.
 extension RuntimeState {
     private enum CodingKeys: String, CodingKey {
-        case timerState, cycleViolated, cyclePostponements,
+        case timerState, cyclePostponements,
              cycleRegularPostponements, focusExtended,
              cycleStartDate, preservedAt,
              cycleFocusDuration, breakStartedAt, breakReadyAt, manualBreakOrigin,
@@ -68,7 +66,6 @@ extension RuntimeState {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         timerState = try container.decode(TimerState.self, forKey: .timerState)
-        cycleViolated = try container.decode(Bool.self, forKey: .cycleViolated)
         let legacySkipCount = try container.decode(Int.self, forKey: .cyclePostponements)
         cyclePostponements = legacySkipCount
         focusExtended = try container.decodeIfPresent(Bool.self, forKey: .focusExtended) ?? false
@@ -103,6 +100,5 @@ struct PersistedAppData: Codable, Equatable {
 
     var schemaVersion: Int
     var settings: AppSettings
-    var statistics: Statistics
     var runtime: RuntimeState
 }

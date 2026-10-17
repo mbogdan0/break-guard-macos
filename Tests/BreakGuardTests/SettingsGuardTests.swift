@@ -155,28 +155,6 @@ final class SettingsGuardTests: XCTestCase {
 
     // The opposite direction from working hours: pressure applies *inside* the
     // scheduled window, so a shorter one is less rest.
-    func testScheduledBreakLoosensWhenShortenedOrSwitchedOff() {
-        var enabled = baseline
-        enabled.scheduledBreak = WorkingHoursRange(
-            enabled: true, startMinutes: 15 * 60 + 30, endMinutes: 16 * 60
-        )
-
-        var off = enabled
-        off.scheduledBreak.enabled = false
-        XCTAssertTrue(off.weakensGuard(comparedTo: enabled))
-
-        var laterStart = enabled
-        laterStart.scheduledBreak.startMinutes = 15 * 60 + 45
-        XCTAssertTrue(laterStart.weakensGuard(comparedTo: enabled), "a shorter rest window")
-
-        var longer = enabled
-        longer.scheduledBreak.endMinutes = 16 * 60 + 30
-        XCTAssertFalse(longer.weakensGuard(comparedTo: enabled), "a longer window is a tightening")
-
-        // Turning it on for the first time is never a loosening.
-        XCTAssertFalse(enabled.weakensGuard(comparedTo: baseline))
-    }
-
     // Excluded on purpose: none of these change how hard a break is to avoid.
     func testCosmeticAndNeutralSettingsAreNeverCharged() {
         assertTightens({ $0.warningLeadTime = 0 }, "the break still lands at the same moment")

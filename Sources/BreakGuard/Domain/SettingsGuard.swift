@@ -45,9 +45,6 @@ extension AppSettings {
         if afterHoursRange(weekendWorkingHours)
             .widens(from: baseline.afterHoursRange(baseline.weekendWorkingHours)) { return true }
 
-        // The scheduled rest window: switched off, or made shorter.
-        if scheduledBreak.narrows(from: baseline.scheduledBreak) { return true }
-
         // `harderToSkipBreaks` itself is absent on purpose. It is gated at its
         // own toggle, and charging for one decision twice is not friction, it
         // is noise.
@@ -89,11 +86,4 @@ extension WorkingHoursRange {
         return startMinutes < baseline.startMinutes || endMinutes > baseline.endMinutes
     }
 
-    // For the scheduled break, where the pressure applies *inside* the range:
-    // fewer minutes is less rest.
-    func narrows(from baseline: WorkingHoursRange) -> Bool {
-        guard enabled else { return baseline.enabled }
-        guard baseline.enabled else { return false }
-        return startMinutes > baseline.startMinutes || endMinutes < baseline.endMinutes
-    }
 }

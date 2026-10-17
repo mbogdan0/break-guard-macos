@@ -7,53 +7,25 @@ private struct FakeClock: TimeProvider {
 }
 
 final class PersistenceTests: XCTestCase {
-    func testCurrentSchemaRoundTripsFocusStatistics() throws {
-        let location = temporaryStateURL()
-        defer { try? FileManager.default.removeItem(at: location.deletingLastPathComponent()) }
-        let store = PersistenceStore(fileURL: location)
-        var machine = StateMachine()
-        machine.statistics.focusMinutesByDay = ["2026-07-11": 75, "2026-07-12": 30]
-        machine.statistics.totalFocusMinutes = 105
-
-        store.save(machine.data)
-        let loaded = try XCTUnwrap(store.load())
-
-        XCTAssertEqual(loaded.schemaVersion, PersistedAppData.currentSchemaVersion)
-        XCTAssertEqual(loaded.statistics.focusMinutesByDay, ["2026-07-11": 75, "2026-07-12": 30])
-        XCTAssertEqual(loaded.statistics.totalFocusMinutes, 105)
-    }
-
-    // Files written before the focus-tag removal carry extra JSON keys; they
-    // must keep decoding under the same schema version so statistics survive.
-    func testLegacyFocusTagKeysInStateFileAreIgnored() throws {
-        let location = temporaryStateURL()
-        defer { try? FileManager.default.removeItem(at: location.deletingLastPathComponent()) }
-        let store = PersistenceStore(fileURL: location)
-        var machine = StateMachine()
-        machine.statistics.focusMinutesByDay = ["2026-07-11": 75]
-
-        let encoded = try JSONEncoder.breakGuard.encode(machine.data)
-        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
-        object["focusTags"] = [["id": "work", "name": "Work"]]
-        var statistics = try XCTUnwrap(object["statistics"] as? [String: Any])
-        statistics["focusMinutesByTag"] = ["work": 120]
-        statistics["skippedFocusMinutes"] = 45
-        object["statistics"] = statistics
-        var settings = try XCTUnwrap(object["settings"] as? [String: Any])
-        settings["focusTagsEnabled"] = true
-        object["settings"] = settings
-        try FileManager.default.createDirectory(
-            at: location.deletingLastPathComponent(), withIntermediateDirectories: true
-        )
-        try JSONSerialization.data(withJSONObject: object).write(to: location)
-
-        let loaded = try XCTUnwrap(store.load())
-        XCTAssertEqual(loaded.statistics.focusMinutesByDay, ["2026-07-11": 75])
-    }
-
     // Fields added after schema 3 shipped (runtime focus/skip fields and the
     // working-hours settings) are missing from older files; decoding must fall
     // back instead of discarding the file.
+    func testRemovedFeaturesAreDroppedWithoutResettingPreferencesOrQuotas() throws {
+        var machine = StateMachine(clock: FakeClock(now: Date(timeIntervalSince1970: 9000)))
+        machine.settings.workInterval = 45 * 60
+        machine.runtime.emergencyOverrideUsedAt = Date(timeIntervalSince1970: 8000)
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder.breakGuard.encode(machine.data)) as? [String: Any])
+        object["statistics"] = ["completedBreaks": 42]
+        var settings = try XCTUnwrap(object["settings"] as? [String: Any])
+        settings["scheduledBreak"] = ["enabled": true, "startMinutes": 930, "endMinutes": 960]
+        object["settings"] = settings
+        let decoded = try JSONDecoder.breakGuard.decode(PersistedAppData.self, from: JSONSerialization.data(withJSONObject: object))
+        XCTAssertEqual(decoded, machine.data)
+        let saved = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder.breakGuard.encode(decoded)) as? [String: Any])
+        XCTAssertNil(saved["statistics"])
+        XCTAssertNil((saved["settings"] as? [String: Any])?["scheduledBreak"])
+    }
+
     func testFileWithoutPostSchemaKeysDecodesToDefaults() throws {
         let location = temporaryStateURL()
         defer { try? FileManager.default.removeItem(at: location.deletingLastPathComponent()) }
@@ -73,7 +45,6 @@ final class PersistenceTests: XCTestCase {
         settings.removeValue(forKey: "weekdayWorkingHours")
         settings.removeValue(forKey: "weekendWorkingHours")
         settings.removeValue(forKey: "harderToSkipBreaks")
-        settings.removeValue(forKey: "scheduledBreak")
         settings.removeValue(forKey: "dailySkipLimit")
         settings.removeValue(forKey: "holdBreaksWhileMicrophoneInUse")
         object["settings"] = settings
@@ -94,25 +65,6 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(loaded.settings.weekdayWorkingHours, WorkingHoursRange(enabled: true))
         XCTAssertEqual(loaded.settings.weekendWorkingHours, WorkingHoursRange(enabled: false))
         XCTAssertFalse(loaded.settings.harderToSkipBreaks)
-        XCTAssertEqual(loaded.settings.scheduledBreak, AppSettings.defaults.scheduledBreak)
-    }
-
-    func testScheduledBreakWindowRoundTrips() throws {
-        let location = temporaryStateURL()
-        defer { try? FileManager.default.removeItem(at: location.deletingLastPathComponent()) }
-        let store = PersistenceStore(fileURL: location)
-        var machine = StateMachine(clock: FakeClock(now: Date(timeIntervalSince1970: 9_200)))
-        machine.settings.scheduledBreak = WorkingHoursRange(
-            enabled: true, startMinutes: 13 * 60, endMinutes: 13 * 60 + 45
-        )
-
-        store.save(machine.data)
-        let loaded = try XCTUnwrap(store.load())
-
-        XCTAssertEqual(
-            loaded.settings.scheduledBreak,
-            WorkingHoursRange(enabled: true, startMinutes: 13 * 60, endMinutes: 13 * 60 + 45)
-        )
     }
 
     func testFocusExtendedAndWorkingHoursRoundTrip() throws {
@@ -290,7 +242,7 @@ final class PersistenceTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: location.path))
 
         var changed = data
-        changed.statistics.completedBreaks += 1
+        changed.settings.notificationSound.toggle()
         store.save(changed)
         XCTAssertTrue(FileManager.default.fileExists(atPath: location.path))
     }

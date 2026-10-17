@@ -57,6 +57,60 @@ final class AppStateTransitionTests: XCTestCase {
                         callActivityClient: activity)
     }
 
+    func testHoldDefersDevicePollingUntilRelease() {
+        let clock = TransitionClock(now: start)
+        let activity = TransitionCallActivity()
+        let app = app(clock: clock, activity: activity)
+        app.takeBreakNow()
+        let before = activity.reads
+        let hold = UUID()
+        app.setOverlayHold(hold, pressing: true)
+        clock.now = clock.now.addingTimeInterval(1)
+        app.tick()
+        XCTAssertEqual(activity.reads, before)
+        XCTAssertTrue(app.isHoldingOverlayAction)
+        app.setOverlayHold(hold, pressing: false)
+        app.tick()
+        XCTAssertEqual(activity.reads, before + 1)
+        XCTAssertFalse(app.isHoldingOverlayAction)
+    }
+
+    func testHoldsClearOnCompletionCancellationAndSleep() {
+        for exit in ["complete", "cancel", "sleep"] {
+            let clock = TransitionClock(now: start)
+            let app = app(clock: clock)
+            app.takeBreakNow()
+            let hold = UUID()
+            app.setOverlayHold(hold, pressing: true)
+            XCTAssertTrue(app.isHoldingOverlayAction)
+            switch exit {
+            case "complete":
+                advance(app, clock: clock, by: app.settings.breakDuration)
+            case "cancel":
+                app.cancelManualBreak()
+            default:
+                app.handleSleepOrInactive()
+            }
+            XCTAssertFalse(app.isHoldingOverlayAction)
+            app.setOverlayHold(hold, pressing: true)
+            XCTAssertFalse(app.isHoldingOverlayAction, "A late gesture callback must not revive the hold")
+        }
+    }
+
+    func testLongSleepResumesOnceWithoutCompletionScreen() {
+        let clock = TransitionClock(now: start)
+        let app = app(clock: clock)
+        app.handleSleepOrInactive()
+        clock.now = clock.now.addingTimeInterval(3600)
+        app.handleWakeOrActive(sleepDuration: 3600)
+        guard case .working = app.timerState else { return XCTFail("Expected fresh work interval") }
+        let restored = app.timerState
+        clock.now = clock.now.addingTimeInterval(1)
+        app.handleWakeOrActive(sleepDuration: 3600)
+        XCTAssertEqual(app.timerState, restored)
+        XCTAssertEqual(app.totalRestTime(at: clock.now), 0)
+    }
+
     private func advance(_ app: AppState, clock: TransitionClock, by seconds: TimeInterval) {
         let end = clock.now.addingTimeInterval(seconds)
         while clock.now < end {
@@ -139,7 +193,6 @@ final class AppStateTransitionTests: XCTestCase {
             return XCTFail("Waiting for settings confirmation must not create a break")
         }
         XCTAssertEqual(deadline.timeIntervalSince(clock.now), settings.workInterval - 302)
-        XCTAssertEqual(app.statistics.completedBreaks, 0)
         XCTAssertEqual(app.totalRestTime(at: clock.now), 0)
     }
 
@@ -158,7 +211,6 @@ final class AppStateTransitionTests: XCTestCase {
         }
         XCTAssertEqual(startedAt, start.addingTimeInterval(app.settings.workInterval))
         XCTAssertEqual(deadline.timeIntervalSince(clock.now), app.settings.breakDuration - 10)
-        XCTAssertEqual(app.statistics.completedBreaks, 0)
     }
 
     func testCameraAndMicrophoneOverlapKeepsBreakHeldUntilBothEnd() {
@@ -198,7 +250,6 @@ final class AppStateTransitionTests: XCTestCase {
         guard case .breaking = app.timerState else { return XCTFail("The post-call runway must end in a break") }
         advance(app, clock: clock, by: 2 * 60)
         app.completeBreak()
-        XCTAssertEqual(app.statistics.totalFocusMinutes, 42)
     }
 
     func testMicrophoneSettingIsOptInAndDoesNotDismissAnExistingBreak() {
@@ -306,8 +357,6 @@ final class AppStateTransitionTests: XCTestCase {
         app.handleWakeOrActive()
         XCTAssertEqual(app.timerState, .breakCompleted)
         app.completeBreak()
-        XCTAssertEqual(app.statistics.totalFocusMinutes, 10)
-        XCTAssertEqual(app.statistics.completedBreaks, 1)
     }
 
     func testQueuedSkipActionsCannotChangeABreakAfterTheScreenLocks() {
@@ -325,7 +374,6 @@ final class AppStateTransitionTests: XCTestCase {
         XCTAssertEqual(app.timerState, before)
         XCTAssertEqual(app.dailySkipsRemaining, 3)
         XCTAssertNil(app.emergencyOverrideAvailableAt)
-        XCTAssertEqual(app.statistics, .empty)
     }
 
     func testTimedPauseDoesNotFabricateFocusWhenItExpiresWhileLocked() {
@@ -339,7 +387,5 @@ final class AppStateTransitionTests: XCTestCase {
         guard case .suspended = app.timerState else { return XCTFail("Inactive session must keep its pause") }
         app.handleWakeOrActive()
         guard case .working = app.timerState else { return XCTFail("Expected a fresh cycle on wake") }
-        XCTAssertEqual(app.statistics.totalFocusMinutes, 10)
-        XCTAssertEqual(app.statistics.completedBreaks, 0)
     }
 }

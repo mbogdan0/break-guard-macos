@@ -40,27 +40,27 @@ stateDiagram-v2
 
 The diagram shows the main flow. Resume can also restore a warning or postponed countdown. Cancelling a manual break restores its captured countdown. Sleep, lock, and screen-saver events can start a break from any running countdown.
 
-`AppState.tick()` checks monitoring gaps, reads a fresh device-activity snapshot, checks input idle, ticks the machine, publishes changed properties, reconciles windows and notifications, and saves changed data. One snapshot owns both idle detection and the hold. A separate `uiTick` event refreshes time-derived text even when the timer state is unchanged. The timer runs in common and modal-panel run-loop modes so a confirmation dialog does not stop it.
+`AppState.tick()` checks monitoring gaps, reads a fresh device-activity snapshot, checks input idle, ticks the machine, publishes changed properties, reconciles windows and notifications, and saves changed data. One snapshot owns both idle detection and the hold. During a held overlay action, device polling and window reassertions wait until release to avoid interrupting pointer tracking. A separate `uiTick` event refreshes time-derived text even when the timer state is unchanged. The timer runs in common and modal-panel run-loop modes so a confirmation dialog does not stop it.
 
 Actions are checked again in the machine when they execute. An expired deadline cannot gain a free manual cancellation, an elapsed break cannot be postponed, and a duplicate start cannot restart a break. `AppState` rejects queued break actions while the session is inactive or the app is terminating.
 
 ## Rest and Focus Accounting
 
-Manual breaks capture the prior phase, remaining time, and request time in `ManualBreakOrigin`. Cancellation restores the countdown and excludes overlay time from focused minutes. A completed break credits elapsed focus and starts a fresh cycle. Postponements and the emergency override exclude time already spent resting before continuing the same cycle.
+Manual breaks capture the prior phase, remaining time, and request time in `ManualBreakOrigin`. Cancellation restores the countdown and excludes overlay time from focused minutes. A completed break starts a fresh cycle and adds elapsed focus to tapering. Postponements and the emergency override exclude time already spent resting before continuing the same cycle.
 
 Sleep, lock, and screen saver are verified absence. Input silence alone is weaker evidence: after ten minutes it suspends a running countdown, backdated to the last input, without declaring a completed break. Active camera use and selected microphone use prevent a call from being treated as input idle.
 
-`SessionActivity` keeps a set of inactive reasons. A wake event cannot reactivate the app while the screen is still locked. During inactivity, ticks stop, windows hide, and sleep assertions release. Break deadlines remain absolute, so time asleep counts as rest. Recovery normally shows the remaining break or its completion screen. A long verified absence can close the old cycle automatically using the same gap rule that resets tapering.
+`SessionActivity` keeps a set of inactive reasons. A wake event cannot reactivate the app while the screen is still locked. During inactivity, ticks stop, windows hide, and sleep assertions release. Break deadlines remain absolute, so time asleep counts as rest. Recovery normally shows the remaining break or its completion screen. A continuous system sleep of at least one hour closes an elapsed break on return to the active session. Sleep duration is measured independently of lock and screen-saver time; shorter sleeps are not added together. The existing tapering reset rule also closes cycles after a long verified absence. Neither path refills skip quotas.
 
-The tapering accumulator uses actual focus rather than cycle count. Shared helpers restore countdowns and record completed breaks or cycle violations, keeping manual, automatic, and recovery paths consistent.
+The tapering accumulator uses actual focus rather than cycle count. Shared helpers restore countdowns and close focus cycles, keeping manual, automatic, and recovery paths consistent.
 
 ## Skips, Calls, and Reminders
 
-Harder mode permits one regular skip per cycle within a shared daily budget. An extension and a postponement each spend one use. `DailySkipUsage` survives new cycles and statistics resets; normal-mode uses are also counted. The weekly emergency timestamp remains separate from that budget.
+Harder mode permits one regular skip per cycle within a shared daily budget. An extension and a postponement each spend one use. `DailySkipUsage` survives new cycles and settings changes; normal-mode uses are also counted. The weekly emergency timestamp remains separate from that budget.
 
 Camera and selected microphone activity share one transient call-hold flag. A hold pushes running deadlines forward to preserve the warning lead or two minutes, whichever is longer. Held time counts as focus. A device becoming active does not dismiss an imposed break. Warning notifications are cancelled during an engaged hold and rearmed when it ends.
 
-Schedule pressure uses a single nonactivating reminder card. Dismissal requires a three-second hold and hides the card for ninety seconds. There is no screen veil. `PressureReminderState` clears a dismissal when the pressure episode ends or its reason changes. The card is suppressed during calls, pauses, real breaks, and the emergency grant; a completed break inside the scheduled window satisfies that window.
+Schedule pressure uses a single nonactivating reminder card. Dismissal requires a three-second hold and hides the card for ninety seconds. There is no screen veil. `PressureReminderState` clears a dismissal when the pressure episode ends or its reason changes. The card is suppressed during calls, pauses, real breaks, and the emergency grant.
 
 ## System Boundaries
 

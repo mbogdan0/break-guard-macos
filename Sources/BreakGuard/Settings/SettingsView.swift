@@ -7,7 +7,7 @@ struct SettingsView: View {
         TabView {
             GeneralSettingsView(appState: appState)
                 .tabItem {
-                    Label("General", systemImage: "gearshape")
+                    Label("Breaks", systemImage: "gearshape")
                 }
 
             WorkingHoursSettingsView(appState: appState)
@@ -17,18 +17,9 @@ struct SettingsView: View {
 
             SystemSettingsView(appState: appState)
                 .tabItem {
-                    Label("System", systemImage: "gearshape.2")
+                    Label("App", systemImage: "gearshape.2")
                 }
 
-            StatisticsSettingsView(appState: appState)
-                .tabItem {
-                    Label("Statistics", systemImage: "chart.bar")
-                }
-
-            AboutSettingsView()
-                .tabItem {
-                    Label("About", systemImage: "info.circle")
-                }
         }
         .frame(minWidth: 540, minHeight: 560)
     }

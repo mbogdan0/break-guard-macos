@@ -22,7 +22,6 @@ Durations are stored in seconds. Fields accept `minutes:seconds`; a bare number 
 | Working hours | Off | Separate weekday/weekend ranges |
 | Weekday range | Enabled, 09:00–18:00 | Applies only when working hours are on |
 | Weekend range | Disabled, 09:00–18:00 | A disabled category applies no pressure |
-| Scheduled break | Off, 15:30–16:00 | Weekdays only; card requires Harder mode |
 | Notification sound | On | Subject to system permission |
 | Launch at login | On | Subject to login-item approval |
 | Menu-bar seconds | On | Optional coarse seconds are off |
@@ -45,7 +44,7 @@ Sources: `Domain/AppSettings.swift`, `Domain/StateMachine.swift`.
 
 A regular skip is a successful focus extension or postponement. Harder mode allows one per cycle and requires a remaining daily use. Normal mode permits repeated skips, but counts them toward today's usage if Harder mode is enabled later. Cancelled dialogs, invalid actions, and manual-break cancellation spend nothing.
 
-The daily budget uses the local calendar day rather than a rolling 24 hours. A backwards clock change does not refill it. New cycles, relaunches, and statistics resets retain usage. Changing the limit changes remaining allowance against existing usage. The weekly override has an independent rolling seven-day cooldown and grants ninety minutes.
+The daily budget uses the local calendar day rather than a rolling 24 hours. A backwards clock change does not refill it. New cycles and relaunches retain usage. Changing the limit changes remaining allowance against existing usage. The weekly override has an independent rolling seven-day cooldown and grants ninety minutes.
 
 | Action | Normal mode | Harder mode |
 | --- | --- | --- |
@@ -56,13 +55,13 @@ The daily budget uses the local calendar day rather than a rolling 24 hours. A b
 | First regular postponement | 2 s or 6 s hold | 4 s or 12 s hold |
 | Repeated regular postponement | 4 s or 12 s hold | Unavailable in the same cycle |
 | Weekly override | 3 s hold | 3 s hold |
-| Dismiss schedule card | Card unavailable | 3 s hold; returns after 60 s |
+| Dismiss schedule card | Card unavailable | 3 s hold; returns after 90 s |
 | Disable Harder mode | Not applicable | 90 s confirmation wait |
 | Net settings loosening on close | No charge | 5 min confirmation wait |
 
-The longer configured postponement gets the longer hold; equal durations both use the shorter hold. Both buttons share the daily budget. A regular postponement records a violation once per cycle, resets the clean streak, and increments the postponement count. An extension spends budget and sets the caution flag, but records no violation.
+The longer configured postponement gets the longer hold; equal durations both use the shorter hold. Both buttons share the daily budget. A regular postponement advances the per-cycle skip counters. An extension spends budget and sets the caution flag.
 
-The emergency override on a forced break records a violation and spends the cycle's skip allowance, but does not consume the daily budget. The same override on a schedule card only silences pressure for ninety minutes; it leaves the countdown and statistics alone. Both entry points share one cooldown. Manual breaks offer cancellation instead of the override. Elapsed break deadlines reject skips even before the next tick updates the screen.
+The emergency override on a forced break spends the cycle's skip allowance, but does not consume the daily budget. The same override on a schedule card only silences pressure for ninety minutes; it leaves the countdown alone. Both entry points share one cooldown. Manual breaks offer cancellation instead of the override. Elapsed break deadlines reject skips even before the next tick updates the screen.
 
 Sources: `Domain/DailySkipUsage.swift`, `Domain/StateMachine.swift`, `Overlay/HoldToConfirmButton.swift`, `Application/HonestConfirmation.swift`.
 
@@ -70,19 +69,19 @@ Sources: `Domain/DailySkipUsage.swift`, `Domain/StateMachine.swift`, `Overlay/Ho
 
 Settings apply live. On opening Settings, `AppState` captures a baseline. On close, if Harder mode was on at either end, a net loosening triggers one five-minute confirmation. Cancel restores the visit except the Harder-mode toggle, which has its own gate. A break aborts the dialog without treating the interruption as an answer; the settings question returns after the break.
 
-Loosening includes a longer window, weaker pace, shorter break, larger postponements or daily budget, earlier tapering reset, enabling a call hold, disabling login launch, widening/removing active working hours, and shortening/removing the scheduled break. Inactive ranges, warning lead, notification sound, and menu appearance do not incur this charge. There is no Restore Defaults control.
+Loosening includes a longer window, weaker pace, shorter break, larger postponements or daily budget, earlier tapering reset, enabling a call hold, disabling login launch, widening/removing active working hours. Inactive ranges, warning lead, notification sound, and menu appearance do not incur this charge. There is no Restore Defaults control.
 
 Sources: `Domain/SettingsGuard.swift`, `Application/AppState.swift`.
 
 ## Calls and Schedule Pressure
 
-`AppState.tick()` reads camera and selected microphone activity before idle detection and timer transitions. All IDs are enumerated again on each tick; no listener or separate timer can strand a cached active flag. Camera detection requires `DeviceIsAlive`, input-scope `Streams`, and `DeviceIsRunningSomewhere` from CoreMediaIO. The running flag is device-wide; it is evidence of device IO, not proof of a call.
+`AppState.tick()` reads camera and selected microphone activity before idle detection and timer transitions. During an overlay hold, device polling is deferred until release. Otherwise all IDs are enumerated again on each tick; no listener or separate timer can strand a cached active flag. Camera detection requires `DeviceIsAlive`, input-scope `Streams`, and `DeviceIsRunningSomewhere` from CoreMediaIO. The running flag is device-wide; it is evidence of device IO, not proof of a call.
 
 Microphone detection reads CoreAudio's current process list and `IsRunningInput`. It then requires the process's input-scope device list, a live running device, and an active input stream. Aggregate devices are checked through `ActiveSubDeviceList`; subdevice proxies are resolved through their UID to current devices, and visited IDs prevent cycles. Playback taps without an active input subdevice do not qualify. List reads use the returned byte count and reject malformed or oversized results; flags require exactly four bytes. Failed reads and absent devices clear activity evidence on that tick. Microphone properties are read only when selected and supported. Recording and dictation can engage the hold; muted calls depend on whether the app keeps audio input active.
 
 Camera and selected microphone holds combine with OR: ending one does not release the other. Hold flags are transient and never restored from disk. Sleep or inactivity clears them, and wake samples current devices. Held time counts as focus. Already imposed breaks remain in force. Ending device activity leaves the held runway and rearms its warning. There is no maximum call duration or app-name heuristic. The menu identifies camera, microphone, or both as the reason for a hold. Screen sharing without selected device activity is not detected.
 
-The scheduled-break card takes priority over outside-hours pressure. Both require Harder mode. The single card is fixed in place, nonactivating, and has no full-screen dimming layer. It sits just above the screen-saver window level and restores its front position on application or Space changes, with a two-second periodic backstop. It stays clear of the app's modal confirmations. Its action buttons share one rounded shape and height. A dismissal lasts ninety seconds from completion of its three-second hold. Reason changes and suppression end that dismissal episode. Pressure is suppressed during breaks, suspensions, selected calls, and the ninety-minute emergency grant. A completed break inside the scheduled window suppresses that window's card; it does not satisfy outside-hours pressure.
+Outside-hours reminders require Harder mode. The single card is fixed in place, nonactivating, and has no full-screen dimming layer. It sits just above the screen-saver window level and restores its front position on application or Space changes, with a two-second periodic backstop. It stays clear of the app's modal confirmations. Its action buttons share one rounded shape and height. A dismissal lasts ninety seconds from completion of its three-second hold. Reason changes and suppression end that dismissal episode. Pressure is suppressed during breaks, suspensions, selected calls, and the ninety-minute emergency grant. A short break does not satisfy outside-hours pressure.
 
 Sources: `Services/CallActivityReader.swift`, `Services/CameraUsageReader.swift`, `Services/MicrophoneUsageReader.swift`, `Services/HardwarePropertyClient.swift`, `Domain/BreakPressure.swift`, `Overlay/NudgeWindowManager.swift`.
 
@@ -90,7 +89,7 @@ Sources: `Services/CallActivityReader.swift`, `Services/CameraUsageReader.swift`
 
 The UI timer runs each second in common and modal-panel modes. Its callback ticks synchronously on the main run loop so modal confirmations cannot defer ticks and create false downtime. An in-memory tick gap of at least ninety seconds begins downtime from the last observed tick. Persisted heartbeats are minute-coarse; recovery treats a gap of at least 150 seconds as unmonitored time. Missing heartbeat data is handled as a relaunch gap.
 
-Sleep, inactive session, screen lock, and screen saver are tracked as separate reasons. Effects resume only when all reasons clear. System absence starts a wall-clock break from a running countdown. Existing breaks retain their deadline; timed pauses retain their end time. Short absence returns to the remaining break or completion screen. A verified absence satisfying the tapering reset rule can automatically close the cycle and credit the rest. An expired timed pause starts a new cycle through the same resolution on both tick and wake paths.
+Sleep, inactive session, screen lock, and screen saver are tracked as separate reasons. Effects resume only when all reasons clear. System absence starts a wall-clock break from a running countdown. Existing breaks retain their deadline; timed pauses retain their end time. Short absence returns to the remaining break or completion screen. A measured continuous system sleep of at least 3600 seconds starts a fresh focus cycle if the break deadline has passed. Completion waits for all inactive reasons to clear, including screen lock. This rule uses actual sleep duration, not break age or lock duration, and does not reset tapering or skip quotas beyond their existing rules. A verified absence satisfying the tapering reset rule can automatically close the cycle and credit the rest. An expired timed pause starts a new cycle through the same resolution on both tick and wake paths.
 
 Ten minutes of input silence suspends a running countdown back to the last input. Input silence alone does not complete a break. Returning input or call presence restores remaining time and excludes idle time from focus. A recent call limits idle backdating so the end of a long call cannot turn the whole call into absence.
 
@@ -98,13 +97,11 @@ Ten minutes of input silence suspends a running countdown back to the last input
 
 Sources: `Domain/SessionActivity.swift`, `Domain/StateMachine.swift`, `Application/AppState.swift`, `Services/SleepWakeManager.swift`, `Services/DisplaySleepAssertion.swift`.
 
-## Statistics and Persistence
+## Persistence
 
-Completed breaks credit rounded actual focus minutes, capped at four hours per cycle. Manual cancellation, idle, downtime, and time resting before a skip are excluded. Clean completions advance the streak; a violated cycle keeps it at zero. Automatic cycle closure after verified absence credits focus to its closed date. Daily history retains 28 days; the lifetime total survives pruning. Weekly comparisons use other recorded days in the same weekday/weekend category and require at least two baseline days.
+State lives at `~/Library/Application Support/BreakGuard/state.json`. Schema 3 includes settings and runtime. Removed statistics and scheduled-break keys are ignored when reading an existing file and omitted on the next save. New optional fields have defaults when absent from a schema-3 file. Removed unknown fields are ignored. Other schemas, invalid JSON, or invalid required fields cause a fresh default state. Dates use ISO-8601. Writes use atomic replacement and skip identical snapshots. There is no remote persistence.
 
-State lives at `~/Library/Application Support/BreakGuard/state.json`. Schema 3 includes settings, statistics, and runtime. New optional fields have defaults when absent from a schema-3 file. Removed unknown fields are ignored. Other schemas, invalid JSON, or invalid required fields cause a fresh default state. Dates use ISO-8601. Writes use atomic replacement and skip identical snapshots. There is no remote persistence.
-
-Sources: `Domain/Statistics.swift`, `Domain/WeeklyFocusSummary.swift`, `Domain/PersistedAppData.swift`, `Persistence/PersistenceStore.swift`.
+Sources: `Domain/PersistedAppData.swift`, `Persistence/PersistenceStore.swift`.
 
 ## Notifications and Packaging
 
@@ -120,7 +117,7 @@ Run `swift test` after source changes and `./scripts/build.sh` to verify packagi
 
 Manual checks on a Mac:
 
-- Dismiss a schedule card, verify a three-second hold and a ninety-second return, and switch its reason.
+- Dismiss a schedule card, verify a three-second hold and a ninety-second return, and leave/re-enter working hours.
 - Spend regular skips across cycles, restart the app, and check midnight rollover and a zero budget.
 - End camera and microphone activity separately; verify runway, warning delivery, and muted-call limitations.
 - Let a break finish, lock and unlock, and check overlapping sleep/lock/saver events.

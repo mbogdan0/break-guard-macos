@@ -41,10 +41,11 @@ Line Tools. Approve it, wait for the installation to finish, and run the same co
 - Early breaks, planned focus extensions, and controlled postponements
 - Pause until 9 AM for the rest of the day, surviving sleep and relaunch
 - Honesty-first confirmations for every action that skips or silences rest
-- Streaks, daily focus history, and focused-minute statistics
 - Optional working hours that turn the menu bar yellow outside them
 - A shared daily skip budget in Harder mode, with a separate weekly emergency override
-- A weekday scheduled break and recurring reminder cards without screen dimming
+- Recurring reminders outside working hours without screen dimming
+- A fresh focus cycle after an hour of system sleep, without a completion screen
+- Optional rewards for extending a break beyond its required duration
 - Camera call holds, plus optional microphone activity holds on macOS 14.2 or newer
 - Automatic sleep prevention while the break countdown or completion screen is visible
 - Sleep and inactivity detection that avoids counting time away as work
@@ -84,7 +85,7 @@ After changing the code, rebuild, replace the installed app, and restart it with
 ```
 
 The script resolves the repository and home-directory paths automatically. It does not depend on a
-specific username or checkout location, and compatible settings and statistics are preserved.
+specific username or checkout location, and settings and skip quotas are preserved.
 
 ## Basic Usage
 
@@ -96,12 +97,11 @@ specific username or checkout location, and compatible settings and statistics a
 Use **Take a Break Now** for an early break, **Extend Focus** when a break must be delayed in
 advance, and **Pause Until 9 AM** when you are done for the day — reminders stay silent until the
 next morning and **Resume Now** ends the pause early. Extending, pausing, and quitting each ask for
-confirmation. When a scheduled break truly cannot happen, the overlay hides an **Emergency
+confirmation. When a required break truly cannot happen, the overlay hides an **Emergency
 override** behind a disclosure that buys 1 hour 30 minutes of focus, once every 7 days. Harder mode
-also allows one regular skip per cycle within a daily budget, defaulting to three uses. Schedule
+also allows one regular skip per cycle within a daily budget, defaulting to three uses. After-hours
 cards return ninety seconds after dismissal, which requires a three-second hold; they never dim the
-screen. Settings control timing, call holds, working hours, notifications, launch at login, and
-statistics. Screen sharing is covered while a selected camera or microphone is active; sharing
+screen. Settings control timing, call holds, working hours, notifications, and launch at login. Screen sharing is covered while a selected camera or microphone is active; sharing
 alone is not detected.
 
 ## Commands

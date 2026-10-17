@@ -2,7 +2,6 @@ import Foundation
 
 struct StateMachine {
     var settings: AppSettings
-    var statistics: Statistics
     var runtime: RuntimeState
     var clock: TimeProvider
     // True while a selected call device is in use. Deliberately
@@ -10,11 +9,10 @@ struct StateMachine {
     // stale flag restored from disk could hold breaks with no call running.
     var callHoldActive = false
 
-    init(settings: AppSettings = .defaults, statistics: Statistics = .empty, clock: TimeProvider = SystemClock()) {
+    init(settings: AppSettings = .defaults, clock: TimeProvider = SystemClock()) {
         var validated = settings
         validated.clamp()
         self.settings = validated
-        self.statistics = statistics
         self.clock = clock
         let interval = validated.effectiveWorkInterval
         let warning = clock.now.addingTimeInterval(
@@ -23,7 +21,6 @@ struct StateMachine {
         let deadline = clock.now.addingTimeInterval(interval)
         self.runtime = RuntimeState(
             timerState: .working(deadline: deadline, warningDeadline: warning),
-            cycleViolated: false,
             cyclePostponements: 0,
             cycleRegularPostponements: 0,
             focusExtended: false,
@@ -43,12 +40,9 @@ struct StateMachine {
         var validated = data.settings
         validated.clamp()
         self.settings = validated
-        self.statistics = data.statistics
         self.runtime = data.runtime
         self.clock = clock
         restoreAfterSleep()
-        // After restore so focus credited during it lands before old days drop.
-        statistics.pruneFocusHistory(now: clock.now)
     }
 
     private var normalSkipUsed: Bool {
@@ -93,7 +87,7 @@ struct StateMachine {
     // The same weekly hatch, spent from the nudge card instead of a break
     // overlay. Deliberately asymmetric with useEmergencyOverride(): no break
     // is being skipped here — the countdown goes on exactly as it was — so
-    // nothing is recorded as a violation and no skip allowance is consumed.
+    // no daily skip allowance is consumed.
     // All it buys is quiet: the card stays down for the grant.
     var canSpendOverrideOnPressure: Bool {
         guard let availableAt = emergencyOverrideAvailableAt else { return true }
@@ -114,11 +108,7 @@ struct StateMachine {
     }
 
     // Whether the card must stay down regardless of the clock.
-    // `satisfiedWindow` is the scheduled break window the user already took a
-    // break inside — nagging someone who complied would teach them to ignore
-    // it. Outside working hours has no such window and never passes one: a
-    // two-minute break is not "stopped working for the day".
-    func isPressureSuppressed(satisfiedWindow: (start: Date, end: Date)? = nil) -> Bool {
+    func isPressureSuppressed() -> Bool {
         if callHoldActive { return true }
         if isPressureOverrideActive { return true }
         switch runtime.timerState {
@@ -131,20 +121,16 @@ struct StateMachine {
         case .working, .warning, .postponed:
             break
         }
-        guard let window = satisfiedWindow,
-              let lastBreak = statistics.lastCompletedBreakDate else { return false }
-        return lastBreak >= window.start && lastBreak < window.end
+        return false
     }
 
     // Once-a-week escape hatch: trades the break for a long focus window even
     // in harder-to-skip mode. It ignores that mode's cost rather than handing
     // out extra allowance, so it spends both the extension and the free skip —
     // otherwise a 90-minute grant could immediately stack an extension on top.
-    // Skipping a required break is a violation and is recorded as one.
     mutating func useEmergencyOverride() {
         guard canUseEmergencyOverride else { return }
         leaveBreakWithoutCompleting()
-        recordCycleViolation()
         runtime.cyclePostponements += 1
         runtime.focusExtended = true
         runtime.emergencyOverrideUsedAt = clock.now
@@ -157,7 +143,6 @@ struct StateMachine {
         PersistedAppData(
             schemaVersion: PersistedAppData.currentSchemaVersion,
             settings: settings,
-            statistics: statistics,
             runtime: runtime
         )
     }
@@ -190,7 +175,7 @@ struct StateMachine {
         case let .suspended(_, _, until):
             // Both ways a timed pause can end — this tick and the wake path in
             // restoreAfterSleep() — resolve through resume(), which routes an
-            // elapsed end date to finishCycleAfterVerifiedRest(). One
+            // elapsed end date to startWorkCycle(). One
             // resolution, so which handler notices first cannot matter.
             if let until, clock.now >= until {
                 resume()
@@ -294,8 +279,6 @@ struct StateMachine {
     mutating func completeBreak() {
         guard runtime.timerState == .breakCompleted else { return }
 
-        creditFocus(minutes: creditedFocusMinutes(), on: clock.now)
-        recordCompletedBreak()
         startWorkCycle()
     }
 
@@ -335,7 +318,6 @@ struct StateMachine {
                     interval - settings.effectiveWarningLeadTime(for: interval)
                 )
             ),
-            cycleViolated: false,
             cyclePostponements: 0,
             cycleRegularPostponements: 0,
             focusExtended: false,
@@ -365,13 +347,12 @@ struct StateMachine {
     private func taperingDayStartedOver(since lastFocus: Date) -> Bool {
         let gap = clock.now.timeIntervalSince(lastFocus)
         if gap >= settings.taperingResetGap { return true }
-        let crossedIntoNewDay = FocusDay.key(for: clock.now) != FocusDay.key(for: lastFocus)
+        let crossedIntoNewDay = !Calendar.current.isDate(clock.now, inSameDayAs: lastFocus)
         return crossedIntoNewDay && gap >= FocusPace.taperingOvernightGap
     }
 
     // Where the focus of the cycle being closed ended, and how long it ran.
-    // One definition so the minutes credited to statistics and the minutes
-    // charged to tapering can never disagree.
+    // Used to add actual focused time to tapering when a cycle closes.
     //
     // Only the break branch trusts the capture startBreak() took. Every exit
     // from a break now clears it, so a countdown state should never carry one
@@ -399,10 +380,8 @@ struct StateMachine {
         if case let .breaking(deadline, _, _) = runtime.timerState, clock.now >= deadline { return }
         runtime.dailySkipUsage.spend(at: clock.now)
         leaveBreakWithoutCompleting()
-        recordCycleViolation()
         runtime.cyclePostponements += 1
         runtime.cycleRegularPostponements += 1
-        statistics.totalPostponements += 1
         runtime.timerState = .postponed(deadline: clock.now.addingTimeInterval(delay))
     }
 
@@ -441,7 +420,7 @@ struct StateMachine {
 
     // Returns a manually started break to the state it interrupted. The time
     // spent on the overlay is not focus time, so the cycle start shifts
-    // forward by that amount. Nothing is recorded in statistics.
+    // forward by that amount.
     mutating func cancelManualBreak() {
         guard isBreakingOrDue(runtime.timerState),
               let origin = runtime.manualBreakOrigin else { return }
@@ -456,7 +435,7 @@ struct StateMachine {
     }
 
     // Planned-ahead extension of the current focus window. Unlike postponing
-    // at the overlay, this happens before the break is due and is not a violation.
+    // at the overlay, this happens before the break is due.
     mutating func extendFocus(by delta: TimeInterval) {
         guard delta.isFinite, delta > 0, canExtendFocus else { return }
         switch runtime.timerState {
@@ -532,7 +511,7 @@ struct StateMachine {
         // resolution restoreAfterSleep() applies — so the tick path and the
         // wake path cannot disagree about what an expired pause means.
         if let until, clock.now >= until {
-            finishCycleAfterVerifiedRest()
+            startWorkCycle()
             return
         }
         // Deliberately no "a long enough pause counts as a break" branch here.
@@ -591,7 +570,7 @@ struct StateMachine {
     // Input silence on a machine that is still awake. Deliberately weaker than
     // downtime: nobody has verified the user left, only that they stopped
     // typing, which reading a long page does too. So this stops the countdown —
-    // keeping unattended minutes out of the focus statistics — and does nothing
+    // keeping unattended minutes out of the focus accumulator — and does nothing
     // else. It never starts a break, never credits one, never restarts a cycle.
     //
     // Back-dated because idle is noticed only after the threshold of silence
@@ -624,19 +603,35 @@ struct StateMachine {
         }
     }
 
-    mutating func restoreAfterSleep() {
+    mutating func restoreAfterSleep(sleepDuration: TimeInterval = 0) {
         // A user-requested timed pause outlives sleep and relaunch: while its
         // end date is in the future the pause stays active; once it has
         // passed, the whole pause counted as rest, so a fresh cycle starts.
         if case let .suspended(_, _, until) = runtime.timerState, let until {
             if clock.now < until { return }
-            finishCycleAfterVerifiedRest()
+            startWorkCycle()
             return
         }
 
-        // The work session ended. This is the one thing that starts a fresh
-        // cycle without the user confirming a break, and it is deliberately the
-        // same predicate that resets tapering: a night gives both a clean cycle
+        // Only a measured system sleep qualifies. A long break or lock alone
+        // must still wait for Continue. The caller waits for the active session.
+        if sleepDuration.isFinite, sleepDuration >= 60 * 60 {
+            switch runtime.timerState {
+            case let .breaking(deadline, _, _) where clock.now >= deadline:
+                startWorkCycle()
+                runtime.lastTickAt = clock.now
+                return
+            case .breakCompleted:
+                startWorkCycle()
+                runtime.lastTickAt = clock.now
+                return
+            default:
+                break
+            }
+        }
+
+        // A longer absence also starts a fresh cycle without confirmation.
+        // This uses the same predicate that resets tapering: a night gives both a clean cycle
         // and a clean accumulator, while a two-hour lunch gives neither — the
         // user comes back to the completion screen and clicks.
         //
@@ -651,13 +646,12 @@ struct StateMachine {
         if let awayFrom = downtimeStart,
            taperingDayStartedOver(since: runtime.lastFocusAt ?? awayFrom) {
             // Focus ended when the user left, not now. Without this the whole
-            // absence is measured as focus and charged to both the statistics
-            // and the tapering accumulator — a night away would arrive in the
+            // absence is measured as focus and charged to the tapering accumulator — a night away would arrive in the
             // morning as eight hours of work.
             if runtime.preservedAt == nil {
                 runtime.preservedAt = awayFrom
             }
-            finishCycleAfterVerifiedRest()
+            startWorkCycle()
             return
         }
 
@@ -721,61 +715,11 @@ struct StateMachine {
         return clock.now.timeIntervalSince(lastTick) >= 150
     }
 
-    // Downtime verified by the system (lock, sleep, screen saver, or an
-    // expired timed pause) lasted at least a break, so the cycle it
-    // interrupted ends here. The focus accumulated before the downtime is
-    // credited to the day it actually happened; when the downtime caught a
-    // break in progress or on its completion screen, the break itself also
-    // counts as completed — the user rested exactly as instructed and should
-    // not lose the break just because the screen locked before they returned
-    // to confirm it.
-    private mutating func finishCycleAfterVerifiedRest() {
-        let closed = closedCycleFocus()
-        switch runtime.timerState {
-        case .breaking, .breakDue, .breakCompleted:
-            recordCompletedBreak()
-        case .suspended, .working, .warning, .postponed:
-            break
-        }
-        // The cap is defense in depth: no cycle legitimately runs that long,
-        // so an excess is a monitoring gap that slipped past every bracket.
-        let duration = min(closed.duration, StatisticsIntegrity.maxCreditablePerCycle)
-        let minutes = max(0, Int((duration / 60).rounded()))
-        if minutes > 0 {
-            creditFocus(minutes: minutes, on: closed.end)
-        }
-        startWorkCycle()
-    }
-
-    private mutating func creditFocus(minutes: Int, on date: Date) {
-        statistics.focusMinutesByDay[FocusDay.key(for: date), default: 0] += minutes
-        statistics.totalFocusMinutes += minutes
-        statistics.pruneFocusHistory(now: clock.now)
-    }
-
-    private mutating func recordCycleViolation() {
-        guard !runtime.cycleViolated else { return }
-        runtime.cycleViolated = true
-        statistics.currentCleanStreak = 0
-        statistics.violatedCycles += 1
-    }
-
-    private mutating func recordCompletedBreak() {
-        statistics.completedBreaks += 1
-        statistics.lastCompletedBreakDate = clock.now
-        if runtime.cycleViolated {
-            statistics.currentCleanStreak = 0
-        } else {
-            statistics.currentCleanStreak += 1
-            statistics.bestCleanStreak = max(statistics.bestCleanStreak, statistics.currentCleanStreak)
-        }
-    }
-
     // The warning lead of the cycle in progress. Cycle construction caps the
     // lead at half the window, but the interval a cycle actually runs is not
     // stored, so the paths that re-anchor a deadline mid-cycle reconstruct it
-    // from the pace and the tapering total captured at cycle start — the same
-    // basis creditedFocusMinutes() falls back to. Reading warningLeadTime raw
+    // from the pace and the tapering total captured at cycle start.
+    // Reading warningLeadTime raw
     // here would re-arm a warning the cycle's own rule forbids: with a lead
     // past half the window, resuming, cancelling a manual break, or extending
     // during the warning would land back in .warning early or immediately.
@@ -783,17 +727,6 @@ struct StateMachine {
         settings.effectiveWarningLeadTime(
             for: settings.effectiveWorkInterval(taperedFocus: runtime.taperedFocusSeconds)
         )
-    }
-
-    // Deliberately not closedCycleFocus(): the nominal interval is the safer
-    // fallback here. This runs on the completeBreak() path, where a missing
-    // cycleFocusDuration means a pre-capture file was restored mid-break, and
-    // measuring from cycleStartDate would count the break itself as focus.
-    private func creditedFocusMinutes() -> Int {
-        let duration = runtime.cycleFocusDuration
-            ?? settings.effectiveWorkInterval(taperedFocus: runtime.taperedFocusSeconds)
-        let capped = min(duration, StatisticsIntegrity.maxCreditablePerCycle)
-        return max(0, Int((capped / 60).rounded()))
     }
 
     private func isBreakingOrDue(_ state: TimerState) -> Bool {

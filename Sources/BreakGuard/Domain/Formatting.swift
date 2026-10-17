@@ -15,15 +15,6 @@ func formatClock(_ interval: TimeInterval, includeHours: Bool = false) -> String
     return String(format: "%02d:%02d", minutes, secs)
 }
 
-func formatMinutes(_ minutes: Int) -> String {
-    let clamped = max(0, minutes)
-    let hours = clamped / 60
-    let mins = clamped % 60
-    if hours > 0 {
-        return mins == 0 ? "\(hours)h" : "\(hours)h \(mins)m"
-    }
-    return "\(clamped) min"
-}
 
 // Spoken duration for overlay buttons and settings footers. Hours matter here:
 // the deep-focus pace scales a 240-minute interval up to 288.

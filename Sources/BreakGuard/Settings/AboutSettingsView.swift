@@ -5,47 +5,27 @@ struct AboutSettingsView: View {
     private static let sourceCodeURL = URL(string: "https://github.com/mbogdan0/break-guard-macos")!
 
     var body: some View {
-        Form {
-            Section {
-                VStack(spacing: 8) {
-                    Image(nsImage: NSApp.applicationIconImage)
-                        .resizable()
-                        .frame(width: 64, height: 64)
-                    Text("BreakGuard")
-                        .font(.title2.bold())
-                    Text(Self.versionText)
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
+        VStack(spacing: 14) {
+            HStack(spacing: 12) {
+                Image(nsImage: NSApp.applicationIconImage)
+                    .resizable()
+                    .frame(width: 44, height: 44)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("BreakGuard").font(.headline)
+                    Text(Self.versionText).foregroundStyle(.secondary)
                 }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 8)
+                Spacer()
             }
-
-            Section {
-                HStack(spacing: 10) {
-                    Label("Author", systemImage: "person")
-                    Spacer()
-                    Text("Bohdan Melnichenko")
-                        .foregroundStyle(.secondary)
-                }
-                SettingsLinkRow(
-                    title: "Personal Website",
-                    systemImage: "globe",
-                    visibleAddress: "mbogdan0.github.io",
-                    destination: Self.authorWebsiteURL
-                )
-                SettingsLinkRow(
-                    title: "Source Code",
-                    systemImage: "chevron.left.forwardslash.chevron.right",
-                    visibleAddress: "github.com/mbogdan0",
-                    destination: Self.sourceCodeURL
-                )
-            } footer: {
-                Text(Self.copyrightText)
-                    .foregroundStyle(.secondary)
-            }
+            SettingsLinkRow(title: "Website", systemImage: "globe",
+                            visibleAddress: "mbogdan0.github.io", destination: Self.authorWebsiteURL)
+            SettingsLinkRow(title: "Source code", systemImage: "chevron.left.forwardslash.chevron.right",
+                            visibleAddress: "GitHub", destination: Self.sourceCodeURL)
+            Text(Self.copyrightText)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .formStyle(.grouped)
+        .padding(.vertical, 12)
     }
 
     // The Info.plist exists only inside the assembled .app bundle, so runs

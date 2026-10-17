@@ -9,9 +9,7 @@ struct SystemSettingsView: View {
                 SettingsStatusRow(
                     title: "Permission",
                     systemImage: "bell",
-                    status: appState.notificationAccessStatus.description,
-                    showsSettingsButton: appState.notificationAccessStatus.needsSettingsLink,
-                    action: appState.openNotificationSettings
+                    status: appState.notificationAccessStatus.description
                 )
                 Toggle("Play notification sound", isOn: appState.settingBinding(\.notificationSound))
                 HStack {
@@ -36,17 +34,15 @@ struct SystemSettingsView: View {
 
             Section {
                 Toggle("Show seconds in the menu bar", isOn: appState.settingBinding(\.showSecondsInMenuBar))
-                Toggle("Update seconds every 10 seconds", isOn: appState.settingBinding(\.coarseSecondsInMenuBar))
-                    .disabled(!appState.settings.showSecondsInMenuBar)
-                    .padding(.leading, 20)
+                if appState.settings.showSecondsInMenuBar {
+                    Toggle("Calmer countdown", isOn: appState.settingBinding(\.coarseSecondsInMenuBar))
+                        .help("Update seconds every 10 seconds.")
+                }
             } header: {
                 Text("Menu Bar")
-            } footer: {
-                Text("A calmer countdown: seconds stay visible but tick only once every 10 seconds.")
-                    .foregroundStyle(.secondary)
             }
 
-            Section("Login") {
+            Section("Startup") {
                 Toggle("Launch at login", isOn: appState.settingBinding(\.launchAtLogin))
                 SettingsStatusRow(
                     title: "Status",
@@ -55,6 +51,11 @@ struct SystemSettingsView: View {
                     showsSettingsButton: appState.loginStatusDescription == "Requires Approval",
                     action: appState.openLoginItemSettings
                 )
+            }
+            Section {
+                DisclosureGroup("About BreakGuard") {
+                    AboutSettingsView()
+                }
             }
         }
         .formStyle(.grouped)
