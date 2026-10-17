@@ -22,12 +22,15 @@ struct RestEncouragement {
     let canFinish: Bool
     let scaleIndex: Int
     private let dayNumber: Int
+    private let introduction: Message
 
     init(elapsed: TimeInterval, requiredDuration: TimeInterval, canFinish: Bool,
-         breakStartedAt: Date = Date(timeIntervalSince1970: 0), calendar: Calendar = .current) {
+         breakStartedAt: Date = Date(timeIntervalSince1970: 0), calendar: Calendar = .current,
+         introduction: Message = RestIntroduction.messages[0]) {
         self.elapsed = elapsed.isFinite ? max(0, elapsed) : 0
         self.requiredDuration = requiredDuration.isFinite ? max(0, requiredDuration) : 0
         self.canFinish = canFinish
+        self.introduction = introduction
         // Anchor both the weekday and reflections to the saved break start.
         // Crossing midnight must not change a scale that is already in progress.
         self.scaleIndex = calendar.component(.weekday, from: breakStartedAt) - 1
@@ -44,7 +47,7 @@ struct RestEncouragement {
 
     var message: Message {
         canFinish ? scale.messages[messageIndex]
-            : Message(title: "Required rest", emoji: "😌", text: "Let yourself rest. There is nothing to do right now.")
+            : introduction
     }
 
     var title: String { message.title }

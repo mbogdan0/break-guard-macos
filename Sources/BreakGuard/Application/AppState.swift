@@ -254,6 +254,8 @@ final class AppState: ObservableObject {
         return max(0, now.timeIntervalSince(start))
     }
 
+    private var restIntroduction = RestIntroduction()
+
     func restEncouragement(at now: Date) -> RestEncouragement {
         let requiredDuration: TimeInterval
         if case let .breaking(_, _, duration) = timerState {
@@ -267,7 +269,8 @@ final class AppState: ObservableObject {
         return RestEncouragement(elapsed: totalRestTime(at: now),
                                  requiredDuration: requiredDuration,
                                  canFinish: isBreakCompleteAllowed(),
-                                 breakStartedAt: machine.runtime.breakStartedAt ?? Date(timeIntervalSince1970: 0))
+                                 breakStartedAt: machine.runtime.breakStartedAt ?? Date(timeIntervalSince1970: 0),
+                                 introduction: restIntroduction.message(for: machine.runtime.breakStartedAt))
     }
 
     func startBreakIfDue() {
