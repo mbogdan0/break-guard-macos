@@ -24,6 +24,8 @@ When the countdown reaches zero, the completion screen counts total rest time up
 
 **Quit** has the same confirmation wait as pausing until morning. Cancel remains available during confirmation waits. If a break falls due during a dialog, the break takes priority.
 
+Timed confirmations also offer **Use Emergency Override Now** when the shared six-day override is available. This confirms the action immediately and spends the override. Waiting normally or cancelling does not spend it. This also applies to turning Harder mode off and keeping weaker settings. In Settings, **Skipping** shows a live countdown and the exact date and time when the override returns, or **Available now**.
+
 ## Harder Mode and the Daily Budget
 
 Enable **Harder to skip breaks** on Breaks to apply both limits:

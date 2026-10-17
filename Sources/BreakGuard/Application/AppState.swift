@@ -298,6 +298,31 @@ final class AppState: ObservableObject {
         publishAndReconcile()
     }
 
+    func confirmAction(
+        message: String,
+        informative: String,
+        confirmTitle: String,
+        gate: TimeInterval
+    ) -> HonestAnswer {
+        confirmHonestly(
+            message: message,
+            informative: informative,
+            confirmTitle: confirmTitle,
+            gate: gate,
+            spendEmergencyOverride: machine.canSpendOverrideOnPressure
+                ? { self.spendConfirmationOverride() } : nil
+        )
+    }
+
+    @discardableResult
+    func spendConfirmationOverride() -> Bool {
+        guard !sessionInactive, !isTerminating,
+              machine.spendOverrideOnConfirmation() else { return false }
+        logger.info("Six-day emergency override spent on confirmation")
+        publishAndReconcile()
+        return true
+    }
+
     // Same six-day quota as the break overlay's override, spent from the nudge
     // card instead. It buys quiet only: no break is skipped and the countdown
     // is untouched, so nothing is recorded against the streak.
@@ -427,7 +452,7 @@ final class AppState: ObservableObject {
         // it off and loosen everything else in one trip.
         guard snapshot.harderToSkipBreaks || settings.harderToSkipBreaks,
               settings.weakensGuard(comparedTo: snapshot) else { return }
-        switch confirmHonestly(
+        switch confirmAction(
             message: "Keep the settings you just loosened? ⚙️",
             informative: "You gave yourself more room in there — a longer stretch before the next break, a shorter one when it arrives, or one less thing watching. That is allowed, and it is also exactly what the tired end of a long day asks for. Be honest about which of the two this is; Cancel puts everything back the way you found it.",
             confirmTitle: "Keep Them",
@@ -507,7 +532,7 @@ final class AppState: ObservableObject {
             updateSettings(updated)
             return
         }
-        let answer = confirmHonestly(
+        let answer = confirmAction(
             message: "Turn off Harder to skip breaks? 🛡️",
             informative: "Turning this off removes the daily skip budget, the limit of one skip per cycle, and scheduled reminders. Has something changed, or is this a break you do not want to take?",
             confirmTitle: "Turn It Off",

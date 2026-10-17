@@ -24,7 +24,8 @@ func confirmHonestly(
     message: String,
     informative: String,
     confirmTitle: String,
-    gate: TimeInterval? = nil
+    gate: TimeInterval? = nil,
+    spendEmergencyOverride: (() -> Bool)? = nil
 ) -> HonestAnswer {
     // Never nest. `isConfirmationOpen` is one flag for the whole app, so a
     // second alert's `defer` would clear it while the first is still on screen
@@ -38,6 +39,10 @@ func confirmHonestly(
     alert.alertStyle = .informational
     alert.addButton(withTitle: confirmTitle)
     alert.addButton(withTitle: "Cancel")
+    if gate != nil, spendEmergencyOverride != nil {
+        alert.informativeText += "\n\nYou can use Emergency Override to confirm immediately. This spends your shared override for the next 6 days."
+        alert.addButton(withTitle: "Use Emergency Override Now")
+    }
     let countdown = gate.map { startGateCountdown(on: alert.buttons[0], title: confirmTitle, seconds: $0) }
     isConfirmationOpen = true
     defer {
@@ -46,6 +51,8 @@ func confirmHonestly(
     }
     switch alert.runModal() {
     case .alertFirstButtonReturn: return .confirmed
+    case .alertThirdButtonReturn:
+        return spendEmergencyOverride?() == true ? .confirmed : .aborted
     case .abort: return .aborted
     default: return .declined
     }

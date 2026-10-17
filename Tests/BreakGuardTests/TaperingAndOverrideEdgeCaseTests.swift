@@ -22,6 +22,38 @@ final class TaperingAndOverrideEdgeCaseTests: XCTestCase {
         return StateMachine(settings: settings, clock: clock)
     }
 
+    func testConfirmationOverrideSharesCooldownAndPreservesTimer() throws {
+        let start = Date(timeIntervalSince1970: 100_000)
+        let clock = FakeClock(now: start)
+        var machine = StateMachine(clock: clock)
+        let timer = machine.runtime.timerState
+        let skips = machine.dailySkipsRemaining
+
+        XCTAssertTrue(machine.spendOverrideOnConfirmation())
+        XCTAssertEqual(machine.runtime.timerState, timer)
+        XCTAssertEqual(machine.dailySkipsRemaining, skips)
+        XCTAssertFalse(machine.canSpendOverrideOnPressure)
+        XCTAssertFalse(machine.spendOverrideOnConfirmation())
+        XCTAssertEqual(machine.emergencyOverrideAvailableAt,
+                       start.addingTimeInterval(EmergencyOverride.cooldown))
+
+        let encoded = try JSONEncoder().encode(machine.data)
+        let decoded = try JSONDecoder().decode(PersistedAppData.self, from: encoded)
+        var restored = StateMachine(data: decoded, clock: clock)
+        restored.clock = FakeClock(now: start.addingTimeInterval(EmergencyOverride.cooldown - 1))
+        XCTAssertFalse(restored.spendOverrideOnConfirmation())
+        restored.clock = FakeClock(now: start.addingTimeInterval(EmergencyOverride.cooldown))
+        XCTAssertTrue(restored.spendOverrideOnConfirmation())
+    }
+
+    func testPressureOverridePreventsInstantConfirmation() {
+        let start = Date(timeIntervalSince1970: 100_000)
+        var machine = StateMachine(clock: FakeClock(now: start))
+        machine.spendOverrideOnPressure()
+        XCTAssertFalse(machine.spendOverrideOnConfirmation())
+        XCTAssertEqual(machine.runtime.emergencyOverrideUsedAt, start)
+    }
+
     // MARK: - Accumulator hygiene
 
     // Overlay time on a break the user started and then cancelled is not focus:

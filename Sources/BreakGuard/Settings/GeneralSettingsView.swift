@@ -33,6 +33,23 @@ struct GeneralSettingsView: View {
                             in: SettingsRange.dailySkipLimit)
                     LabeledContent("Left today", value: "\(appState.dailySkipsRemaining)")
                 }
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    VStack(alignment: .leading, spacing: 4) {
+                        if let availableAt = appState.emergencyOverrideAvailableAt,
+                           availableAt > context.date {
+                            LabeledContent("Emergency override",
+                                           value: "Available in \(formatClock(availableAt.timeIntervalSince(context.date), includeHours: true))")
+                            Text("Next available: \(availableAt.formatted(date: .abbreviated, time: .shortened))")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            LabeledContent("Emergency override", value: "Available now")
+                        }
+                        Text("Shared by break skips, reminder pauses, and instant confirmations. Available once every 6 days.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
             } header: {
                 HStack {
                     Text("Skipping")

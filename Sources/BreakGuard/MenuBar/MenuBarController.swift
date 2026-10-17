@@ -302,14 +302,14 @@ final class MenuBarController: NSObject, NSMenuDelegate, NSMenuItemValidation {
     }
 
     // No cheap nudge in either mode: every extension goes through the dialog
-    // and waits out its gate. Normal mode pays half the count, not nothing —
+    // with an optional emergency override. Normal mode pays half the wait —
     // an hour of extra screen time is the same hour whatever the mode says.
     private func confirmExtension(minutes: Double, label: String) {
         let gate = SkipConfirmGate.extendSeconds(
             forMinutes: minutes,
             harderToSkipBreaks: appState.settings.harderToSkipBreaks
         )
-        let answer = confirmHonestly(
+        let answer = appState.confirmAction(
             message: "Extend focus by \(label)? ⏳",
             informative: "That is a long stretch without rest, and your eyes will pay the bill later. Be honest — do you really need this, or is the break the healthier choice?",
             confirmTitle: "Extend Anyway",
@@ -324,7 +324,7 @@ final class MenuBarController: NSObject, NSMenuDelegate, NSMenuItemValidation {
         guard let resumeDate = appState.nextMorningResumeDate() else { return }
         let time = DateFormatter.breakGuardTime.string(from: resumeDate)
         let day = Calendar.current.isDateInToday(resumeDate) ? "today" : "tomorrow"
-        let answer = confirmHonestly(
+        let answer = appState.confirmAction(
             message: "Pause reminders until \(time) \(day)? 🌙",
             informative: "This silences every break reminder until \(time) \(day) — a promise that you are done straining your eyes for the day. Don't use it to keep working unguarded: your health is what's on the line.",
             confirmTitle: "Pause Until \(time)",
@@ -347,7 +347,7 @@ final class MenuBarController: NSObject, NSMenuDelegate, NSMenuItemValidation {
     // silences the same reminders permanently. The menu item is the only way
     // out — the app is an accessory, so there is no Cmd+Q to slip past it.
     @objc private func quit() {
-        let answer = confirmHonestly(
+        let answer = appState.confirmAction(
             message: "Quit BreakGuard? 🛑",
             informative: "With BreakGuard off, nothing stands between your eyes and the next marathon screen session. Be honest — quit only if you are truly stepping away, not dodging your breaks.",
             confirmTitle: "Quit Anyway",

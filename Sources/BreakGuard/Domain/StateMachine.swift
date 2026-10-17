@@ -97,6 +97,14 @@ struct StateMachine {
         runtime.emergencyOverrideUsedAt = clock.now
     }
 
+    // Confirming early spends the shared quota without changing the timer or
+    // regular skip budget. The caller performs the confirmed action separately.
+    mutating func spendOverrideOnConfirmation() -> Bool {
+        guard canSpendOverrideOnPressure else { return false }
+        runtime.emergencyOverrideUsedAt = clock.now
+        return true
+    }
+
     // The quiet window the hatch buys, from either entry point. Spending it at
     // a break overlay silences the pressure too, which is the coherent reading
     // of an override: one stamp, one grant, whatever it was spent on.
