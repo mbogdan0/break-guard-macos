@@ -9,13 +9,10 @@ struct RestEncouragement {
 
     // Seconds beyond the required break. After five minutes, steps slow down.
     static let rewardOffsets: [TimeInterval] = [
-        0, 7, 23, 45, 72, 110, 155, 210, 255, 300,
-        420, 570, 750, 960, 1200, 1500, 1860, 2280, 2760, 3300, 3900
+        0, 8, 25, 50, 79, 121, 171, 231, 281, 330,
+        385, 445, 510, 580, 655, 735, 820, 915, 1020, 1135, 1260
     ]
     static let stageStarts = [0, 5, 10, 15]
-    static let stageTitles = [
-        "Noticing yourself", "Choosing a pause", "Giving yourself time", "Resting with intention"
-    ]
 
     let elapsed: TimeInterval
     let requiredDuration: TimeInterval
@@ -52,6 +49,13 @@ struct RestEncouragement {
 
     var title: String { message.title }
 
+    // One quote at a time: alternate the story with a daily reflection.
+    // Keep the introduction and final milestone tied to their own message.
+    var quote: String {
+        if canFinish, messageIndex % 2 == 1, let reflection { return reflection }
+        return message.text
+    }
+
     var reflection: String? {
         guard canFinish else { return nil }
         let count = RestReflections.messages.count
@@ -61,7 +65,6 @@ struct RestEncouragement {
     }
 
     var stageIndex: Int { Self.stageStarts.lastIndex(where: { messageIndex >= $0 }) ?? 0 }
-    var stageTitle: String { Self.stageTitles[stageIndex] }
 
     var progress: Double {
         guard canFinish else { return 0 }

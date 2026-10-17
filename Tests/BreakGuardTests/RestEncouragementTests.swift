@@ -46,13 +46,37 @@ final class RestEncouragementTests: XCTestCase {
 
     func testStepsBecomeLessFrequentAfterFiveExtraMinutes() {
         let offsets = RestEncouragement.rewardOffsets
-        XCTAssertEqual(offsets[9], 300)
+        XCTAssertEqual(offsets[9], 330)
         let gaps = zip(offsets.dropFirst(), offsets).map { $0 - $1 }
         XCTAssertTrue(gaps.allSatisfy { $0 > 0 })
         XCTAssertLessThanOrEqual(offsets[1], 10)
-        XCTAssertTrue(gaps.dropFirst(9).allSatisfy { $0 >= 120 })
+        XCTAssertTrue(gaps.dropFirst(9).allSatisfy { $0 >= 55 })
         XCTAssertTrue(zip(gaps.dropFirst(10), gaps.dropFirst(9)).allSatisfy { $0 >= $1 })
-        XCTAssertEqual(status(extra: 300, required: 600).messageIndex, 9)
+        XCTAssertEqual(status(extra: 330, required: 600).messageIndex, 9)
+    }
+
+    func testEarlyStepsSlowDownAndFinalStatusArrivesAt21ExtraMinutes() {
+        let previous: [Double] = [0, 7, 23, 45, 72, 110, 155, 210, 255, 300]
+        for (actual, old) in zip(RestEncouragement.rewardOffsets, previous) {
+            XCTAssertEqual(actual, (old * 1.1).rounded(), accuracy: 0.01)
+        }
+        for required: TimeInterval in [30, 120, 1800] {
+            XCTAssertEqual(status(extra: 1259, required: required).messageIndex, 19)
+            XCTAssertEqual(status(extra: 1260, required: required).messageIndex, 20)
+            XCTAssertEqual(status(extra: 1260, required: required).progress, 1)
+        }
+    }
+
+    func testSingleQuoteKeepsBothStoriesAndReflectionsStable() {
+        for day in 0..<7 {
+            for (index, offset) in RestEncouragement.rewardOffsets.enumerated() {
+                let current = status(extra: offset, day: day)
+                XCTAssertEqual(current.quote, index % 2 == 1 ? current.reflection! : current.message.text)
+                XCTAssertEqual(current.quote, status(extra: offset + 1, day: day).quote)
+            }
+        }
+        let initial = RestEncouragement(elapsed: 0, requiredDuration: 120, canFinish: false)
+        XCTAssertEqual(initial.quote, initial.message.text)
     }
 
     func testEachStageCompletesBeforeTheNextStageStarts() {
@@ -101,7 +125,7 @@ final class RestEncouragementTests: XCTestCase {
 
     func testLongRestStaysAtTheFinalStage() {
         for day in 0..<7 {
-            for extra: TimeInterval in [3900, 4000, 86400] {
+            for extra: TimeInterval in [1260, 1261, 86400] {
                 let current = status(extra: extra, day: day)
                 XCTAssertEqual(current.message, RestRewardCatalog.scales[day].messages.last)
                 XCTAssertEqual(current.stageIndex, 3)
