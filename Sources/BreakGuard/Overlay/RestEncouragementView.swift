@@ -57,9 +57,15 @@ struct RestEncouragementView: View {
                 .frame(width: 48)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 4) {
-                Text(status.title)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(tint)
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(status.title)
+                        .foregroundStyle(tint)
+                    if status.canFinish {
+                        Text("Chapter \(status.messageIndex + 1) · \(RestEncouragement.rewardOffsets.count)")
+                            .foregroundStyle(tint.opacity(0.6))
+                    }
+                }
+                .font(.system(size: 16, weight: .semibold))
                 Text(status.quote)
                     .font(.system(size: 15.5))
                     .foregroundStyle(.white.opacity(0.85))
